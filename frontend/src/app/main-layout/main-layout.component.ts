@@ -44,6 +44,15 @@ import { LanguageService } from '../core/language/language.service';
             <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
             {{ languageService.t('nav.accounts') }}
           </a>
+          <a
+            *ngIf="authService.getUserRole() === 'Admin'"
+            routerLink="/admin/sync-history"
+            routerLinkActive="bg-[#f3c246] text-[#32124f]"
+            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
+          >
+            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
+            {{ languageService.t('nav.syncHistory') }}
+          </a>
         </nav>
       </aside>
 
