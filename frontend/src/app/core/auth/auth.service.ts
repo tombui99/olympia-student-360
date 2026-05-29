@@ -55,6 +55,10 @@ export class AuthenticationService {
     return localStorage.getItem(this.fullNameKey);
   }
 
+  getUsername(): string | null {
+    return localStorage.getItem(this.usernameKey);
+  }
+
   private applyUserState(response: AuthResponseDto) {
     localStorage.setItem(this.tokenKey, response.token);
     localStorage.setItem(this.roleKey, response.role);

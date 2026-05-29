@@ -10,7 +10,11 @@ import { LanguageService } from '../core/language/language.service';
     <section class="space-y-7">
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <a routerLink="/reports" class="text-sm font-semibold text-[#7a5b12] transition hover:text-[#32124f]">
+          <a routerLink="/reports" class="inline-flex items-center gap-2 text-sm font-semibold text-[#7a5b12] transition hover:text-[#32124f]">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 12H5" />
+              <path d="M12 19l-7-7 7-7" />
+            </svg>
             {{ languageService.t('reportDetail.backToReports') }}
           </a>
           <p class="mt-4 text-sm uppercase tracking-[0.18em] text-[#8a6811]">{{ languageService.t('reportDetail.eyebrow') }}</p>
