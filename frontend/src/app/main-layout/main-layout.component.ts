@@ -43,17 +43,43 @@ import { LanguageService } from '../core/language/language.service';
             <p class="text-sm text-[#7c7284]">{{ languageService.t('app.school') }}</p>
             <h1 class="text-xl font-semibold text-[#32124f]">{{ languageService.t('app.headerTitle') }}</h1>
           </div>
-          <div class="flex items-center gap-4">
-            <button
-              class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
-              type="button"
-              (click)="languageService.toggle()"
+          <div class="flex flex-wrap items-center justify-end gap-4">
+            <div
+              class="flex h-10 items-center rounded-full border border-[#e9e3ef] bg-[#f7f5fa] p-1 shadow-[0_8px_24px_rgba(50,18,79,0.08)]"
+              role="group"
+              aria-label="Language"
             >
-              {{ languageService.language() === 'en' ? languageService.t('language.vi') : languageService.t('language.en') }}
-            </button>
-            <div class="text-right">
-              <p class="text-sm font-semibold text-[#32124f]">{{ authService.fullName() || languageService.t('app.userFallback') }}</p>
-              <p class="text-xs text-[#7c7284]">{{ authService.jobTitle() || authService.role() || languageService.t('app.roleFallback') }}</p>
+              <button
+                class="h-8 rounded-full px-4 text-xs font-bold transition"
+                [class.bg-white]="languageService.language() === 'en'"
+                [class.text-[#4b2070]]="languageService.language() === 'en'"
+                [class.shadow-[0_4px_14px_rgba(50,18,79,0.12)]]="languageService.language() === 'en'"
+                [class.text-[#8b8193]]="languageService.language() !== 'en'"
+                type="button"
+                (click)="languageService.use('en')"
+              >
+                {{ languageService.t('language.en') }}
+              </button>
+              <button
+                class="h-8 rounded-full px-4 text-xs font-bold transition"
+                [class.bg-white]="languageService.language() === 'vi'"
+                [class.text-[#4b2070]]="languageService.language() === 'vi'"
+                [class.shadow-[0_4px_14px_rgba(50,18,79,0.12)]]="languageService.language() === 'vi'"
+                [class.text-[#8b8193]]="languageService.language() !== 'vi'"
+                type="button"
+                (click)="languageService.use('vi')"
+              >
+                {{ languageService.t('language.vi') }}
+              </button>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="grid h-10 w-10 place-items-center rounded-full bg-[#32124f] text-sm font-bold text-[#f3c246]">
+                {{ userInitials() }}
+              </div>
+              <div class="text-right">
+                <p class="text-sm font-semibold text-[#32124f]">{{ authService.fullName() || languageService.t('app.userFallback') }}</p>
+                <p class="text-xs text-[#7c7284]">{{ authService.jobTitle() || authService.role() || languageService.t('app.roleFallback') }}</p>
+              </div>
             </div>
             <button
               class="rounded-md border border-[#d8d0df] px-4 py-2 text-sm font-medium text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
@@ -77,4 +103,16 @@ export class MainLayoutComponent {
     readonly authService: AuthenticationService,
     readonly languageService: LanguageService,
   ) {}
+
+  userInitials(): string {
+    const name = (this.authService.fullName() || this.languageService.t('app.userFallback')).trim();
+    const initials = name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('');
+
+    return initials || 'U';
+  }
 }
