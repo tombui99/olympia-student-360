@@ -1,0 +1,16 @@
+@OlympiaStudent360.Api_HostAddress = http://localhost:5279
+
+POST {{OlympiaStudent360.Api_HostAddress}}/api/Auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "Admin123!"
+}
+
+###
+
+GET {{OlympiaStudent360.Api_HostAddress}}/api/Dashboard/summary
+Accept: application/json
+
+###
