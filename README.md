@@ -103,13 +103,27 @@ The application uses EF Core migrations. On backend startup, `DbInitializer.Seed
 
 1. Applies pending migrations
 2. Creates roles: `Admin`, `Principal`, `Teacher`, `Leadership`
-3. Seeds the default admin user if it does not already exist
+3. Seeds the default admin user if `SeedAdmin__Password` is configured and the user does not already exist
 
-Default seeded account:
+Default seeded username:
 
 ```txt
 username: admin
-password: Admin123!
+```
+
+The seeded admin password is intentionally not committed. Configure it with an environment variable before first startup:
+
+```bash
+export SeedAdmin__Password="CHANGE_ME_TO_A_STRONG_LOCAL_PASSWORD"
+```
+
+Optional seeded admin overrides:
+
+```bash
+export SeedAdmin__Username="admin"
+export SeedAdmin__Email="admin@olympia.edu.vn"
+export SeedAdmin__FullName="Olympia Administrator"
+export SeedAdmin__JobTitle="School Analytics Admin"
 ```
 
 The default database name is:
@@ -126,7 +140,7 @@ cd backend
 dotnet run --project OlympiaStudent360.Api/OlympiaStudent360.Api.csproj
 ```
 
-The next backend startup will recreate the database and seed the admin user.
+The next backend startup will recreate the database. It will seed the admin user only when `SeedAdmin__Password` is set.
 
 ## Run With Local MySQL
 
@@ -134,6 +148,7 @@ Start MySQL, set your connection string, then run the backend:
 
 ```bash
 export ConnectionStrings__DefaultConnection="Server=localhost;Port=3306;Database=olympia_student_360;User=root;Password=YOUR_PASSWORD;"
+export SeedAdmin__Password="CHANGE_ME_TO_A_STRONG_LOCAL_PASSWORD"
 cd backend
 dotnet run --project OlympiaStudent360.Api/OlympiaStudent360.Api.csproj --urls http://127.0.0.1:5279
 ```

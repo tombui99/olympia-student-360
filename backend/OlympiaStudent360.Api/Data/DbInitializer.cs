@@ -12,6 +12,7 @@ public static class DbInitializer
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DbInitializer");
 
         await context.Database.MigrateAsync();
 
@@ -24,7 +25,14 @@ public static class DbInitializer
             }
         }
 
-        const string adminUsername = "admin";
+        var adminPassword = app.Configuration["SeedAdmin:Password"];
+        if (string.IsNullOrWhiteSpace(adminPassword))
+        {
+            logger.LogWarning("SeedAdmin:Password is not configured. Skipping default admin user seeding.");
+            return;
+        }
+
+        var adminUsername = app.Configuration["SeedAdmin:Username"] ?? "admin";
         var adminUser = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == adminUsername);
         if (adminUser != null)
         {
@@ -34,16 +42,20 @@ public static class DbInitializer
         adminUser = new ApplicationUser
         {
             UserName = adminUsername,
-            Email = "admin@olympia.edu.vn",
-            FullName = "Olympia Administrator",
-            JobTitle = "School Analytics Admin",
+            Email = app.Configuration["SeedAdmin:Email"] ?? "admin@olympia.edu.vn",
+            FullName = app.Configuration["SeedAdmin:FullName"] ?? "Olympia Administrator",
+            JobTitle = app.Configuration["SeedAdmin:JobTitle"] ?? "School Analytics Admin",
             EmailConfirmed = true
         };
 
-        var result = await userManager.CreateAsync(adminUser, "Admin123!");
+        var result = await userManager.CreateAsync(adminUser, adminPassword);
         if (result.Succeeded)
         {
             await userManager.AddToRoleAsync(adminUser, "Admin");
+            return;
         }
+
+        var errors = string.Join("; ", result.Errors.Select(error => error.Description));
+        logger.LogWarning("Default admin user was not seeded: {Errors}", errors);
     }
 }

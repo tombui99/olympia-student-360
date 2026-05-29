@@ -5,7 +5,7 @@ Content-Type: application/json
 
 {
   "username": "admin",
-  "password": "Admin123!"
+  "password": "<seed-admin-password>"
 }
 
 ###
