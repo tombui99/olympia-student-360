@@ -49,8 +49,7 @@ public class AuthController : ControllerBase
             Role = roles.FirstOrDefault() ?? "Teacher",
             Username = user.UserName!,
             FullName = user.FullName,
-            UserId = user.Id,
-            JobTitle = user.JobTitle
+            UserId = user.Id
         });
     }
 
@@ -74,7 +73,6 @@ public class AuthController : ControllerBase
             UserName = model.Username,
             Email = model.Username.Contains('@') ? model.Username : null,
             FullName = model.FullName,
-            JobTitle = model.JobTitle,
             EmailConfirmed = true
         };
 
@@ -111,8 +109,7 @@ public class AuthController : ControllerBase
             Role = roles.FirstOrDefault() ?? "Teacher",
             Username = user.UserName!,
             FullName = user.FullName,
-            UserId = user.Id,
-            JobTitle = user.JobTitle
+            UserId = user.Id
         });
     }
 

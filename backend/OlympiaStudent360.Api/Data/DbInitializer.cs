@@ -16,7 +16,7 @@ public static class DbInitializer
 
         await context.Database.MigrateAsync();
 
-        string[] roles = { "Admin", "Principal", "Teacher", "Leadership" };
+        string[] roles = { "Admin", "Principal", "Teacher" };
         foreach (var role in roles)
         {
             if (!await roleManager.RoleExistsAsync(role))
@@ -24,6 +24,8 @@ public static class DbInitializer
                 await roleManager.CreateAsync(new IdentityRole(role));
             }
         }
+
+        await RemoveUnsupportedRole("Leadership", userManager, roleManager, logger);
 
         var adminPassword = app.Configuration["SeedAdmin:Password"];
         if (string.IsNullOrWhiteSpace(adminPassword))
@@ -44,7 +46,6 @@ public static class DbInitializer
             UserName = adminUsername,
             Email = app.Configuration["SeedAdmin:Email"] ?? "admin@olympia.edu.vn",
             FullName = app.Configuration["SeedAdmin:FullName"] ?? "Olympia Administrator",
-            JobTitle = app.Configuration["SeedAdmin:JobTitle"] ?? "School Analytics Admin",
             EmailConfirmed = true
         };
 
@@ -57,5 +58,36 @@ public static class DbInitializer
 
         var errors = string.Join("; ", result.Errors.Select(error => error.Description));
         logger.LogWarning("Default admin user was not seeded: {Errors}", errors);
+    }
+
+    private static async Task RemoveUnsupportedRole(
+        string role,
+        UserManager<ApplicationUser> userManager,
+        RoleManager<IdentityRole> roleManager,
+        ILogger logger)
+    {
+        var existingRole = await roleManager.FindByNameAsync(role);
+        if (existingRole == null)
+        {
+            return;
+        }
+
+        var usersInRole = await userManager.GetUsersInRoleAsync(role);
+        foreach (var user in usersInRole)
+        {
+            if (!await userManager.IsInRoleAsync(user, "Teacher"))
+            {
+                await userManager.AddToRoleAsync(user, "Teacher");
+            }
+
+            await userManager.RemoveFromRoleAsync(user, role);
+        }
+
+        var result = await roleManager.DeleteAsync(existingRole);
+        if (!result.Succeeded)
+        {
+            var errors = string.Join("; ", result.Errors.Select(error => error.Description));
+            logger.LogWarning("Unsupported role '{Role}' was not removed: {Errors}", role, errors);
+        }
     }
 }

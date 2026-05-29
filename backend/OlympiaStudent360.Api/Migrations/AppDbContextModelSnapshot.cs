@@ -174,10 +174,6 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<string>("JobTitle")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("datetime(6)");
 

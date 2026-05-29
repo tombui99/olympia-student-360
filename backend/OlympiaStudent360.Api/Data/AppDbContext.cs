@@ -20,10 +20,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .Property(u => u.FullName)
             .HasMaxLength(255);
 
-        modelBuilder.Entity<ApplicationUser>()
-            .Property(u => u.JobTitle)
-            .HasMaxLength(255);
-
         modelBuilder.Entity<StudentProfile>()
             .Property(s => s.StudentCode)
             .HasMaxLength(100);

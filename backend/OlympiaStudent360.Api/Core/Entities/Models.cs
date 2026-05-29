@@ -5,7 +5,6 @@ namespace OlympiaStudent360.Api.Core.Entities;
 public class ApplicationUser : IdentityUser
 {
     public string FullName { get; set; } = default!;
-    public string? JobTitle { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
 }

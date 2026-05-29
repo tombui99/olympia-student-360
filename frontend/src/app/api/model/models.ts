@@ -9,7 +9,6 @@ export interface AuthResponseDto {
   username: string;
   fullName: string;
   userId: string;
-  jobTitle?: string | null;
 }
 
 export interface CurrentUserDto {
@@ -17,7 +16,6 @@ export interface CurrentUserDto {
   username: string;
   fullName: string;
   userId: string;
-  jobTitle?: string | null;
 }
 
 export interface MetricCardDto {
@@ -28,4 +26,29 @@ export interface MetricCardDto {
 
 export interface DashboardSummaryDto {
   metrics: MetricCardDto[];
+}
+
+export interface AdminUserDto {
+  id: string;
+  username: string;
+  email?: string | null;
+  fullName: string;
+  role: string;
+  createdAt: string;
+  lastLoginAt?: string | null;
+}
+
+export interface CreateAdminUserDto {
+  username: string;
+  password: string;
+  fullName: string;
+  email?: string | null;
+  role: string;
+}
+
+export interface UpdateAdminUserDto {
+  fullName: string;
+  email?: string | null;
+  role: string;
+  newPassword?: string | null;
 }

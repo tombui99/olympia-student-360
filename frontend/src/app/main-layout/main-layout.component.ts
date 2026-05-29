@@ -1,11 +1,12 @@
 import { Component } from '@angular/core';
+import { NgIf } from '@angular/common';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 
 @Component({
   selector: 'app-main-layout',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [NgIf, RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <div class="min-h-screen bg-[#f6f4ef] text-[#24182f] lg:grid lg:grid-cols-[280px_1fr]">
       <aside class="bg-[#32124f] px-5 py-6 text-white lg:min-h-screen">
@@ -33,6 +34,15 @@ import { LanguageService } from '../core/language/language.service';
           >
             <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
             {{ languageService.t('nav.reports') }}
+          </a>
+          <a
+            *ngIf="authService.getUserRole() === 'Admin'"
+            routerLink="/admin/accounts"
+            routerLinkActive="bg-[#f3c246] text-[#32124f]"
+            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
+          >
+            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
+            {{ languageService.t('nav.accounts') }}
           </a>
         </nav>
       </aside>
@@ -78,7 +88,7 @@ import { LanguageService } from '../core/language/language.service';
               </div>
               <div class="text-right">
                 <p class="text-sm font-semibold text-[#32124f]">{{ authService.fullName() || languageService.t('app.userFallback') }}</p>
-                <p class="text-xs text-[#7c7284]">{{ authService.jobTitle() || authService.role() || languageService.t('app.roleFallback') }}</p>
+                <p class="text-xs text-[#7c7284]">{{ authService.role() || languageService.t('app.roleFallback') }}</p>
               </div>
             </div>
             <button

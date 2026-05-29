@@ -7,6 +7,8 @@ import { ReportsComponent } from './reports/reports.component';
 import { AcademicOverviewReportComponent } from './reports/academic-overview-report.component';
 import { AttendanceEngagementReportComponent } from './reports/attendance-engagement-report.component';
 import { StudentWellbeingReportComponent } from './reports/student-wellbeing-report.component';
+import { AccountManagementComponent } from './admin/account-management.component';
+import { adminGuard } from './core/auth/auth.guard';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -20,6 +22,7 @@ export const routes: Routes = [
       { path: 'reports/academic-overview', component: AcademicOverviewReportComponent },
       { path: 'reports/attendance-engagement', component: AttendanceEngagementReportComponent },
       { path: 'reports/student-wellbeing', component: StudentWellbeingReportComponent },
+      { path: 'admin/accounts', component: AccountManagementComponent, canActivate: [adminGuard] },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
     ],
   },

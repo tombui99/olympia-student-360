@@ -102,7 +102,7 @@ JWT settings live under the `Jwt` section in `appsettings.json`. Replace the sig
 The application uses EF Core migrations. On backend startup, `DbInitializer.Seed(app)` runs:
 
 1. Applies pending migrations
-2. Creates roles: `Admin`, `Principal`, `Teacher`, `Leadership`
+2. Creates roles: `Admin`, `Principal`, `Teacher`
 3. Seeds the default admin user if `SeedAdmin__Password` is configured and the user does not already exist
 
 Default seeded username:
@@ -123,7 +123,6 @@ Optional seeded admin overrides:
 export SeedAdmin__Username="admin"
 export SeedAdmin__Email="admin@olympia.edu.vn"
 export SeedAdmin__FullName="Olympia Administrator"
-export SeedAdmin__JobTitle="School Analytics Admin"
 ```
 
 The default database name is:

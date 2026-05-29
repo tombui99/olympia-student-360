@@ -10,14 +10,11 @@ export class AuthenticationService {
   private readonly roleKey = 'olympia_student_360_role';
   private readonly usernameKey = 'olympia_student_360_username';
   private readonly fullNameKey = 'olympia_student_360_fullname';
-  private readonly jobTitleKey = 'olympia_student_360_job_title';
 
   private readonly fullNameSignal = signal<string | null>(this.getFullName());
   readonly fullName = this.fullNameSignal.asReadonly();
   private readonly roleSignal = signal<string | null>(this.getUserRole());
   readonly role = this.roleSignal.asReadonly();
-  private readonly jobTitleSignal = signal<string | null>(this.getJobTitle());
-  readonly jobTitle = this.jobTitleSignal.asReadonly();
 
   constructor(
     private readonly apiAuthService: ApiAuthService,
@@ -37,10 +34,8 @@ export class AuthenticationService {
     localStorage.removeItem(this.roleKey);
     localStorage.removeItem(this.usernameKey);
     localStorage.removeItem(this.fullNameKey);
-    localStorage.removeItem(this.jobTitleKey);
     this.fullNameSignal.set(null);
     this.roleSignal.set(null);
-    this.jobTitleSignal.set(null);
     this.router.navigate(['/login']);
   }
 
@@ -60,24 +55,13 @@ export class AuthenticationService {
     return localStorage.getItem(this.fullNameKey);
   }
 
-  getJobTitle(): string | null {
-    return localStorage.getItem(this.jobTitleKey);
-  }
-
   private applyUserState(response: AuthResponseDto) {
     localStorage.setItem(this.tokenKey, response.token);
     localStorage.setItem(this.roleKey, response.role);
     localStorage.setItem(this.usernameKey, response.username);
     localStorage.setItem(this.fullNameKey, response.fullName);
 
-    if (response.jobTitle) {
-      localStorage.setItem(this.jobTitleKey, response.jobTitle);
-    } else {
-      localStorage.removeItem(this.jobTitleKey);
-    }
-
     this.fullNameSignal.set(response.fullName);
     this.roleSignal.set(response.role);
-    this.jobTitleSignal.set(response.jobTitle ?? null);
   }
 }

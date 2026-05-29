@@ -71,14 +71,54 @@ import { LanguageService } from '../../core/language/language.service';
 
               <label class="block">
                 <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('auth.password') }}</span>
-                <input
-                  class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-3 outline-none transition focus:border-[#32124f] focus:ring-4 focus:ring-[#32124f]/10"
-                  name="password"
-                  type="password"
-                  autocomplete="current-password"
-                  [(ngModel)]="password"
-                  required
-                />
+                <span class="relative mt-2 block">
+                  <input
+                    class="w-full rounded-md border border-[#d8d0df] bg-white py-3 pl-4 pr-12 outline-none transition focus:border-[#32124f] focus:ring-4 focus:ring-[#32124f]/10"
+                    name="password"
+                    [type]="showPassword() ? 'text' : 'password'"
+                    autocomplete="current-password"
+                    [(ngModel)]="password"
+                    required
+                  />
+                  <button
+                    class="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[#6f6877] transition hover:bg-[#f7f2dc] hover:text-[#32124f] focus:outline-none focus:ring-2 focus:ring-[#f3c246]/60"
+                    type="button"
+                    [attr.aria-label]="showPassword() ? languageService.t('auth.hidePassword') : languageService.t('auth.showPassword')"
+                    [attr.title]="showPassword() ? languageService.t('auth.hidePassword') : languageService.t('auth.showPassword')"
+                    (click)="showPassword.set(!showPassword())"
+                  >
+                    <svg
+                      *ngIf="!showPassword()"
+                      class="h-5 w-5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    <svg
+                      *ngIf="showPassword()"
+                      class="h-5 w-5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M17.9 17.9A10.8 10.8 0 0 1 12 19c-6.5 0-10-7-10-7a18.4 18.4 0 0 1 4.2-5.1" />
+                      <path d="M9.9 4.2A10.4 10.4 0 0 1 12 4c6.5 0 10 7 10 7a18 18 0 0 1-2.3 3.4" />
+                      <path d="M14.1 14.1A3 3 0 0 1 9.9 9.9" />
+                      <path d="M2 2l20 20" />
+                    </svg>
+                  </button>
+                </span>
               </label>
 
               <p *ngIf="error()" class="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -102,6 +142,7 @@ import { LanguageService } from '../../core/language/language.service';
 export class LoginComponent {
   username = '';
   password = '';
+  showPassword = signal(false);
   loading = signal(false);
   error = signal<string | null>(null);
 
