@@ -26,18 +26,14 @@ import { LanguageService } from '../core/language/language.service';
             <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
             {{ languageService.t('nav.dashboard') }}
           </a>
-          <div class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-200/70">
-            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
-            {{ languageService.t('nav.students') }}
-          </div>
-          <div class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-200/70">
-            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
-            {{ languageService.t('nav.attendance') }}
-          </div>
-          <div class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-200/70">
+          <a
+            routerLink="/reports"
+            routerLinkActive="bg-[#f3c246] text-[#32124f]"
+            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
+          >
             <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
             {{ languageService.t('nav.reports') }}
-          </div>
+          </a>
         </nav>
       </aside>
 
