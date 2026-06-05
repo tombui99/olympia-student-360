@@ -1,12 +1,27 @@
 import { Component } from '@angular/core';
-import { NgIf } from '@angular/common';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
+import {
+  faChartLine,
+  faClockRotateLeft,
+  faFileExcel,
+  faGaugeHigh,
+  faUsersGear,
+} from '@fortawesome/free-solid-svg-icons';
+import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 
+interface NavItem {
+  path: string;
+  labelKey: string;
+  icon: IconDefinition;
+  adminOnly?: boolean;
+}
+
 @Component({
   selector: 'app-main-layout',
-  imports: [NgIf, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, FontAwesomeModule],
   template: `
     <div class="min-h-screen bg-[#f6f4ef] text-[#24182f] lg:grid lg:grid-cols-[280px_1fr]">
       <aside class="bg-[#32124f] px-5 py-6 text-white lg:min-h-screen">
@@ -19,48 +34,18 @@ import { LanguageService } from '../core/language/language.service';
         </div>
 
         <nav class="mt-9 space-y-1">
-          <a
-            routerLink="/dashboard"
-            routerLinkActive="bg-[#f3c246] text-[#32124f]"
-            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
-          >
-            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
-            {{ languageService.t('nav.dashboard') }}
-          </a>
-          <a
-            routerLink="/reports"
-            routerLinkActive="bg-[#f3c246] text-[#32124f]"
-            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
-          >
-            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
-            {{ languageService.t('nav.reports') }}
-          </a>
-          <a
-            routerLink="/imports"
-            routerLinkActive="bg-[#f3c246] text-[#32124f]"
-            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
-          >
-            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
-            {{ languageService.t('nav.imports') }}
-          </a>
-          <a
-            *ngIf="authService.getUserRole() === 'Admin'"
-            routerLink="/admin/accounts"
-            routerLinkActive="bg-[#f3c246] text-[#32124f]"
-            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
-          >
-            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
-            {{ languageService.t('nav.accounts') }}
-          </a>
-          <a
-            *ngIf="authService.getUserRole() === 'Admin'"
-            routerLink="/admin/sync-history"
-            routerLinkActive="bg-[#f3c246] text-[#32124f]"
-            class="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-purple-50 transition hover:bg-white/10"
-          >
-            <span class="h-2.5 w-2.5 rounded-full bg-current"></span>
-            {{ languageService.t('nav.syncHistory') }}
-          </a>
+          @for (item of navItems; track item.path) {
+            @if (!item.adminOnly || authService.getUserRole() === 'Admin') {
+              <a
+                [routerLink]="item.path"
+                routerLinkActive="nav-link-active"
+                class="nav-link flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold transition"
+              >
+                <fa-icon class="nav-icon" [icon]="item.icon" />
+                <span>{{ languageService.t(item.labelKey) }}</span>
+              </a>
+            }
+          }
         </nav>
       </aside>
 
@@ -124,8 +109,52 @@ import { LanguageService } from '../core/language/language.service';
       </div>
     </div>
   `,
+  styles: `
+    .nav-link {
+      color: #f7f1ff;
+    }
+
+    .nav-icon {
+      width: 1.125rem;
+      color: #f3c246;
+    }
+
+    .nav-link:hover {
+      background: rgb(255 255 255 / 0.12);
+      color: #ffffff;
+    }
+
+    .nav-link:hover .nav-icon {
+      color: #ffd968;
+    }
+
+    .nav-link-active,
+    .nav-link-active:hover {
+      background: #f3c246;
+      color: #241036;
+      box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.24);
+    }
+
+    .nav-link-active .nav-icon,
+    .nav-link-active:hover .nav-icon {
+      color: #241036;
+    }
+  `,
 })
 export class MainLayoutComponent {
+  readonly navItems: NavItem[] = [
+    { path: '/dashboard', labelKey: 'nav.dashboard', icon: faGaugeHigh },
+    { path: '/reports', labelKey: 'nav.reports', icon: faChartLine },
+    { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
+    { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
+    {
+      path: '/admin/sync-history',
+      labelKey: 'nav.syncHistory',
+      icon: faClockRotateLeft,
+      adminOnly: true,
+    },
+  ];
+
   constructor(
     readonly authService: AuthenticationService,
     readonly languageService: LanguageService,
