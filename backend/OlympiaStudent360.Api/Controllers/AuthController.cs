@@ -42,10 +42,19 @@ public class AuthController : ControllerBase
 
         var roles = await _userManager.GetRolesAsync(user);
         var token = CreateToken(user, roles);
+        var serializedToken = new JwtSecurityTokenHandler().WriteToken(token);
+
+        Response.Cookies.Append("olympia_student_360_auth", serializedToken, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Lax,
+            Expires = token.ValidTo
+        });
 
         return Ok(new AuthResponseDto
         {
-            Token = new JwtSecurityTokenHandler().WriteToken(token),
+            Token = serializedToken,
             Role = roles.FirstOrDefault() ?? "Teacher",
             Username = user.UserName!,
             FullName = user.FullName,
@@ -111,6 +120,20 @@ public class AuthController : ControllerBase
             FullName = user.FullName,
             UserId = user.Id
         });
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete("olympia_student_360_auth", new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Lax
+        });
+
+        return NoContent();
     }
 
     private JwtSecurityToken CreateToken(ApplicationUser user, IList<string> roles)

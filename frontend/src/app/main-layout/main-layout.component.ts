@@ -4,6 +4,7 @@ import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import {
   faChartLine,
   faClockRotateLeft,
+  faTableColumns,
   faFileExcel,
   faGaugeHigh,
   faUsersGear,
@@ -145,6 +146,7 @@ export class MainLayoutComponent {
   readonly navItems: NavItem[] = [
     { path: '/dashboard', labelKey: 'nav.dashboard', icon: faGaugeHigh },
     { path: '/reports', labelKey: 'nav.reports', icon: faChartLine },
+    { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
     { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
     { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
     {

@@ -4,6 +4,8 @@ import { DashboardComponent } from './dashboard/dashboard.component';
 import { MainLayoutComponent } from './main-layout/main-layout.component';
 import { authGuard } from './core/auth/auth.guard';
 import { ReportsComponent } from './reports/reports.component';
+import { WorkspaceComponent } from './workspace/workspace.component';
+import { WorkspaceDetailComponent } from './workspace/workspace-detail.component';
 import { AcademicOverviewReportComponent } from './reports/academic-overview-report.component';
 import { AttendanceEngagementReportComponent } from './reports/attendance-engagement-report.component';
 import { StudentWellbeingReportComponent } from './reports/student-wellbeing-report.component';
@@ -22,6 +24,8 @@ export const routes: Routes = [
     children: [
       { path: 'dashboard', component: DashboardComponent },
       { path: 'reports', component: ReportsComponent },
+      { path: 'workspace', component: WorkspaceComponent },
+      { path: 'workspace/:workspaceId', component: WorkspaceDetailComponent },
       { path: 'reports/academic-overview', component: AcademicOverviewReportComponent },
       { path: 'reports/attendance-engagement', component: AttendanceEngagementReportComponent },
       { path: 'reports/student-wellbeing', component: StudentWellbeingReportComponent },

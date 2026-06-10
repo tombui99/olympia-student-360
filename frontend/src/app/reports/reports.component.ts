@@ -1,5 +1,5 @@
-import { Component } from '@angular/core';
 import { NgFor } from '@angular/common';
+import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LanguageService } from '../core/language/language.service';
 

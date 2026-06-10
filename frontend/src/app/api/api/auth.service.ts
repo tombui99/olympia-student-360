@@ -16,4 +16,8 @@ export class AuthService {
   apiAuthMeGet(): Observable<CurrentUserDto> {
     return this.http.get<CurrentUserDto>(`${this.basePath}/api/Auth/me`);
   }
+
+  apiAuthLogoutPost(): Observable<void> {
+    return this.http.post<void>(`${this.basePath}/api/Auth/logout`, {});
+  }
 }

@@ -11,6 +11,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     }
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
+    public DbSet<CustomReport> CustomReports { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,5 +40,24 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<StudentProfile>()
             .HasIndex(s => s.StudentCode)
             .IsUnique();
+
+        modelBuilder.Entity<CustomReport>()
+            .Property(r => r.OwnerUserId)
+            .HasMaxLength(450);
+
+        modelBuilder.Entity<CustomReport>()
+            .Property(r => r.OwnerUsername)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<CustomReport>()
+            .Property(r => r.Title)
+            .HasMaxLength(255);
+
+        modelBuilder.Entity<CustomReport>()
+            .Property(r => r.Description)
+            .HasMaxLength(1000);
+
+        modelBuilder.Entity<CustomReport>()
+            .HasIndex(r => r.OwnerUserId);
     }
 }

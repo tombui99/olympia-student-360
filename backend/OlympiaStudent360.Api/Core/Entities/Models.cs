@@ -23,3 +23,14 @@ public class StudentProfile : BaseEntity
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
 }
+
+public class CustomReport : BaseEntity
+{
+    public string OwnerUserId { get; set; } = default!;
+    public string OwnerUsername { get; set; } = default!;
+    public string Title { get; set; } = default!;
+    public string Description { get; set; } = default!;
+    public string DefinitionJson { get; set; } = default!;
+
+    public string SharedWithJson { get; set; } = "[]";
+}
