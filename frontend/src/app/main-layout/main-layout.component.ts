@@ -25,7 +25,7 @@ interface NavItem {
   imports: [RouterOutlet, RouterLink, RouterLinkActive, FontAwesomeModule],
   template: `
     <div class="min-h-screen bg-[#f6f4ef] text-[#24182f] lg:grid lg:grid-cols-[280px_1fr]">
-      <aside class="bg-[#32124f] px-5 py-6 text-white lg:min-h-screen">
+      <aside class="bg-[#32124f] px-5 py-6 text-white lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto">
         <div class="flex items-center gap-3">
           <div class="grid h-11 w-11 place-items-center rounded bg-[#f3c246] text-lg font-bold text-[#32124f]">O</div>
           <div>
