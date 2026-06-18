@@ -2,6 +2,8 @@ import { NgFor, NgIf } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { EChartsCoreOption } from 'echarts/core';
+import { NgxEchartsDirective } from 'ngx-echarts';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 import {
@@ -32,7 +34,7 @@ interface ChartDraft {
 
 @Component({
   selector: 'app-workspace-detail',
-  imports: [FormsModule, NgFor, NgIf, RouterLink],
+  imports: [FormsModule, NgFor, NgIf, NgxEchartsDirective, RouterLink],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -115,37 +117,14 @@ interface ChartDraft {
                   </div>
                 </div>
 
-                <svg
+                <div
+                  echarts
                   *ngIf="chart.kind !== 'card'"
-                  class="h-64 w-full"
-                  viewBox="0 0 520 220"
+                  class="h-72 w-full"
+                  [options]="chartOptions(chart)"
                   role="img"
-                >
-                  <line x1="36" y1="184" x2="494" y2="184" stroke="#d8d0df" />
-                  <line x1="36" y1="28" x2="36" y2="184" stroke="#d8d0df" />
-                  <ng-container *ngFor="let metric of chartMetrics(chart); let metricIndex = index">
-                    <polyline
-                      *ngIf="chart.kind === 'line'"
-                      fill="none"
-                      [attr.stroke]="seriesColor(metricIndex)"
-                      stroke-width="4"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      [attr.points]="linePoints(metric)"
-                    />
-                    <ng-container *ngIf="chart.kind === 'bar'">
-                      <rect
-                        *ngFor="let value of metric.series; let pointIndex = index"
-                        [attr.x]="barX(pointIndex, metricIndex, chartMetrics(chart).length)"
-                        [attr.y]="barY(value)"
-                        [attr.width]="barWidth(chartMetrics(chart).length)"
-                        [attr.height]="184 - barY(value)"
-                        [attr.fill]="seriesColor(metricIndex)"
-                        rx="3"
-                      />
-                    </ng-container>
-                  </ng-container>
-                </svg>
+                  [attr.aria-label]="chart.title"
+                ></div>
 
                 <div class="mt-3 flex flex-wrap gap-3">
                   <span
@@ -680,20 +659,65 @@ export class WorkspaceDetailComponent implements OnInit {
       .filter((metric): metric is MetricVariable => !!metric);
   }
 
-  linePoints(metric: MetricVariable): string {
-    return metric.series.map((value, index) => `${36 + index * 88},${this.barY(value)}`).join(' ');
-  }
+  chartOptions(chart: CustomChart): EChartsCoreOption {
+    const metrics = this.chartMetrics(chart);
 
-  barX(pointIndex: number, metricIndex: number, metricCount: number): number {
-    return 52 + pointIndex * 72 + metricIndex * this.barWidth(metricCount);
-  }
-
-  barY(value: number): number {
-    return 184 - (Math.min(value, 130) / 130) * 150;
-  }
-
-  barWidth(metricCount: number): number {
-    return Math.max(8, 42 / Math.max(metricCount, 1));
+    return {
+      color: ['#32124f', '#b38116', '#31706f', '#7b4aa4', '#a9485d', '#4464ad'],
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: chart.kind === 'bar' ? 'shadow' : 'cross' },
+        valueFormatter: (value: string | number) => `${value}`,
+      },
+      legend: {
+        bottom: 0,
+        icon: 'roundRect',
+        textStyle: { color: '#5f5368' },
+      },
+      grid: {
+        top: 36,
+        right: 24,
+        bottom: 72,
+        left: 48,
+        containLabel: true,
+      },
+      toolbox: {
+        right: 8,
+        feature: {
+          dataZoom: { yAxisIndex: 'none' },
+          magicType: { type: ['line', 'bar'] },
+          restore: {},
+          saveAsImage: {},
+        },
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: chart.kind === 'bar',
+        data: ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'],
+        axisLine: { lineStyle: { color: '#d8d0df' } },
+        axisLabel: { color: '#6f6877' },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: { color: '#6f6877' },
+        splitLine: { lineStyle: { color: '#ebe6ef' } },
+      },
+      dataZoom: [
+        {
+          type: 'inside',
+        },
+      ],
+      series: metrics.map((metric) => ({
+        name: this.metricLabel(metric.id),
+        type: chart.kind,
+        data: metric.series,
+        smooth: chart.kind === 'line',
+        symbolSize: 8,
+        barMaxWidth: 30,
+        emphasis: { focus: 'series' },
+        areaStyle: chart.kind === 'line' ? { opacity: 0.08 } : undefined,
+      })),
+    };
   }
 
   seriesColor(index: number): string {

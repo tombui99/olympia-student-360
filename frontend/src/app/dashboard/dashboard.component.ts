@@ -1,12 +1,14 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { NgFor } from '@angular/common';
+import { EChartsCoreOption } from 'echarts/core';
+import { NgxEchartsDirective } from 'ngx-echarts';
 import { DashboardService } from '../api/api/dashboard.service';
 import { MetricCardDto } from '../api/model/models';
 import { LanguageService } from '../core/language/language.service';
 
 @Component({
   selector: 'app-dashboard',
-  imports: [NgFor],
+  imports: [NgFor, NgxEchartsDirective],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-end justify-between gap-4">
@@ -37,15 +39,16 @@ import { LanguageService } from '../core/language/language.service';
         <section class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="flex items-center justify-between">
             <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('dashboard.analyticsCanvas') }}</h3>
-            <span class="rounded bg-[#f3c246]/25 px-3 py-1 text-xs font-semibold text-[#7a5b12]">{{ languageService.t('dashboard.blankState') }}</span>
+            <span class="rounded bg-[#f3c246]/25 px-3 py-1 text-xs font-semibold text-[#7a5b12]">ECharts</span>
           </div>
-          <div class="mt-6 grid min-h-80 place-items-center rounded-lg border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center">
-            <div>
-              <p class="text-xl font-semibold text-[#32124f]">{{ languageService.t('dashboard.blankTitle') }}</p>
-              <p class="mt-3 max-w-lg text-sm leading-6 text-[#6f6877]">
-                {{ languageService.t('dashboard.blankBody') }}
-              </p>
-            </div>
+          <div class="mt-6 rounded-lg border border-[#ebe6ef] bg-[#faf9f6] p-3">
+            <div
+              echarts
+              [options]="overviewOptions"
+              class="h-80 w-full"
+              role="img"
+              [attr.aria-label]="languageService.t('dashboard.analyticsCanvas')"
+            ></div>
           </div>
         </section>
 
@@ -71,6 +74,74 @@ import { LanguageService } from '../core/language/language.service';
   `,
 })
 export class DashboardComponent implements OnInit {
+  readonly overviewOptions: EChartsCoreOption = {
+    color: ['#32124f', '#b38116', '#31706f', '#7b4aa4'],
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+    },
+    legend: {
+      bottom: 0,
+      icon: 'roundRect',
+      textStyle: { color: '#5f5368' },
+    },
+    grid: {
+      top: 32,
+      right: 24,
+      bottom: 64,
+      left: 48,
+    },
+    toolbox: {
+      right: 8,
+      feature: {
+        dataZoom: { yAxisIndex: 'none' },
+        restore: {},
+        saveAsImage: {},
+      },
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'],
+      axisLine: { lineStyle: { color: '#d8d0df' } },
+      axisLabel: { color: '#6f6877' },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#6f6877' },
+      splitLine: { lineStyle: { color: '#ebe6ef' } },
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+      },
+    ],
+    series: [
+      {
+        name: 'Attendance',
+        type: 'line',
+        smooth: true,
+        symbolSize: 8,
+        areaStyle: { opacity: 0.12 },
+        data: [88, 91, 90, 93, 92, 94],
+      },
+      {
+        name: 'Assignment completion',
+        type: 'line',
+        smooth: true,
+        symbolSize: 8,
+        areaStyle: { opacity: 0.08 },
+        data: [72, 76, 79, 81, 84, 87],
+      },
+      {
+        name: 'Wellbeing check-ins',
+        type: 'bar',
+        barMaxWidth: 28,
+        data: [68, 74, 83, 91, 109, 126],
+      },
+    ],
+  };
+
   metrics = signal<MetricCardDto[]>([
     { label: 'metrics.students', value: '-', delta: 'metrics.awaitingWarehouse' },
     { label: 'metrics.attendance', value: '-', delta: 'metrics.comingSoon' },

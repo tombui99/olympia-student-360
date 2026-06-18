@@ -744,34 +744,6 @@ export class WorkspaceComponent implements OnInit {
     return this.languageService.t(`workspace.categories.${metric.category}`);
   }
 
-  chartMetrics(chart: CustomChart): MetricVariable[] {
-    return chart.metrics
-      .map((metricId) => this.metricVariables.find((metric) => metric.id === metricId))
-      .filter((metric): metric is MetricVariable => !!metric);
-  }
-
-  linePoints(metric: MetricVariable): string {
-    return metric.series
-      .map((value, index) => `${36 + index * 88},${this.barY(value)}`)
-      .join(' ');
-  }
-
-  barX(pointIndex: number, metricIndex: number, metricCount: number): number {
-    return 52 + pointIndex * 72 + metricIndex * this.barWidth(metricCount);
-  }
-
-  barY(value: number): number {
-    return 184 - (Math.min(value, 130) / 130) * 150;
-  }
-
-  barWidth(metricCount: number): number {
-    return Math.max(8, 42 / Math.max(metricCount, 1));
-  }
-
-  seriesColor(index: number): string {
-    return ['#32124f', '#b38116', '#31706f', '#7b4aa4'][index % 4];
-  }
-
   private openSheet(kind: SheetKind) {
     this.sheetKind.set(kind);
     this.sheetMounted.set(true);

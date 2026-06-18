@@ -1,38 +1,84 @@
 import { Routes } from '@angular/router';
-import { LoginComponent } from './auth/login/login.component';
-import { DashboardComponent } from './dashboard/dashboard.component';
-import { MainLayoutComponent } from './main-layout/main-layout.component';
 import { authGuard } from './core/auth/auth.guard';
-import { ReportsComponent } from './reports/reports.component';
-import { WorkspaceComponent } from './workspace/workspace.component';
-import { WorkspaceDetailComponent } from './workspace/workspace-detail.component';
-import { AcademicOverviewReportComponent } from './reports/academic-overview-report.component';
-import { AttendanceEngagementReportComponent } from './reports/attendance-engagement-report.component';
-import { StudentWellbeingReportComponent } from './reports/student-wellbeing-report.component';
-import { ManualExcelImportComponent } from './imports/manual-excel-import.component';
-import { ManualExcelImportDetailComponent } from './imports/manual-excel-import-detail.component';
-import { AccountManagementComponent } from './admin/account-management.component';
-import { SyncHistoryComponent } from './admin/sync-history.component';
 import { adminGuard } from './core/auth/auth.guard';
 
 export const routes: Routes = [
-  { path: 'login', component: LoginComponent },
+  {
+    path: 'login',
+    loadComponent: () => import('./auth/login/login.component').then((m) => m.LoginComponent),
+  },
   {
     path: '',
-    component: MainLayoutComponent,
+    loadComponent: () =>
+      import('./main-layout/main-layout.component').then((m) => m.MainLayoutComponent),
     canActivate: [authGuard],
     children: [
-      { path: 'dashboard', component: DashboardComponent },
-      { path: 'reports', component: ReportsComponent },
-      { path: 'workspace', component: WorkspaceComponent },
-      { path: 'workspace/:workspaceId', component: WorkspaceDetailComponent },
-      { path: 'reports/academic-overview', component: AcademicOverviewReportComponent },
-      { path: 'reports/attendance-engagement', component: AttendanceEngagementReportComponent },
-      { path: 'reports/student-wellbeing', component: StudentWellbeingReportComponent },
-      { path: 'imports', component: ManualExcelImportComponent },
-      { path: 'imports/:moduleId', component: ManualExcelImportDetailComponent },
-      { path: 'admin/accounts', component: AccountManagementComponent, canActivate: [adminGuard] },
-      { path: 'admin/sync-history', component: SyncHistoryComponent, canActivate: [adminGuard] },
+      {
+        path: 'dashboard',
+        loadComponent: () =>
+          import('./dashboard/dashboard.component').then((m) => m.DashboardComponent),
+      },
+      {
+        path: 'reports',
+        loadComponent: () => import('./reports/reports.component').then((m) => m.ReportsComponent),
+      },
+      {
+        path: 'workspace',
+        loadComponent: () =>
+          import('./workspace/workspace.component').then((m) => m.WorkspaceComponent),
+      },
+      {
+        path: 'workspace/:workspaceId',
+        loadComponent: () =>
+          import('./workspace/workspace-detail.component').then((m) => m.WorkspaceDetailComponent),
+      },
+      {
+        path: 'reports/academic-overview',
+        loadComponent: () =>
+          import('./reports/academic-overview-report.component').then(
+            (m) => m.AcademicOverviewReportComponent,
+          ),
+      },
+      {
+        path: 'reports/attendance-engagement',
+        loadComponent: () =>
+          import('./reports/attendance-engagement-report.component').then(
+            (m) => m.AttendanceEngagementReportComponent,
+          ),
+      },
+      {
+        path: 'reports/student-wellbeing',
+        loadComponent: () =>
+          import('./reports/student-wellbeing-report.component').then(
+            (m) => m.StudentWellbeingReportComponent,
+          ),
+      },
+      {
+        path: 'imports',
+        loadComponent: () =>
+          import('./imports/manual-excel-import.component').then(
+            (m) => m.ManualExcelImportComponent,
+          ),
+      },
+      {
+        path: 'imports/:moduleId',
+        loadComponent: () =>
+          import('./imports/manual-excel-import-detail.component').then(
+            (m) => m.ManualExcelImportDetailComponent,
+          ),
+      },
+      {
+        path: 'admin/accounts',
+        loadComponent: () =>
+          import('./admin/account-management.component').then((m) => m.AccountManagementComponent),
+        canActivate: [adminGuard],
+      },
+      {
+        path: 'admin/sync-history',
+        loadComponent: () =>
+          import('./admin/sync-history.component').then((m) => m.SyncHistoryComponent),
+        canActivate: [adminGuard],
+      },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
     ],
   },
