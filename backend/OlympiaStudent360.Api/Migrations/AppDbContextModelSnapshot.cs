@@ -296,6 +296,9 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<string>("TeacherUserId")
+                        .HasColumnType("varchar(255)");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -303,6 +306,8 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasIndex("StudentCode")
                         .IsUnique();
+
+                    b.HasIndex("TeacherUserId");
 
                     b.ToTable("StudentProfiles");
                 });
@@ -356,6 +361,21 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "Teacher")
+                        .WithMany("AssignedStudents")
+                        .HasForeignKey("TeacherUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Teacher");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("AssignedStudents");
                 });
 #pragma warning restore 612, 618
         }

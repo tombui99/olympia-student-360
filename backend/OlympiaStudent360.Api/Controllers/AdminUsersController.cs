@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
 
@@ -16,13 +17,16 @@ public class AdminUsersController : ControllerBase
     private static readonly string[] ManagedRoles = ["Admin", "Principal", "Teacher"];
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
+    private readonly AppDbContext _context;
 
     public AdminUsersController(
         UserManager<ApplicationUser> userManager,
-        RoleManager<IdentityRole> roleManager)
+        RoleManager<IdentityRole> roleManager,
+        AppDbContext context)
     {
         _userManager = userManager;
         _roleManager = roleManager;
+        _context = context;
     }
 
     [HttpGet]
@@ -79,6 +83,7 @@ public class AdminUsersController : ControllerBase
         }
 
         await _userManager.AddToRoleAsync(user, model.Role);
+
         return CreatedAtAction(nameof(GetUsers), new { id = user.Id }, await ToDto(user));
     }
 
@@ -118,6 +123,13 @@ public class AdminUsersController : ControllerBase
             await _userManager.RemoveFromRolesAsync(user, currentRoles);
         }
         await _userManager.AddToRoleAsync(user, model.Role);
+
+        if (currentRoles.Contains("Teacher") && model.Role != "Teacher")
+        {
+            await _context.StudentProfiles
+                .Where(student => student.TeacherUserId == user.Id)
+                .ExecuteUpdateAsync(updates => updates.SetProperty(student => student.TeacherUserId, (string?)null));
+        }
 
         if (!string.IsNullOrWhiteSpace(model.NewPassword))
         {

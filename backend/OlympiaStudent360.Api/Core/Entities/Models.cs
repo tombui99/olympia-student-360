@@ -7,6 +7,7 @@ public class ApplicationUser : IdentityUser
     public string FullName { get; set; } = default!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
+    public ICollection<StudentProfile> AssignedStudents { get; set; } = [];
 }
 
 public abstract class BaseEntity
@@ -22,6 +23,8 @@ public class StudentProfile : BaseEntity
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
+    public string? TeacherUserId { get; set; }
+    public ApplicationUser? Teacher { get; set; }
 }
 
 public class CustomReport : BaseEntity

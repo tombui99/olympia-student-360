@@ -41,6 +41,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .HasIndex(s => s.StudentCode)
             .IsUnique();
 
+        modelBuilder.Entity<StudentProfile>()
+            .HasOne(s => s.Teacher)
+            .WithMany(u => u.AssignedStudents)
+            .HasForeignKey(s => s.TeacherUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<StudentProfile>()
+            .HasIndex(s => s.TeacherUserId);
+
         modelBuilder.Entity<CustomReport>()
             .Property(r => r.OwnerUserId)
             .HasMaxLength(450);

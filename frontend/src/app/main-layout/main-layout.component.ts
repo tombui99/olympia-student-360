@@ -8,6 +8,7 @@ import {
   faGaugeHigh,
   faBars,
   faRightFromBracket,
+  faArrowRightArrowLeft,
   faUsersGear,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
@@ -224,6 +225,12 @@ export class MainLayoutComponent {
     { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
     { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
     { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
+    {
+      path: '/admin/teacher-student-assignments',
+      labelKey: 'nav.teacherAssignments',
+      icon: faArrowRightArrowLeft,
+      adminOnly: true,
+    },
     {
       path: '/admin/sync-history',
       labelKey: 'nav.syncHistory',

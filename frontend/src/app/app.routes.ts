@@ -49,6 +49,14 @@ export const routes: Routes = [
         canActivate: [adminGuard],
       },
       {
+        path: 'admin/teacher-student-assignments',
+        loadComponent: () =>
+          import('./admin/teacher-student-assignment.component').then(
+            (m) => m.TeacherStudentAssignmentComponent,
+          ),
+        canActivate: [adminGuard],
+      },
+      {
         path: 'admin/sync-history',
         loadComponent: () =>
           import('./admin/sync-history.component').then((m) => m.SyncHistoryComponent),
