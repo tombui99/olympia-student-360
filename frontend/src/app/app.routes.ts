@@ -19,10 +19,6 @@ export const routes: Routes = [
           import('./dashboard/dashboard.component').then((m) => m.DashboardComponent),
       },
       {
-        path: 'reports',
-        loadComponent: () => import('./reports/reports.component').then((m) => m.ReportsComponent),
-      },
-      {
         path: 'workspace',
         loadComponent: () =>
           import('./workspace/workspace.component').then((m) => m.WorkspaceComponent),
@@ -31,27 +27,6 @@ export const routes: Routes = [
         path: 'workspace/:workspaceId',
         loadComponent: () =>
           import('./workspace/workspace-detail.component').then((m) => m.WorkspaceDetailComponent),
-      },
-      {
-        path: 'reports/academic-overview',
-        loadComponent: () =>
-          import('./reports/academic-overview-report.component').then(
-            (m) => m.AcademicOverviewReportComponent,
-          ),
-      },
-      {
-        path: 'reports/attendance-engagement',
-        loadComponent: () =>
-          import('./reports/attendance-engagement-report.component').then(
-            (m) => m.AttendanceEngagementReportComponent,
-          ),
-      },
-      {
-        path: 'reports/student-wellbeing',
-        loadComponent: () =>
-          import('./reports/student-wellbeing-report.component').then(
-            (m) => m.StudentWellbeingReportComponent,
-          ),
       },
       {
         path: 'imports',

@@ -2,7 +2,6 @@ import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import {
-  faChartLine,
   faClockRotateLeft,
   faTableColumns,
   faFileExcel,
@@ -145,7 +144,6 @@ interface NavItem {
 export class MainLayoutComponent {
   readonly navItems: NavItem[] = [
     { path: '/dashboard', labelKey: 'nav.dashboard', icon: faGaugeHigh },
-    { path: '/reports', labelKey: 'nav.reports', icon: faChartLine },
     { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
     { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
     { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
