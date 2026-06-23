@@ -177,18 +177,18 @@ interface ChartDraft {
         [class.pointer-events-none]="!sheetOpen()"
       >
         <button
-          class="absolute inset-0 bg-[#24182f]/35 transition-opacity duration-300 ease-out"
-          [class.opacity-100]="sheetOpen()"
-          [class.opacity-0]="!sheetOpen()"
+          class="sheet-backdrop absolute inset-0 bg-[#24182f]/35"
+          [class.sheet-backdrop-open]="sheetOpen()"
+          [class.sheet-backdrop-closing]="!sheetOpen()"
           type="button"
           [attr.aria-label]="languageService.t('workspace.closeSheet')"
           (click)="closeSheet()"
         ></button>
 
         <aside
-          class="absolute right-0 top-0 flex h-full w-full max-w-xl flex-col bg-white shadow-[0_24px_80px_rgba(36,24,47,0.28)] transition-transform duration-300 ease-out will-change-transform"
-          [class.translate-x-0]="sheetOpen()"
-          [class.translate-x-full]="!sheetOpen()"
+          class="sheet-panel absolute right-0 top-0 flex h-full w-full max-w-xl flex-col bg-white shadow-[0_24px_80px_rgba(36,24,47,0.28)]"
+          [class.sheet-panel-open]="sheetOpen()"
+          [class.sheet-panel-closing]="!sheetOpen()"
           role="dialog"
           aria-modal="true"
         >
@@ -364,10 +364,22 @@ interface ChartDraft {
                     <option value="line">
                       {{ languageService.t('workspace.chartType.line') }}
                     </option>
+                    <option value="pie">
+                      {{ languageService.t('workspace.chartType.pie') }}
+                    </option>
+                    <option value="scatter">
+                      {{ languageService.t('workspace.chartType.scatter') }}
+                    </option>
                     <option value="card">
                       {{ languageService.t('workspace.chartType.card') }}
                     </option>
                   </select>
+                  <p *ngIf="chartDraft.kind === 'pie'" class="mt-2 text-xs leading-5 text-[#7c7284]">
+                    {{ languageService.t('workspace.chartTypeHint.pie') }}
+                  </p>
+                  <p *ngIf="chartDraft.kind === 'scatter'" class="mt-2 text-xs leading-5 text-[#7c7284]">
+                    {{ languageService.t('workspace.chartTypeHint.scatter') }}
+                  </p>
                 </label>
                 <div>
                   <p class="text-sm font-medium text-[#34243d]">
@@ -429,6 +441,78 @@ interface ChartDraft {
       </div>
     </section>
   `,
+  styles: `
+    .sheet-backdrop {
+      opacity: 0;
+    }
+
+    .sheet-backdrop-open {
+      opacity: 1;
+      animation: sheet-backdrop-in 300ms ease-out both;
+    }
+
+    .sheet-backdrop-closing {
+      animation: sheet-backdrop-out 300ms ease-out both;
+    }
+
+    .sheet-panel {
+      transform: translate3d(100%, 0, 0);
+      backface-visibility: hidden;
+      will-change: transform;
+    }
+
+    .sheet-panel-open {
+      transform: translate3d(0, 0, 0);
+      animation: sheet-slide-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .sheet-panel-closing {
+      animation: sheet-slide-out 300ms ease-in both;
+    }
+
+    @keyframes sheet-slide-out {
+      from {
+        transform: translate3d(0, 0, 0);
+      }
+      to {
+        transform: translate3d(100%, 0, 0);
+      }
+    }
+
+    @keyframes sheet-slide-in {
+      from {
+        transform: translate3d(100%, 0, 0);
+      }
+      to {
+        transform: translate3d(0, 0, 0);
+      }
+    }
+
+    @keyframes sheet-backdrop-in {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes sheet-backdrop-out {
+      from {
+        opacity: 1;
+      }
+      to {
+        opacity: 0;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sheet-backdrop,
+      .sheet-panel {
+        animation: none;
+      }
+    }
+  `,
 })
 export class WorkspaceDetailComponent implements OnInit {
   private readonly authService = inject(AuthenticationService);
@@ -446,6 +530,8 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly workspaceSheetMode = signal<WorkspaceSheetMode>('edit');
   readonly shareDropdownOpen = signal(false);
   readonly metricVariables = this.reportBuilderService.metricVariables;
+
+  private sheetUnmountTimer: number | null = null;
 
   workspaceDraft: WorkspaceDraft = this.emptyWorkspaceDraft();
   chartDraft: ChartDraft = this.emptyChartDraft();
@@ -642,7 +728,10 @@ export class WorkspaceDetailComponent implements OnInit {
   closeSheet() {
     this.sheetOpen.set(false);
     this.shareDropdownOpen.set(false);
-    window.setTimeout(() => this.sheetMounted.set(false), 300);
+    this.sheetUnmountTimer = window.setTimeout(() => {
+      this.sheetMounted.set(false);
+      this.sheetUnmountTimer = null;
+    }, 300);
   }
 
   metricLabel(metricId: string): string {
@@ -661,12 +750,142 @@ export class WorkspaceDetailComponent implements OnInit {
 
   chartOptions(chart: CustomChart): EChartsCoreOption {
     const metrics = this.chartMetrics(chart);
+    const colors = ['#32124f', '#b38116', '#31706f', '#7b4aa4', '#a9485d', '#4464ad'];
+
+    if (chart.kind === 'pie') {
+      return {
+        color: colors,
+        tooltip: {
+          trigger: 'item',
+          valueFormatter: (value: string | number) => `${value}`,
+        },
+        legend: {
+          bottom: 0,
+          type: 'scroll',
+          icon: 'circle',
+          textStyle: { color: '#5f5368' },
+        },
+        toolbox: {
+          right: 8,
+          feature: {
+            restore: {},
+            saveAsImage: {},
+          },
+        },
+        series: [
+          {
+            name: chart.title,
+            type: 'pie',
+            radius: ['42%', '68%'],
+            center: ['50%', '43%'],
+            avoidLabelOverlap: true,
+            itemStyle: {
+              borderColor: '#ffffff',
+              borderRadius: 6,
+              borderWidth: 3,
+            },
+            label: {
+              color: '#5f5368',
+              formatter: '{b}\n{d}%',
+              lineHeight: 18,
+            },
+            labelLine: {
+              length: 12,
+              length2: 8,
+            },
+            emphasis: {
+              scale: true,
+              scaleSize: 8,
+              itemStyle: {
+                shadowBlur: 16,
+                shadowColor: 'rgba(50, 18, 79, 0.24)',
+              },
+            },
+            data: metrics.map((metric) => ({
+              name: this.metricLabel(metric.id),
+              value: Math.max(0, metric.series.at(-1) ?? 0),
+            })),
+          },
+        ],
+      };
+    }
+
+    if (chart.kind === 'scatter') {
+      const periods = ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'];
+      const xMetric = metrics[0];
+      const comparedMetrics = metrics.length > 1 ? metrics.slice(1) : metrics;
+
+      return {
+        color: colors,
+        tooltip: {
+          trigger: 'item',
+          axisPointer: { type: 'cross' },
+        },
+        legend: {
+          bottom: 0,
+          type: 'scroll',
+          icon: 'circle',
+          textStyle: { color: '#5f5368' },
+        },
+        grid: {
+          top: 42,
+          right: 34,
+          bottom: 72,
+          left: 58,
+          containLabel: true,
+        },
+        toolbox: {
+          right: 8,
+          feature: {
+            dataZoom: {},
+            restore: {},
+            saveAsImage: {},
+          },
+        },
+        xAxis: {
+          type: 'value',
+          name:
+            metrics.length > 1 && xMetric
+              ? this.metricLabel(xMetric.id)
+              : this.languageService.t('workspace.chartAxis.period'),
+          nameLocation: 'middle',
+          nameGap: 32,
+          axisLine: { lineStyle: { color: '#d8d0df' } },
+          axisLabel: { color: '#6f6877' },
+          splitLine: { lineStyle: { color: '#ebe6ef' } },
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: { color: '#6f6877' },
+          splitLine: { lineStyle: { color: '#ebe6ef' } },
+        },
+        dataZoom: [{ type: 'inside' }],
+        series: comparedMetrics.map((metric) => ({
+          name: this.metricLabel(metric.id),
+          type: 'scatter',
+          symbolSize: 12,
+          data: metric.series.map((value, index) => ({
+            name: periods[index],
+            value: [
+              metrics.length > 1 ? (xMetric?.series[index] ?? index + 1) : index + 1,
+              value,
+            ],
+          })),
+          emphasis: {
+            focus: 'series',
+            scale: 1.5,
+          },
+        })),
+      };
+    }
+
+    const cartesianKind = chart.kind === 'line' ? 'line' : 'bar';
 
     return {
-      color: ['#32124f', '#b38116', '#31706f', '#7b4aa4', '#a9485d', '#4464ad'],
+      color: colors,
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: chart.kind === 'bar' ? 'shadow' : 'cross' },
+        axisPointer: { type: cartesianKind === 'bar' ? 'shadow' : 'cross' },
         valueFormatter: (value: string | number) => `${value}`,
       },
       legend: {
@@ -692,7 +911,7 @@ export class WorkspaceDetailComponent implements OnInit {
       },
       xAxis: {
         type: 'category',
-        boundaryGap: chart.kind === 'bar',
+        boundaryGap: cartesianKind === 'bar',
         data: ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'],
         axisLine: { lineStyle: { color: '#d8d0df' } },
         axisLabel: { color: '#6f6877' },
@@ -709,13 +928,13 @@ export class WorkspaceDetailComponent implements OnInit {
       ],
       series: metrics.map((metric) => ({
         name: this.metricLabel(metric.id),
-        type: chart.kind,
+        type: cartesianKind,
         data: metric.series,
-        smooth: chart.kind === 'line',
+        smooth: cartesianKind === 'line',
         symbolSize: 8,
         barMaxWidth: 30,
         emphasis: { focus: 'series' },
-        areaStyle: chart.kind === 'line' ? { opacity: 0.08 } : undefined,
+        areaStyle: cartesianKind === 'line' ? { opacity: 0.08 } : undefined,
       })),
     };
   }
@@ -725,9 +944,14 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   private openSheet(kind: SheetKind) {
+    if (this.sheetUnmountTimer !== null) {
+      window.clearTimeout(this.sheetUnmountTimer);
+      this.sheetUnmountTimer = null;
+    }
+
     this.sheetKind.set(kind);
     this.sheetMounted.set(true);
-    window.setTimeout(() => this.sheetOpen.set(true));
+    this.sheetOpen.set(true);
   }
 
   private persistReport(report: CustomReport) {

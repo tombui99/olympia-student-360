@@ -333,8 +333,16 @@ interface ChartDraft {
                   >
                     <option value="bar">{{ languageService.t('workspace.chartType.bar') }}</option>
                     <option value="line">{{ languageService.t('workspace.chartType.line') }}</option>
+                    <option value="pie">{{ languageService.t('workspace.chartType.pie') }}</option>
+                    <option value="scatter">{{ languageService.t('workspace.chartType.scatter') }}</option>
                     <option value="card">{{ languageService.t('workspace.chartType.card') }}</option>
                   </select>
+                  <p *ngIf="chartDraft.kind === 'pie'" class="mt-2 text-xs leading-5 text-[#7c7284]">
+                    {{ languageService.t('workspace.chartTypeHint.pie') }}
+                  </p>
+                  <p *ngIf="chartDraft.kind === 'scatter'" class="mt-2 text-xs leading-5 text-[#7c7284]">
+                    {{ languageService.t('workspace.chartTypeHint.scatter') }}
+                  </p>
                 </label>
 
                 <div>

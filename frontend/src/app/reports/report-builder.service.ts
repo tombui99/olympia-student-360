@@ -3,7 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import { catchError, map, Observable, of } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
 
-export type ChartKind = 'bar' | 'line' | 'card';
+export type ChartKind = 'bar' | 'line' | 'pie' | 'scatter' | 'card';
 
 export interface MetricVariable {
   id: string;

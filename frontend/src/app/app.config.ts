@@ -1,7 +1,7 @@
 import { ApplicationConfig } from '@angular/core';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
-import { BarChart, LineChart } from 'echarts/charts';
+import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
 import {
   DataZoomComponent,
   GridComponent,
@@ -21,6 +21,8 @@ import { environment } from '../environments/environment';
 echarts.use([
   BarChart,
   LineChart,
+  PieChart,
+  ScatterChart,
   DataZoomComponent,
   GridComponent,
   LegendComponent,
