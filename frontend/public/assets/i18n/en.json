@@ -24,6 +24,8 @@
   "nav.accounts": "Accounts",
   "nav.syncHistory": "Sync history",
   "nav.signOut": "Sign out",
+  "sidebar.collapse": "Collapse sidebar",
+  "sidebar.expand": "Expand sidebar",
   "language.en": "EN",
   "language.vi": "VI",
   "dashboard.overview": "Overview",

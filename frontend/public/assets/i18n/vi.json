@@ -24,6 +24,8 @@
   "nav.accounts": "Tài khoản",
   "nav.syncHistory": "Lịch sử đồng bộ",
   "nav.signOut": "Đăng xuất",
+  "sidebar.collapse": "Thu gọn thanh bên",
+  "sidebar.expand": "Mở rộng thanh bên",
   "language.en": "EN",
   "language.vi": "VI",
   "dashboard.overview": "Tổng quan",

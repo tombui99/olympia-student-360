@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import {
@@ -6,6 +6,8 @@ import {
   faTableColumns,
   faFileExcel,
   faGaugeHigh,
+  faBars,
+  faRightFromBracket,
   faUsersGear,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
@@ -23,14 +25,31 @@ interface NavItem {
   selector: 'app-main-layout',
   imports: [RouterOutlet, RouterLink, RouterLinkActive, FontAwesomeModule],
   template: `
-    <div class="min-h-screen bg-[#f6f4ef] text-[#24182f] lg:grid lg:grid-cols-[280px_1fr]">
-      <aside class="bg-[#32124f] px-5 py-6 text-white lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto">
-        <div class="flex items-center gap-3">
-          <div class="grid h-11 w-11 place-items-center rounded bg-[#f3c246] text-lg font-bold text-[#32124f]">O</div>
-          <div>
-            <p class="text-xs uppercase tracking-[0.18em] text-[#f3c246]">{{ languageService.t('app.shortSchool') }}</p>
-            <p class="font-semibold">{{ languageService.t('app.brand') }}</p>
+    <div class="layout-shell min-h-screen bg-[#f6f4ef] text-[#24182f]" [class.sidebar-collapsed]="sidebarCollapsed()">
+      <aside
+        class="sidebar flex flex-col bg-[#32124f] px-5 py-6 text-white lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto"
+        [class.sidebar-compact]="sidebarCollapsed()"
+      >
+        <div class="sidebar-header flex items-center justify-between gap-2">
+          <div class="flex min-w-0 items-center gap-3">
+            <div class="grid h-11 w-11 shrink-0 place-items-center rounded bg-[#f3c246] text-lg font-bold text-[#32124f]">O</div>
+            @if (!sidebarCollapsed()) {
+              <div class="min-w-0">
+                <p class="text-xs uppercase tracking-[0.18em] text-[#f3c246]">{{ languageService.t('app.shortSchool') }}</p>
+                <p class="font-semibold">{{ languageService.t('app.brand') }}</p>
+              </div>
+            }
           </div>
+          <button
+            class="sidebar-toggle grid h-9 w-9 shrink-0 place-items-center rounded-md text-[#f3c246] transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f3c246]"
+            type="button"
+            [attr.aria-label]="languageService.t(sidebarCollapsed() ? 'sidebar.expand' : 'sidebar.collapse')"
+            [attr.title]="languageService.t(sidebarCollapsed() ? 'sidebar.expand' : 'sidebar.collapse')"
+            [attr.aria-expanded]="!sidebarCollapsed()"
+            (click)="toggleSidebar()"
+          >
+            <fa-icon [icon]="menuIcon" />
+          </button>
         </div>
 
         <nav class="mt-9 space-y-1">
@@ -40,13 +59,44 @@ interface NavItem {
                 [routerLink]="item.path"
                 routerLinkActive="nav-link-active"
                 class="nav-link flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold transition"
+                [class.justify-center]="sidebarCollapsed()"
+                [attr.aria-label]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
+                [attr.title]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
               >
                 <fa-icon class="nav-icon" [icon]="item.icon" />
-                <span>{{ languageService.t(item.labelKey) }}</span>
+                @if (!sidebarCollapsed()) {
+                  <span>{{ languageService.t(item.labelKey) }}</span>
+                }
               </a>
             }
           }
         </nav>
+
+        <div class="sidebar-account mt-auto border-t border-white/15 pt-5">
+          <div class="flex items-center gap-3" [class.justify-center]="sidebarCollapsed()">
+            <div class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f3c246] text-sm font-bold text-[#32124f]">
+              {{ userInitials() }}
+            </div>
+            @if (!sidebarCollapsed()) {
+              <div class="min-w-0">
+                <p class="truncate text-sm font-semibold text-white">{{ authService.fullName() || languageService.t('app.userFallback') }}</p>
+                <p class="text-xs text-[#cdbed8]">{{ authService.role() || languageService.t('app.roleFallback') }}</p>
+              </div>
+            }
+          </div>
+          <button
+            class="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-white/25 px-4 py-2 text-sm font-medium text-white transition hover:border-[#f3c246] hover:bg-white/10"
+            type="button"
+            [attr.aria-label]="languageService.t('nav.signOut')"
+            [attr.title]="sidebarCollapsed() ? languageService.t('nav.signOut') : null"
+            (click)="authService.logout()"
+          >
+            <fa-icon [icon]="signOutIcon" />
+            @if (!sidebarCollapsed()) {
+              <span>{{ languageService.t('nav.signOut') }}</span>
+            }
+          </button>
+        </div>
       </aside>
 
       <div class="min-w-0">
@@ -84,22 +134,6 @@ interface NavItem {
                 {{ languageService.t('language.vi') }}
               </button>
             </div>
-            <div class="flex items-center gap-3">
-              <div class="grid h-10 w-10 place-items-center rounded-full bg-[#32124f] text-sm font-bold text-[#f3c246]">
-                {{ userInitials() }}
-              </div>
-              <div class="text-right">
-                <p class="text-sm font-semibold text-[#32124f]">{{ authService.fullName() || languageService.t('app.userFallback') }}</p>
-                <p class="text-xs text-[#7c7284]">{{ authService.role() || languageService.t('app.roleFallback') }}</p>
-              </div>
-            </div>
-            <button
-              class="rounded-md border border-[#d8d0df] px-4 py-2 text-sm font-medium text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
-              type="button"
-              (click)="authService.logout()"
-            >
-              {{ languageService.t('nav.signOut') }}
-            </button>
           </div>
         </header>
 
@@ -110,6 +144,16 @@ interface NavItem {
     </div>
   `,
   styles: `
+    .layout-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sidebar,
+    .layout-shell {
+      transition: grid-template-columns 180ms ease, padding 180ms ease;
+    }
+
     .nav-link {
       color: #f7f1ff;
     }
@@ -139,9 +183,42 @@ interface NavItem {
     .nav-link-active:hover .nav-icon {
       color: #241036;
     }
+
+    @media (min-width: 1024px) {
+      .layout-shell {
+        grid-template-columns: 280px minmax(0, 1fr);
+      }
+
+      .layout-shell.sidebar-collapsed {
+        grid-template-columns: 88px minmax(0, 1fr);
+      }
+
+      .sidebar-compact {
+        padding-inline: 0.75rem;
+      }
+
+      .sidebar-compact .sidebar-header {
+        flex-direction: column;
+      }
+
+      .sidebar-compact nav {
+        margin-top: 1.5rem;
+      }
+
+      .sidebar-compact .nav-link {
+        padding-inline: 0;
+      }
+
+      .sidebar-compact .sidebar-account button {
+        padding-inline: 0;
+      }
+    }
   `,
 })
 export class MainLayoutComponent {
+  readonly sidebarCollapsed = signal(false);
+  readonly menuIcon = faBars;
+  readonly signOutIcon = faRightFromBracket;
   readonly navItems: NavItem[] = [
     { path: '/dashboard', labelKey: 'nav.dashboard', icon: faGaugeHigh },
     { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
@@ -159,6 +236,10 @@ export class MainLayoutComponent {
     readonly authService: AuthenticationService,
     readonly languageService: LanguageService,
   ) {}
+
+  toggleSidebar(): void {
+    this.sidebarCollapsed.update((collapsed) => !collapsed);
+  }
 
   userInitials(): string {
     const name = (this.authService.fullName() || this.languageService.t('app.userFallback')).trim();
