@@ -395,7 +395,7 @@ interface ChartDraft {
                           metricLabel(metric.id)
                         }}</span>
                         <span class="mt-1 block text-xs text-[#7c7284]">{{
-                          metricCategory(metric)
+                          metricLineage(metric)
                         }}</span>
                       </span>
                       <input
@@ -738,8 +738,10 @@ export class WorkspaceDetailComponent implements OnInit {
     return this.languageService.t(`workspace.metrics.${metricId}.label`);
   }
 
-  metricCategory(metric: MetricVariable): string {
-    return this.languageService.t(`workspace.categories.${metric.category}`);
+  metricLineage(metric: MetricVariable): string {
+    const category = this.languageService.t(`workspace.categories.${metric.category}`);
+    const source = this.languageService.t(`workspace.sources.${metric.source}`);
+    return `${category} · ${source}`;
   }
 
   chartMetrics(chart: CustomChart): MetricVariable[] {
