@@ -75,6 +75,51 @@ import { riskBadgeClass } from './risk.util';
           </dl>
         </div>
 
+        <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+          <div class="border-b border-[#ebe6ef] p-6">
+            <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.parents.title') }}</h3>
+            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.parents.hint') }}</p>
+          </div>
+          <div class="grid gap-4 p-5 md:grid-cols-2">
+            @for (parent of profile.parents; track parent.id) {
+              <article class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-5">
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <h4 class="font-semibold text-[#32124f]">{{ parent.fullName }}</h4>
+                  @if (parent.relationship) {
+                    <span class="rounded-full bg-[#eee8f3] px-3 py-1 text-xs font-semibold text-[#5b287d]">
+                      {{ parent.relationship }}
+                    </span>
+                  }
+                </div>
+                <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.ageGroup') }}</dt>
+                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.ageGroup || '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.occupation') }}</dt>
+                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.occupation || '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.sector') }}</dt>
+                    <dd class="mt-1 font-medium text-[#32124f]">{{ sectorLabel(parent.employmentSector) }}</dd>
+                  </div>
+                </dl>
+                @if (parent.phoneNumber || parent.email) {
+                  <div class="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-t border-[#e5dee9] pt-3 text-sm text-[#6f6877]">
+                    @if (parent.phoneNumber) { <span>{{ parent.phoneNumber }}</span> }
+                    @if (parent.email) { <span>{{ parent.email }}</span> }
+                  </div>
+                }
+              </article>
+            } @empty {
+              <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center text-sm text-[#7c7284] md:col-span-2">
+                {{ languageService.t('studentProfile.parents.empty') }}
+              </p>
+            }
+          </div>
+        </section>
+
         @if (profile.riskLevel !== 'None') {
           <div
             class="rounded-lg border p-5"
@@ -299,6 +344,15 @@ export class StudentProfileComponent implements OnInit {
       dateStyle: 'medium',
       timeZone: 'Asia/Ho_Chi_Minh',
     }).format(new Date(value));
+  }
+
+  sectorLabel(value?: string | null): string {
+    if (!value) return '—';
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'public' || normalized === 'private') {
+      return this.languageService.t(`studentProfile.parents.sector.${normalized}`);
+    }
+    return value;
   }
 
   flagLabel(flag: RiskFlag): string {

@@ -188,7 +188,9 @@ public class StudentsController : ControllerBase
             BehaviourType = StudentClassificationService.SupportedBehaviourTypes
                 .First(type => string.Equals(type, model.BehaviourType, StringComparison.OrdinalIgnoreCase)),
             Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim(),
-            RecordedByName = recordedByName
+            RecordedByName = recordedByName,
+            AcademicYear = Clean(model.AcademicYear), Term = Clean(model.Term),
+            MeasurementCycle = Clean(model.MeasurementCycle), Program = Clean(model.Program), Subject = Clean(model.Subject)
         };
 
         _context.StudentBehaviours.Add(behaviour);
@@ -201,7 +203,9 @@ public class StudentsController : ControllerBase
             IncidentDate = behaviour.IncidentDate,
             BehaviourType = behaviour.BehaviourType,
             Notes = behaviour.Notes,
-            RecordedByName = behaviour.RecordedByName
+            RecordedByName = behaviour.RecordedByName,
+            AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
+            MeasurementCycle = behaviour.MeasurementCycle, Program = behaviour.Program, Subject = behaviour.Subject
         });
     }
 
@@ -231,7 +235,10 @@ public class StudentsController : ControllerBase
             ProjectName = model.ProjectName.Trim(),
             Subject = subject,
             Status = status,
-            TeacherNotes = string.IsNullOrWhiteSpace(model.TeacherNotes) ? null : model.TeacherNotes.Trim()
+            TeacherNotes = string.IsNullOrWhiteSpace(model.TeacherNotes) ? null : model.TeacherNotes.Trim(),
+            AcademicYear = Clean(model.AcademicYear), Term = Clean(model.Term),
+            MeasurementCycle = Clean(model.MeasurementCycle), Program = Clean(model.Program),
+            ActivityDate = model.ActivityDate.HasValue ? DateTime.SpecifyKind(model.ActivityDate.Value, DateTimeKind.Utc) : null
         };
 
         _context.StudentProjects.Add(project);
@@ -245,7 +252,9 @@ public class StudentsController : ControllerBase
             Subject = project.Subject,
             Status = project.Status,
             TeacherNotes = project.TeacherNotes,
-            CreatedAt = project.CreatedAt
+            CreatedAt = project.CreatedAt,
+            AcademicYear = project.AcademicYear, Term = project.Term,
+            MeasurementCycle = project.MeasurementCycle, Program = project.Program, ActivityDate = project.ActivityDate
         });
     }
 
@@ -288,6 +297,7 @@ public class StudentsController : ControllerBase
             .Include(candidate => candidate.Teacher)
             .Include(candidate => candidate.Behaviours)
             .Include(candidate => candidate.Projects)
+            .Include(candidate => candidate.Parents)
             .FirstOrDefaultAsync(candidate => candidate.Id == id);
 
         if (student == null)
@@ -306,6 +316,9 @@ public class StudentsController : ControllerBase
             FullName = student.FullName,
             GradeLevel = student.GradeLevel,
             Homeroom = student.Homeroom,
+            Campus = student.Campus,
+            EducationLevel = student.EducationLevel,
+            Program = student.Program,
             TeacherName = student.Teacher?.FullName,
             RiskLevel = risk.Level,
             Flags = risk.Flags,
@@ -325,7 +338,9 @@ public class StudentsController : ControllerBase
                     IncidentDate = behaviour.IncidentDate,
                     BehaviourType = behaviour.BehaviourType,
                     Notes = behaviour.Notes,
-                    RecordedByName = behaviour.RecordedByName
+                    RecordedByName = behaviour.RecordedByName,
+                    AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
+                    MeasurementCycle = behaviour.MeasurementCycle, Program = behaviour.Program, Subject = behaviour.Subject
                 })
                 .ToList(),
             Projects = student.Projects
@@ -337,7 +352,24 @@ public class StudentsController : ControllerBase
                     Subject = project.Subject,
                     Status = project.Status,
                     TeacherNotes = project.TeacherNotes,
-                    CreatedAt = project.CreatedAt
+                    CreatedAt = project.CreatedAt,
+                    AcademicYear = project.AcademicYear, Term = project.Term,
+                    MeasurementCycle = project.MeasurementCycle, Program = project.Program, ActivityDate = project.ActivityDate
+                })
+                .ToList(),
+            Parents = student.Parents
+                .OrderBy(parent => parent.Relationship)
+                .ThenBy(parent => parent.FullName)
+                .Select(parent => new StudentParentDto
+                {
+                    Id = parent.Id,
+                    FullName = parent.FullName,
+                    Relationship = parent.Relationship,
+                    PhoneNumber = parent.PhoneNumber,
+                    Email = parent.Email,
+                    AgeGroup = parent.AgeGroup,
+                    Occupation = parent.Occupation,
+                    EmploymentSector = parent.EmploymentSector
                 })
                 .ToList()
         };
@@ -355,6 +387,9 @@ public class StudentsController : ControllerBase
             FullName = student.FullName,
             GradeLevel = student.GradeLevel,
             Homeroom = student.Homeroom,
+            Campus = student.Campus,
+            EducationLevel = student.EducationLevel,
+            Program = student.Program,
             TeacherName = student.Teacher?.FullName,
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
@@ -362,6 +397,8 @@ public class StudentsController : ControllerBase
             RiskFlagCount = risk.Flags.Count
         };
     }
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static List<CohortStatsDto> BuildCohorts(
         IEnumerable<IGrouping<string, CohortEntry>> groups,

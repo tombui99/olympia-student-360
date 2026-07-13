@@ -7,6 +7,9 @@ public class StudentListItemDto
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
+    public string? Campus { get; set; }
+    public string? EducationLevel { get; set; }
+    public string? Program { get; set; }
     public string? TeacherName { get; set; }
     public int BehaviourCount { get; set; }
     public int ProjectCount { get; set; }
@@ -90,12 +93,28 @@ public class StudentProfileDetailDto
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
+    public string? Campus { get; set; }
+    public string? EducationLevel { get; set; }
+    public string? Program { get; set; }
     public string? TeacherName { get; set; }
     public string RiskLevel { get; set; } = "None";
     public List<RiskFlagDto> Flags { get; set; } = [];
     public StudentSummaryDto Summary { get; set; } = new();
     public List<StudentBehaviourDto> Behaviours { get; set; } = [];
     public List<StudentProjectDto> Projects { get; set; } = [];
+    public List<StudentParentDto> Parents { get; set; } = [];
+}
+
+public class StudentParentDto
+{
+    public int Id { get; set; }
+    public string FullName { get; set; } = default!;
+    public string? Relationship { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? Email { get; set; }
+    public string? AgeGroup { get; set; }
+    public string? Occupation { get; set; }
+    public string? EmploymentSector { get; set; }
 }
 
 public class StudentSummaryDto
@@ -113,6 +132,11 @@ public class StudentBehaviourDto
     public string BehaviourType { get; set; } = default!;
     public string? Notes { get; set; }
     public string? RecordedByName { get; set; }
+    public string? AcademicYear { get; set; }
+    public string? Term { get; set; }
+    public string? MeasurementCycle { get; set; }
+    public string? Program { get; set; }
+    public string? Subject { get; set; }
 }
 
 public class StudentProjectDto
@@ -123,4 +147,9 @@ public class StudentProjectDto
     public string Status { get; set; } = default!;
     public string? TeacherNotes { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string? AcademicYear { get; set; }
+    public string? Term { get; set; }
+    public string? MeasurementCycle { get; set; }
+    public string? Program { get; set; }
+    public DateTime? ActivityDate { get; set; }
 }

@@ -104,6 +104,17 @@ export interface StudentProject {
   createdAt: string;
 }
 
+export interface StudentParent {
+  id: number;
+  fullName: string;
+  relationship?: string | null;
+  phoneNumber?: string | null;
+  email?: string | null;
+  ageGroup?: string | null;
+  occupation?: string | null;
+  employmentSector?: string | null;
+}
+
 export interface StudentProfileDetail {
   id: number;
   studentCode: string;
@@ -116,6 +127,7 @@ export interface StudentProfileDetail {
   summary: StudentSummary;
   behaviours: StudentBehaviour[];
   projects: StudentProject[];
+  parents: StudentParent[];
 }
 
 @Injectable({ providedIn: 'root' })

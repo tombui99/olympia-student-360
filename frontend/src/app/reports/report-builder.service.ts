@@ -10,10 +10,12 @@ export interface MetricVariable {
   label: string;
   category: string;
   source: string;
-  value: string;
+  value: number | null;
   unit: string;
-  trend: string;
-  series: number[];
+  trend: number | null;
+  baselineValue: number | null;
+  kpiTarget: number | null;
+  series: { periodStart: string; value: number }[];
 }
 
 export interface CustomChart {
@@ -21,6 +23,10 @@ export interface CustomChart {
   title: string;
   kind: ChartKind;
   metrics: string[];
+  /** Draw the cohort-average (TBC) reference line on bar/line charts. */
+  showBaseline?: boolean;
+  /** Optional KPI target reference line on bar/line charts. */
+  kpiTarget?: number | null;
 }
 
 export interface CustomReport {
@@ -61,108 +67,17 @@ export class ReportBuilderService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  readonly metricVariables: MetricVariable[] = [
-    {
-      id: 'attendance-rate',
-      label: 'Daily attendance rate',
-      category: 'Attendance',
-      source: 'SIS',
-      value: '94.2%',
-      unit: '%',
-      trend: '+1.8 pp',
-      series: [92.4, 92.8, 93.1, 93.6, 93.9, 94.2],
-    },
-    {
-      id: 'assignment-completion',
-      label: 'Assignment completion rate',
-      category: 'Learning',
-      source: 'Canvas',
-      value: '88.6%',
-      unit: '%',
-      trend: '+3.6 pp',
-      series: [82.1, 83.4, 84.7, 86.2, 87.5, 88.6],
-    },
-    {
-      id: 'academic-risk',
-      label: 'Students at academic risk',
-      category: 'Academic',
-      source: 'Warehouse',
-      value: '73',
-      unit: '',
-      trend: '-12 students',
-      series: [104, 98, 91, 85, 79, 73],
-    },
-    {
-      id: 'wellbeing-checkins',
-      label: 'Wellbeing check-ins logged',
-      category: 'Wellbeing',
-      source: 'BaseERP',
-      value: '186',
-      unit: '',
-      trend: '+31',
-      series: [112, 126, 139, 151, 169, 186],
-    },
-    {
-      id: 'late-submissions',
-      label: 'Late submissions (30 days)',
-      category: 'Learning',
-      source: 'Canvas',
-      value: '128',
-      unit: '',
-      trend: '-24',
-      series: [191, 178, 164, 153, 141, 128],
-    },
-    {
-      id: 'intervention-actions',
-      label: 'Intervention action completion',
-      category: 'Support',
-      source: 'BaseERP',
-      value: '91%',
-      unit: '%',
-      trend: '+8.0 pp',
-      series: [76, 79, 82, 85, 88, 91],
-    },
-    {
-      id: 'active-enrollment',
-      label: 'Active student enrollment',
-      category: 'Enrollment',
-      source: 'SIS',
-      value: '1,248',
-      unit: '',
-      trend: '+18 students',
-      series: [1196, 1204, 1217, 1225, 1230, 1248],
-    },
-    {
-      id: 'course-participation',
-      label: 'Weekly course participation',
-      category: 'Engagement',
-      source: 'Canvas',
-      value: '79.6%',
-      unit: '%',
-      trend: '+5.2 pp',
-      series: [68.9, 71.2, 73.8, 75.4, 77.9, 79.6],
-    },
-    {
-      id: 'open-support-cases',
-      label: 'Open student support cases',
-      category: 'Support',
-      source: 'BaseERP',
-      value: '34',
-      unit: '',
-      trend: '-9 cases',
-      series: [58, 53, 49, 44, 39, 34],
-    },
-    {
-      id: 'student-profile-completeness',
-      label: 'Student profile completeness',
-      category: 'DataQuality',
-      source: 'Warehouse',
-      value: '97.4%',
-      unit: '%',
-      trend: '+2.6 pp',
-      series: [89.8, 91.5, 93.1, 94.6, 96.2, 97.4],
-    },
-  ];
+  readonly metricVariables: MetricVariable[] = [];
+
+  loadMetricVariables(params: Record<string, string>): Observable<MetricVariable[]> {
+    return this.http.get<MetricVariable[]>(`${this.basePath}/api/dashboard/metrics`, { params }).pipe(
+      map((metrics) => {
+        this.metricVariables.splice(0, this.metricVariables.length, ...metrics);
+        return metrics;
+      }),
+      catchError(() => of([])),
+    );
+  }
 
   loadReports(): CustomReport[] {
     return [];
@@ -217,16 +132,9 @@ export class ReportBuilderService {
     return {
       id: crypto.randomUUID(),
       owner,
-      title: 'New chart workspace',
-      description: 'Build a dashboard from approved student metrics and Card templates.',
-      charts: [
-        {
-          id: crypto.randomUUID(),
-          title: 'Attendance snapshot',
-          kind: 'bar',
-          metrics: ['attendance-rate', 'assignment-completion'],
-        },
-      ],
+      title: '',
+      description: '',
+      charts: [],
 
       sharedWith: [],
       updatedAt: now,

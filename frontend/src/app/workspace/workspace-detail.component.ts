@@ -15,6 +15,12 @@ import {
   SystemUser,
 } from '../reports/report-builder.service';
 import { StudentListItem, StudentsService } from '../students/students.service';
+import {
+  defaultFilterSet,
+  emptyFilterOptions,
+  WorkspaceFiltersService,
+  WorkspaceFilterSet,
+} from './workspace-filters.service';
 
 type WorkspaceSheetMode = 'edit';
 type SheetKind = 'workspace' | 'chart';
@@ -31,6 +37,8 @@ interface ChartDraft {
   title: string;
   kind: ChartKind;
   metrics: string[];
+  showBaseline: boolean;
+  kpiTarget: number | null;
 }
 
 @Component({
@@ -77,12 +85,135 @@ interface ChartDraft {
       </div>
 
       <section
+        *ngIf="selectedReport()"
+        class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="text-base font-semibold text-[#32124f]">{{ languageService.t('workspace.filters.title') }}</h3>
+            <p class="mt-1 text-xs text-[#7c7284]">{{ languageService.t('workspace.filters.hint') }}</p>
+          </div>
+          <button
+            class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+            type="button"
+            (click)="resetFilters()"
+          >
+            {{ languageService.t('workspace.filters.reset') }}
+          </button>
+        </div>
+
+        <div class="mt-4 grid gap-4 lg:grid-cols-3">
+          <fieldset class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3">
+            <legend class="px-1 text-xs font-bold uppercase tracking-[0.12em] text-[#8a6811]">
+              {{ languageService.t('workspace.filters.time') }}
+            </legend>
+            <div class="grid grid-cols-3 gap-2">
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.year') }}</span>
+                <select class="filter-select" [ngModel]="filters().year" (ngModelChange)="setFilter('year', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
+                  <option *ngFor="let year of options().academicYears" [value]="year">{{ year }}</option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.semester') }}</span>
+                <select class="filter-select" [ngModel]="filters().semester" (ngModelChange)="setFilter('semester', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
+                  <option *ngFor="let semester of options().terms" [value]="semester">
+                    {{ languageService.t('workspace.filters.semester.' + semester) }}
+                  </option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.cycle') }}</span>
+                <select class="filter-select" [ngModel]="filters().cycle" (ngModelChange)="setFilter('cycle', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
+                  <option *ngFor="let cycle of options().measurementCycles" [value]="cycle">
+                    {{ languageService.t('workspace.filters.cycle.' + cycle) }}
+                  </option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3">
+            <legend class="px-1 text-xs font-bold uppercase tracking-[0.12em] text-[#8a6811]">
+              {{ languageService.t('workspace.filters.object') }}
+            </legend>
+            <div class="grid grid-cols-2 gap-2 xl:grid-cols-3">
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.campus') }}</span>
+                <select class="filter-select" [ngModel]="filters().campus" (ngModelChange)="setFilter('campus', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
+                  <option *ngFor="let campus of options().campuses" [value]="campus">{{ campus }}</option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.level') }}</span>
+                <select class="filter-select" [ngModel]="filters().level" (ngModelChange)="setFilter('level', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
+                  <option *ngFor="let level of options().educationLevels" [value]="level">{{ level }}</option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.grade') }}</span>
+                <select class="filter-select" [ngModel]="filters().grade" (ngModelChange)="setFilter('grade', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.allGrades') }}</option>
+                  <option *ngFor="let grade of gradeOptions()" [value]="grade">
+                    {{ languageService.t('workspace.filters.gradePrefix') }} {{ grade }}
+                  </option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.homeroom') }}</span>
+                <select class="filter-select" [ngModel]="filters().homeroom" (ngModelChange)="setFilter('homeroom', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.allHomerooms') }}</option>
+                  <option *ngFor="let homeroom of homeroomOptions()" [value]="homeroom">{{ homeroom }}</option>
+                </select>
+              </label>
+              <label class="filter-field xl:col-span-2">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.student') }}</span>
+                <select class="filter-select" [ngModel]="filters().studentId" (ngModelChange)="setFilter('studentId', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.allStudents') }}</option>
+                  <option *ngFor="let student of studentOptions()" [value]="student.id">
+                    {{ student.fullName }} ({{ student.studentCode }})
+                  </option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3">
+            <legend class="px-1 text-xs font-bold uppercase tracking-[0.12em] text-[#8a6811]">
+              {{ languageService.t('workspace.filters.program') }}
+            </legend>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.program') }}</span>
+                <select class="filter-select" [ngModel]="filters().program" (ngModelChange)="setFilter('program', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
+                  <option *ngFor="let program of options().programs" [value]="program">{{ program }}</option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">{{ languageService.t('workspace.filters.fields.subject') }}</span>
+                <select class="filter-select" [ngModel]="filters().subject" (ngModelChange)="setFilter('subject', $event)">
+                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
+                  <option *ngFor="let subject of options().subjects" [value]="subject">{{ subject }}</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+      </section>
+
+      <section
         *ngIf="selectedReport() as report; else missingWorkspace"
         class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
       >
         <div class="grid gap-5 lg:grid-cols-2">
           <article
-            *ngFor="let chart of report.charts"
+            *ngFor="let chart of orderedCharts(report)"
             class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.06)]"
           >
             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -93,14 +224,34 @@ interface ChartDraft {
                   {{ languageService.t('workspace.chartType.' + chart.kind) }}
                 </p>
               </div>
-              <button
-                *ngIf="isSelectedOwner()"
-                class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] cursor-pointer"
-                type="button"
-                (click)="startEditChart(chart)"
-              >
-                {{ languageService.t('workspace.configure') }}
-              </button>
+              <div class="flex items-center gap-1.5">
+                <button
+                  class="grid h-8 w-8 place-items-center rounded-md border border-[#d8d0df] text-xs font-bold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+                  type="button"
+                  [attr.aria-label]="languageService.t('workspace.moveUp')"
+                  [attr.title]="languageService.t('workspace.moveUp')"
+                  (click)="moveChart(report, chart, -1)"
+                >
+                  ↑
+                </button>
+                <button
+                  class="grid h-8 w-8 place-items-center rounded-md border border-[#d8d0df] text-xs font-bold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+                  type="button"
+                  [attr.aria-label]="languageService.t('workspace.moveDown')"
+                  [attr.title]="languageService.t('workspace.moveDown')"
+                  (click)="moveChart(report, chart, 1)"
+                >
+                  ↓
+                </button>
+                <button
+                  *ngIf="isSelectedOwner()"
+                  class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] cursor-pointer"
+                  type="button"
+                  (click)="startEditChart(chart)"
+                >
+                  {{ languageService.t('workspace.configure') }}
+                </button>
+              </div>
             </div>
 
             <div
@@ -116,8 +267,10 @@ interface ChartDraft {
                     (click)="openDrilldown(metric.id, null)"
                   >
                     <p class="text-sm text-[#6f6877]">{{ metricLabel(metric.id) }}</p>
-                    <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ metric.value }}</p>
-                    <p class="mt-2 text-sm font-medium text-[#8a6811]">{{ metric.trend }}</p>
+                    <p class="mt-2 text-3xl font-semibold text-[#32124f]">
+                      {{ metric.value ?? '—' }}{{ metric.value !== null ? metric.unit : '' }}
+                    </p>
+                    <p *ngIf="metric.trend !== null" class="mt-2 text-sm font-medium text-[#8a6811]">{{ metric.trend }}</p>
                   </button>
                 </div>
 
@@ -393,14 +546,49 @@ interface ChartDraft {
                     {{ languageService.t('workspace.chartTypeHint.scatter') }}
                   </p>
                 </label>
+
+                <div
+                  *ngIf="chartDraft.kind === 'bar' || chartDraft.kind === 'line'"
+                  class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4"
+                >
+                  <p class="text-sm font-medium text-[#32124f]">
+                    {{ languageService.t('workspace.referenceLines') }}
+                  </p>
+                  <p class="mt-1 text-xs text-[#7c7284]">
+                    {{ languageService.t('workspace.referenceLinesHint') }}
+                  </p>
+                  <label class="mt-3 flex cursor-pointer items-center gap-3 text-sm text-[#34243d]">
+                    <input
+                      name="chartBaseline"
+                      type="checkbox"
+                      [(ngModel)]="chartDraft.showBaseline"
+                    />
+                    {{ languageService.t('workspace.showBaseline') }}
+                  </label>
+                  <label class="mt-3 block text-sm text-[#34243d]">
+                    {{ languageService.t('workspace.kpiTarget') }}
+                    <input
+                      class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none"
+                      name="chartKpiTarget"
+                      type="number"
+                      [(ngModel)]="chartDraft.kpiTarget"
+                      [placeholder]="languageService.t('workspace.kpiTargetPlaceholder')"
+                    />
+                  </label>
+                </div>
                 <div>
                   <p class="text-sm font-medium text-[#34243d]">
                     {{ languageService.t('workspace.metricVariables') }}
                   </p>
+                  <p class="mt-1 text-xs text-[#7c7284]">
+                    {{ languageService.t('workspace.oneCategoryRule') }}
+                  </p>
                   <div class="mt-3 space-y-2">
                     <label
                       *ngFor="let metric of metricVariables"
-                      class="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3"
+                      class="flex items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3"
+                      [class.cursor-pointer]="!isMetricDisabled(metric)"
+                      [class.opacity-40]="isMetricDisabled(metric)"
                     >
                       <span>
                         <span class="block text-sm font-semibold text-[#32124f]">{{
@@ -414,6 +602,7 @@ interface ChartDraft {
                         class="mt-1"
                         type="checkbox"
                         [checked]="chartDraft.metrics.includes(metric.id)"
+                        [disabled]="isMetricDisabled(metric)"
                         (change)="toggleChartMetric(metric.id)"
                       />
                     </label>
@@ -568,6 +757,38 @@ interface ChartDraft {
     </section>
   `,
   styles: `
+    .filter-field {
+      display: block;
+      min-width: 0;
+    }
+
+    .filter-label {
+      display: block;
+      margin-bottom: 0.35rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      line-height: 1rem;
+      text-transform: uppercase;
+      color: #6f6877;
+    }
+
+    .filter-select {
+      width: 100%;
+      min-width: 0;
+      border-radius: 0.375rem;
+      border: 1px solid #e1dbe6;
+      background: #ffffff;
+      padding: 0.5rem 0.6rem;
+      font-size: 0.8rem;
+      color: #32124f;
+      outline: none;
+    }
+
+    .filter-select:focus {
+      border-color: #6d3a91;
+    }
+
     .sheet-backdrop {
       opacity: 0;
     }
@@ -646,7 +867,41 @@ export class WorkspaceDetailComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly reportBuilderService = inject(ReportBuilderService);
   private readonly studentsService = inject(StudentsService);
+  private readonly workspaceFilters = inject(WorkspaceFiltersService);
   readonly languageService = inject(LanguageService);
+
+  readonly options = signal(emptyFilterOptions());
+  readonly filters = signal<WorkspaceFilterSet>(defaultFilterSet());
+  private readonly chartOrder = signal<string[]>([]);
+
+  readonly gradeOptions = computed(() => {
+    const level = this.filters().level;
+    const grades = new Set(
+      this.options().students
+        .map((student) => student.gradeLevel)
+        .filter((grade): grade is string => !!grade && this.gradeMatchesLevel(grade, level)),
+    );
+    return [...grades].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  });
+
+  readonly homeroomOptions = computed(() => {
+    const { grade } = this.filters();
+    const homerooms = new Set(
+      this.options().students
+        .filter((student) => !grade || student.gradeLevel === grade)
+        .map((student) => student.homeroom)
+        .filter((homeroom): homeroom is string => !!homeroom),
+    );
+    return [...homerooms].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  });
+
+  readonly studentOptions = computed(() => {
+    const { grade, homeroom } = this.filters();
+    return this.options().students.filter(
+      (student) =>
+        (!grade || student.gradeLevel === grade) && (!homeroom || student.homeroom === homeroom),
+    );
+  });
 
   readonly customReports = signal<CustomReport[]>([]);
   readonly systemUsers = signal<SystemUser[]>([]);
@@ -701,6 +956,118 @@ export class WorkspaceDetailComponent implements OnInit {
     });
 
     this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
+    this.workspaceFilters.options().subscribe((options) => this.options.set(options));
+
+    this.workspaceFilters.load().subscribe((filters) => {
+      this.filters.set(filters);
+      const workspaceId = this.selectedReportId();
+      if (workspaceId) this.chartOrder.set(this.workspaceFilters.loadChartOrder(workspaceId));
+      this.loadMetrics();
+    });
+    this.loadDrilldownStudents();
+  }
+
+  setFilter(key: keyof WorkspaceFilterSet, value: string): void {
+    this.filters.update((current) => {
+      const next = { ...current, [key]: value };
+      if (key === 'level') {
+        next.grade = '';
+        next.homeroom = '';
+        next.studentId = '';
+      } else if (key === 'grade') {
+        next.homeroom = '';
+        next.studentId = '';
+      } else if (key === 'homeroom') {
+        next.studentId = '';
+      }
+      return next;
+    });
+    this.workspaceFilters.save(this.filters());
+    this.loadMetrics();
+  }
+
+  resetFilters(): void {
+    this.filters.set(defaultFilterSet());
+    this.workspaceFilters.save(this.filters());
+    this.loadMetrics();
+  }
+
+  orderedCharts(report: CustomReport): CustomChart[] {
+    const order = this.chartOrder();
+    if (!order.length) {
+      return report.charts;
+    }
+    return [...report.charts].sort((a, b) => {
+      const indexA = order.indexOf(a.id);
+      const indexB = order.indexOf(b.id);
+      return (indexA === -1 ? order.length : indexA) - (indexB === -1 ? order.length : indexB);
+    });
+  }
+
+  moveChart(report: CustomReport, chart: CustomChart, direction: -1 | 1): void {
+    const charts = this.orderedCharts(report);
+    const index = charts.findIndex((candidate) => candidate.id === chart.id);
+    const target = index + direction;
+    if (index === -1 || target < 0 || target >= charts.length) {
+      return;
+    }
+
+    const ids = charts.map((candidate) => candidate.id);
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    this.chartOrder.set(ids);
+    const workspaceId = this.selectedReportId();
+    if (workspaceId) {
+      this.workspaceFilters.saveChartOrder(workspaceId, ids, this.filters());
+    }
+  }
+
+  isMetricDisabled(metric: MetricVariable): boolean {
+    if (this.chartDraft.metrics.includes(metric.id)) {
+      return false;
+    }
+    const selectedCategory = this.selectedChartCategory();
+    return selectedCategory !== null && metric.category !== selectedCategory;
+  }
+
+  private selectedChartCategory(): string | null {
+    for (const metricId of this.chartDraft.metrics) {
+      const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
+      if (metric) {
+        return metric.category;
+      }
+    }
+    return null;
+  }
+
+  private gradeMatchesLevel(grade: string, level: string): boolean {
+    if (!level || level === 'all') {
+      return true;
+    }
+    const numeric = Number(grade);
+    if (!Number.isFinite(numeric)) {
+      return true;
+    }
+    if (level === 'primary') {
+      return numeric >= 1 && numeric <= 5;
+    }
+    if (level === 'secondary') {
+      return numeric >= 6 && numeric <= 9;
+    }
+    return numeric >= 10 && numeric <= 12;
+  }
+
+  private scaledSeries(metric: MetricVariable): number[] {
+    return metric.series.map((point) => point.value);
+  }
+
+  private loadMetrics(): void {
+    const filters = this.filters();
+    const params = Object.fromEntries(Object.entries({
+      year: filters.year, term: filters.semester, cycle: filters.cycle, campus: filters.campus,
+      level: filters.level, grade: filters.grade, homeroom: filters.homeroom,
+      studentId: filters.studentId, program: filters.program, subject: filters.subject,
+    }).filter(([, value]) => !!value));
+    this.reportBuilderService.loadMetricVariables(params).subscribe();
   }
 
   startEditWorkspace() {
@@ -740,6 +1107,8 @@ export class WorkspaceDetailComponent implements OnInit {
       title: this.languageService.t('workspace.defaultNewChartTitle'),
       kind: 'bar',
       metrics: [],
+      showBaseline: false,
+      kpiTarget: null,
     };
     this.openSheet('chart');
   }
@@ -750,6 +1119,8 @@ export class WorkspaceDetailComponent implements OnInit {
       title: chart.title,
       kind: chart.kind,
       metrics: [...chart.metrics],
+      showBaseline: chart.showBaseline ?? false,
+      kpiTarget: chart.kpiTarget ?? null,
     };
     this.openSheet('chart');
   }
@@ -760,6 +1131,12 @@ export class WorkspaceDetailComponent implements OnInit {
       return;
     }
 
+    const kpiTargetRaw = this.chartDraft.kpiTarget;
+    const kpiTarget =
+      kpiTargetRaw === null || kpiTargetRaw === undefined || Number.isNaN(Number(kpiTargetRaw))
+        ? null
+        : Number(kpiTargetRaw);
+
     if (this.chartDraft.id) {
       report.charts = report.charts.map((chart) =>
         chart.id === this.chartDraft.id
@@ -768,6 +1145,8 @@ export class WorkspaceDetailComponent implements OnInit {
               title: this.chartDraft.title.trim(),
               kind: this.chartDraft.kind,
               metrics: [...this.chartDraft.metrics],
+              showBaseline: this.chartDraft.showBaseline,
+              kpiTarget,
             }
           : chart,
       );
@@ -779,6 +1158,8 @@ export class WorkspaceDetailComponent implements OnInit {
           title: this.chartDraft.title.trim(),
           kind: this.chartDraft.kind,
           metrics: [...this.chartDraft.metrics],
+          showBaseline: this.chartDraft.showBaseline,
+          kpiTarget,
         },
       ];
     }
@@ -882,12 +1263,20 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   metricLabel(metricId: string): string {
-    return this.languageService.t(`workspace.metrics.${metricId}.label`);
+    const key = `workspace.metrics.${metricId}.label`;
+    const translated = this.languageService.t(key);
+    return translated === key
+      ? this.metricVariables.find((metric) => metric.id === metricId)?.label ?? metricId
+      : translated;
   }
 
   metricLineage(metric: MetricVariable): string {
-    const category = this.languageService.t(`workspace.categories.${metric.category}`);
-    const source = this.languageService.t(`workspace.sources.${metric.source}`);
+    const categoryKey = `workspace.categories.${metric.category}`;
+    const sourceKey = `workspace.sources.${metric.source}`;
+    const translatedCategory = this.languageService.t(categoryKey);
+    const translatedSource = this.languageService.t(sourceKey);
+    const category = translatedCategory === categoryKey ? metric.category : translatedCategory;
+    const source = translatedSource === sourceKey ? metric.source : translatedSource;
     return `${category} · ${source}`;
   }
 
@@ -952,7 +1341,7 @@ export class WorkspaceDetailComponent implements OnInit {
             },
             data: metrics.map((metric) => ({
               name: this.metricLabel(metric.id),
-              value: Math.max(0, metric.series.at(-1) ?? 0),
+              value: Math.max(0, this.scaledSeries(metric).at(-1) ?? 0),
             })),
           },
         ],
@@ -960,7 +1349,6 @@ export class WorkspaceDetailComponent implements OnInit {
     }
 
     if (chart.kind === 'scatter') {
-      const periods = ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'];
       const xMetric = metrics[0];
       const comparedMetrics = metrics.length > 1 ? metrics.slice(1) : metrics;
 
@@ -1013,10 +1401,12 @@ export class WorkspaceDetailComponent implements OnInit {
           name: this.metricLabel(metric.id),
           type: 'scatter',
           symbolSize: 12,
-          data: metric.series.map((value, index) => ({
-            name: periods[index],
+          data: this.scaledSeries(metric).map((value, index) => ({
+            name: metric.series[index]?.periodStart ?? '',
             value: [
-              metrics.length > 1 ? (xMetric?.series[index] ?? index + 1) : index + 1,
+              metrics.length > 1
+                ? ((xMetric ? this.scaledSeries(xMetric)[index] : undefined) ?? index + 1)
+                : index + 1,
               value,
             ],
           })),
@@ -1029,6 +1419,27 @@ export class WorkspaceDetailComponent implements OnInit {
     }
 
     const cartesianKind = chart.kind === 'line' ? 'line' : 'bar';
+    const scaled = metrics.map((metric) => this.scaledSeries(metric));
+    const baseline = metrics[0]?.baselineValue ?? null;
+
+    const referenceLines: object[] = [];
+    if (chart.showBaseline && baseline !== null) {
+      referenceLines.push({
+        yAxis: baseline,
+        name: this.languageService.t('workspace.baselineLine'),
+        lineStyle: { color: '#7b4aa4', type: 'dashed', width: 1.5 },
+        label: { formatter: `${this.languageService.t('workspace.baselineLine')}: ${baseline}`, color: '#7b4aa4' },
+      });
+    }
+    const kpiTarget = chart.kpiTarget ?? metrics[0]?.kpiTarget ?? null;
+    if (kpiTarget !== null) {
+      referenceLines.push({
+        yAxis: kpiTarget,
+        name: this.languageService.t('workspace.kpiLine'),
+        lineStyle: { color: '#c94f4f', type: 'dashed', width: 1.5 },
+        label: { formatter: `${this.languageService.t('workspace.kpiLine')}: ${kpiTarget}`, color: '#c94f4f' },
+      });
+    }
 
     return {
       color: colors,
@@ -1061,7 +1472,7 @@ export class WorkspaceDetailComponent implements OnInit {
       xAxis: {
         type: 'category',
         boundaryGap: cartesianKind === 'bar',
-        data: ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'],
+        data: metrics[0]?.series.map((point) => this.periodDisplay(point.periodStart)) ?? [],
         axisLine: { lineStyle: { color: '#d8d0df' } },
         axisLabel: { color: '#6f6877' },
       },
@@ -1075,21 +1486,31 @@ export class WorkspaceDetailComponent implements OnInit {
           type: 'inside',
         },
       ],
-      series: metrics.map((metric) => ({
+      series: metrics.map((metric, index) => ({
         name: this.metricLabel(metric.id),
         type: cartesianKind,
-        data: metric.series,
+        data: scaled[index],
         smooth: cartesianKind === 'line',
         symbolSize: 8,
         barMaxWidth: 30,
         emphasis: { focus: 'series' },
         areaStyle: cartesianKind === 'line' ? { opacity: 0.08 } : undefined,
+        markLine:
+          index === 0 && referenceLines.length
+            ? { symbol: 'none', data: referenceLines }
+            : undefined,
       })),
     };
   }
 
   seriesColor(index: number): string {
     return ['#32124f', '#b38116', '#31706f', '#7b4aa4'][index % 4];
+  }
+
+  private periodDisplay(value: string): string {
+    return new Intl.DateTimeFormat(this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US', {
+      month: 'short', year: 'numeric',
+    }).format(new Date(value));
   }
 
   onChartPointClick(chart: CustomChart, event: { seriesName?: string; name?: string; data?: unknown }): void {
@@ -1145,7 +1566,7 @@ export class WorkspaceDetailComponent implements OnInit {
       return false;
     }
     const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
-    return !!metric && ['Learning', 'Engagement'].includes(metric.category);
+    return !!metric && ['Compliance', 'Achievement'].includes(metric.category);
   }
 
   private loadDrilldownStudents(): void {
@@ -1214,7 +1635,7 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   private emptyChartDraft(): ChartDraft {
-    return { id: null, title: '', kind: 'bar', metrics: [] };
+    return { id: null, title: '', kind: 'bar', metrics: [], showBaseline: false, kpiTarget: null };
   }
 
   private owner(): string {

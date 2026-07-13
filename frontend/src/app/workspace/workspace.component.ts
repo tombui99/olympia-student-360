@@ -473,6 +473,7 @@ export class WorkspaceComponent implements OnInit {
   });
 
   ngOnInit() {
+    this.reportBuilderService.loadMetricVariables({}).subscribe();
     const reports = this.reportBuilderService.loadReports();
     this.customReports.set(reports);
     this.selectFirstInSection();
@@ -533,10 +534,6 @@ export class WorkspaceComponent implements OnInit {
       report.description = this.workspaceDraft.description.trim();
 
       report.sharedWith = [...this.workspaceDraft.sharedWith];
-      if (report.charts[0]) {
-        report.charts[0].title = this.languageService.t('workspace.defaultChartTitle');
-      }
-
       this.customReports.set([report, ...this.customReports()]);
       this.activeSection.set('mine');
       this.selectedReportId.set(report.id);
@@ -745,12 +742,20 @@ export class WorkspaceComponent implements OnInit {
   }
 
   metricLabel(metricId: string): string {
-    return this.languageService.t(`workspace.metrics.${metricId}.label`);
+    const key = `workspace.metrics.${metricId}.label`;
+    const translated = this.languageService.t(key);
+    return translated === key
+      ? this.metricVariables.find((metric) => metric.id === metricId)?.label ?? metricId
+      : translated;
   }
 
   metricLineage(metric: MetricVariable): string {
-    const category = this.languageService.t(`workspace.categories.${metric.category}`);
-    const source = this.languageService.t(`workspace.sources.${metric.source}`);
+    const categoryKey = `workspace.categories.${metric.category}`;
+    const sourceKey = `workspace.sources.${metric.source}`;
+    const translatedCategory = this.languageService.t(categoryKey);
+    const translatedSource = this.languageService.t(sourceKey);
+    const category = translatedCategory === categoryKey ? metric.category : translatedCategory;
+    const source = translatedSource === sourceKey ? metric.source : translatedSource;
     return `${category} · ${source}`;
   }
 

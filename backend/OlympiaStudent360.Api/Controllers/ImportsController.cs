@@ -52,7 +52,9 @@ public class ImportsController : ControllerBase
                 IncidentDate = DateTime.SpecifyKind(row.IncidentDate!.Value, DateTimeKind.Utc),
                 BehaviourType = behaviourType,
                 Notes = string.IsNullOrWhiteSpace(row.Notes) ? null : row.Notes.Trim(),
-                RecordedByName = recordedByName
+                RecordedByName = recordedByName,
+                AcademicYear = Clean(row.AcademicYear), Term = Clean(row.Term),
+                MeasurementCycle = Clean(row.MeasurementCycle), Program = Clean(row.Program), Subject = Clean(row.Subject)
             });
         }
 
@@ -100,7 +102,10 @@ public class ImportsController : ControllerBase
                 ProjectName = row.ProjectName.Trim(),
                 Subject = subject,
                 Status = status,
-                TeacherNotes = string.IsNullOrWhiteSpace(row.TeacherNotes) ? null : row.TeacherNotes.Trim()
+                TeacherNotes = string.IsNullOrWhiteSpace(row.TeacherNotes) ? null : row.TeacherNotes.Trim(),
+                AcademicYear = Clean(row.AcademicYear), Term = Clean(row.Term),
+                MeasurementCycle = Clean(row.MeasurementCycle), Program = Clean(row.Program),
+                ActivityDate = row.ActivityDate.HasValue ? DateTime.SpecifyKind(row.ActivityDate.Value, DateTimeKind.Utc) : null
             });
         }
 
@@ -115,6 +120,8 @@ public class ImportsController : ControllerBase
         await _context.SaveChangesAsync();
         return Created($"/api/import-history/{history.Id}", ToDto(history));
     }
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static bool TryGetStudent(
         IReadOnlyDictionary<string, StudentProfile> students,

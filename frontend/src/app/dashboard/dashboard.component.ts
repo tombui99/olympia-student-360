@@ -1,5 +1,6 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
@@ -7,6 +8,7 @@ import { LanguageService } from '../core/language/language.service';
 import { AtRiskStudent, StudentsService } from '../students/students.service';
 import { riskBadgeClass, riskDotClass } from '../students/risk.util';
 import { DashboardOverview, DashboardOverviewService } from './dashboard-overview.service';
+import { defaultFilterSet, WorkspaceFiltersService, WorkspaceFilterSet } from '../workspace/workspace-filters.service';
 
 interface RiskRow {
   level: 'High' | 'Medium' | 'None';
@@ -15,14 +17,49 @@ interface RiskRow {
 
 @Component({
   selector: 'app-dashboard',
-  imports: [NgClass, RouterLink, NgxEchartsDirective],
+  imports: [NgClass, FormsModule, RouterLink, NgxEchartsDirective],
   template: `
     <section class="space-y-7">
-      <div>
-        <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">{{ languageService.t('dashboard.overview') }}</p>
-        <h2 class="mt-2 text-3xl font-semibold text-[#32124f]">{{ languageService.t('dashboard.title') }}</h2>
-        <p class="mt-2 max-w-2xl text-[#6f6877]">{{ languageService.t('dashboard.description') }}</p>
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">{{ languageService.t('dashboard.overview') }}</p>
+          <h2 class="mt-2 text-3xl font-semibold text-[#32124f]">{{ languageService.t('dashboard.title') }}</h2>
+          <p class="mt-2 max-w-2xl text-[#6f6877]">{{ languageService.t('dashboard.description') }}</p>
+        </div>
+        <div class="flex items-center gap-2 rounded-lg border border-[#e9d9b3] bg-[#fff8e1] px-4 py-3">
+          <svg class="h-5 w-5 shrink-0 text-[#8a6811]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <path d="M16 2v4M8 2v4M3 10h18" />
+          </svg>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6811]">
+              {{ languageService.t('dashboard.period.label') }}
+            </p>
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <select
+                class="rounded-md border border-[#e3d3a0] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#32124f] outline-none focus:border-[#b38116]"
+                [(ngModel)]="selectedYear"
+                (ngModelChange)="onPeriodChange()"
+              >
+                <option value="">—</option>
+                <option *ngFor="let year of years()" [value]="year">{{ formatYear(year) }}</option>
+              </select>
+              <select
+                class="rounded-md border border-[#e3d3a0] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#32124f] outline-none focus:border-[#b38116]"
+                [(ngModel)]="selectedTerm"
+                (ngModelChange)="onPeriodChange()"
+              >
+                <option value="all">{{ languageService.t('dashboard.period.term.all') }}</option>
+                <option *ngFor="let term of terms()" [value]="term">
+                  {{ languageService.t('dashboard.period.term.' + term) }}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <p class="-mt-3 text-xs text-[#9a91a3]">{{ languageService.t('dashboard.period.rosterNote') }}</p>
 
       <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
@@ -103,7 +140,12 @@ interface RiskRow {
 
       <div class="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
         <section class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-          <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('dashboard.trendTitle') }}</h3>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('dashboard.trendTitle') }}</h3>
+            <span class="rounded-full bg-[#f1edf4] px-3 py-1 text-xs font-semibold text-[#5b287d]">
+              {{ periodLabel() }}
+            </span>
+          </div>
           <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('dashboard.trendHint') }}</p>
           <div
             echarts
@@ -158,11 +200,27 @@ interface RiskRow {
 export class DashboardComponent implements OnInit {
   private readonly overviewService = inject(DashboardOverviewService);
   private readonly studentsService = inject(StudentsService);
+  private readonly workspaceFilters = inject(WorkspaceFiltersService);
   readonly languageService = inject(LanguageService);
 
   readonly overview = signal<DashboardOverview | null>(null);
   readonly topAtRisk = signal<AtRiskStudent[]>([]);
   readonly atRiskLoading = signal(true);
+
+  readonly years = signal<string[]>([]);
+  readonly terms = signal<string[]>([]);
+  private currentFilters: WorkspaceFilterSet = defaultFilterSet();
+  selectedYear = '';
+  selectedTerm = 'all';
+
+  readonly periodLabel = computed(() => {
+    const data = this.overview();
+    if (!data) {
+      return '';
+    }
+    const term = this.languageService.t('dashboard.period.term.' + data.periodTerm);
+    return `${this.formatYear(data.periodYear)} · ${term}`;
+  });
 
   readonly riskRows = computed<RiskRow[]>(() => {
     const data = this.overview();
@@ -211,9 +269,18 @@ export class DashboardComponent implements OnInit {
   });
 
   ngOnInit() {
-    this.overviewService.overview().subscribe({
-      next: (data) => this.overview.set(data),
-      error: () => undefined,
+    this.workspaceFilters.options().subscribe((options) => {
+      this.years.set(options.academicYears);
+      this.terms.set(options.terms.filter((term) => term !== 'all'));
+    });
+    this.workspaceFilters.load().subscribe({
+      next: (filters) => {
+        this.currentFilters = filters;
+        this.selectedYear = filters.year;
+        this.selectedTerm = filters.semester || 'all';
+        this.loadOverview();
+      },
+      error: () => this.loadOverview(),
     });
 
     this.studentsService.atRisk(1, 5).subscribe({
@@ -223,6 +290,28 @@ export class DashboardComponent implements OnInit {
       },
       error: () => this.atRiskLoading.set(false),
     });
+  }
+
+  onPeriodChange(): void {
+    this.currentFilters = { ...this.currentFilters, year: this.selectedYear, semester: this.selectedTerm };
+    this.workspaceFilters.save(this.currentFilters);
+    this.loadOverview();
+  }
+
+  private loadOverview(): void {
+    this.overviewService.overview(this.selectedYear || undefined, this.selectedTerm).subscribe({
+      next: (data) => {
+        this.overview.set(data);
+        // Reflect the period the server actually resolved (e.g. on first load).
+        this.selectedYear = data.periodYear;
+        this.selectedTerm = data.periodTerm;
+      },
+      error: () => undefined,
+    });
+  }
+
+  formatYear(year: string): string {
+    return year.replace('-', '–');
   }
 
   atRiskSub(): string {
@@ -243,7 +332,7 @@ export class DashboardComponent implements OnInit {
     }
     return this.languageService
       .t('dashboard.cards.behavioursSub')
-      .replace('{value}', String(data.behavioursLast30Days));
+      .replace('{period}', this.periodLabel());
   }
 
   projectsSub(): string {

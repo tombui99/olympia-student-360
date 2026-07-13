@@ -27,6 +27,11 @@ public class ExcelBehaviourRowDto
 
     [MaxLength(1000)]
     public string? Notes { get; set; }
+    [MaxLength(20)] public string? AcademicYear { get; set; }
+    [MaxLength(50)] public string? Term { get; set; }
+    [MaxLength(50)] public string? MeasurementCycle { get; set; }
+    [MaxLength(100)] public string? Program { get; set; }
+    [MaxLength(100)] public string? Subject { get; set; }
 }
 
 public class ExcelProjectImportDto
@@ -57,4 +62,9 @@ public class ExcelProjectRowDto
 
     [MaxLength(1000)]
     public string? TeacherNotes { get; set; }
+    [MaxLength(20)] public string? AcademicYear { get; set; }
+    [MaxLength(50)] public string? Term { get; set; }
+    [MaxLength(50)] public string? MeasurementCycle { get; set; }
+    [MaxLength(100)] public string? Program { get; set; }
+    public DateTime? ActivityDate { get; set; }
 }

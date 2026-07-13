@@ -18,9 +18,6 @@ import { ExcelImportSheetComponent } from './excel-import-sheet.component';
           <h2 class="mt-2 text-3xl font-semibold text-[#32124f]">{{ languageService.t('imports.title') }}</h2>
           <p class="mt-2 max-w-3xl text-[#6f6877]">{{ languageService.t('imports.description') }}</p>
         </div>
-        <span class="rounded-full border border-[#f3c246]/50 bg-[#fff8e1] px-4 py-2 text-sm font-semibold text-[#7a5b12]">
-          {{ languageService.t('imports.mockStatus') }}
-        </span>
       </div>
 
       @if (savedModuleTitleKey()) {
