@@ -41,6 +41,11 @@ interface ChartDraft {
   kpiTarget: number | null;
 }
 
+interface MetricGroup {
+  category: string;
+  metrics: MetricVariable[];
+}
+
 @Component({
   selector: 'app-workspace-detail',
   imports: [FormsModule, NgFor, NgIf, NgxEchartsDirective, RouterLink],
@@ -583,29 +588,35 @@ interface ChartDraft {
                   <p class="mt-1 text-xs text-[#7c7284]">
                     {{ languageService.t('workspace.oneCategoryRule') }}
                   </p>
-                  <div class="mt-3 space-y-2">
-                    <label
-                      *ngFor="let metric of metricVariables"
-                      class="flex items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3"
-                      [class.cursor-pointer]="!isMetricDisabled(metric)"
-                      [class.opacity-40]="isMetricDisabled(metric)"
-                    >
-                      <span>
-                        <span class="block text-sm font-semibold text-[#32124f]">{{
-                          metricLabel(metric.id)
-                        }}</span>
-                        <span class="mt-1 block text-xs text-[#7c7284]">{{
-                          metricLineage(metric)
-                        }}</span>
-                      </span>
-                      <input
-                        class="mt-1"
-                        type="checkbox"
-                        [checked]="chartDraft.metrics.includes(metric.id)"
-                        [disabled]="isMetricDisabled(metric)"
-                        (change)="toggleChartMetric(metric.id)"
-                      />
-                    </label>
+                  <div class="mt-3 space-y-3">
+                    <details *ngFor="let group of metricGroups(); trackBy: trackMetricGroup" class="overflow-hidden rounded-md border border-[#e1dbe6] bg-white">
+                      <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-[#f4f0f6] px-4 py-3 text-sm font-semibold text-[#32124f]">
+                        <span>{{ categoryLabel(group.category) }}</span>
+                        <span class="rounded-full bg-white px-2.5 py-0.5 text-xs text-[#6f6877]">
+                          {{ selectedMetricCount(group) }}/{{ group.metrics.length }}
+                        </span>
+                      </summary>
+                      <div class="space-y-2 border-t border-[#e1dbe6] p-3">
+                        <label
+                          *ngFor="let metric of group.metrics; trackBy: trackMetric"
+                          class="flex items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3"
+                          [class.cursor-pointer]="!isMetricDisabled(metric)"
+                          [class.opacity-40]="isMetricDisabled(metric)"
+                        >
+                          <span>
+                            <span class="block text-sm font-semibold text-[#32124f]">{{ metricLabel(metric.id) }}</span>
+                            <span class="mt-1 block text-xs text-[#7c7284]">{{ sourceLabel(metric.source) }}</span>
+                          </span>
+                          <input
+                            class="mt-1"
+                            type="checkbox"
+                            [checked]="chartDraft.metrics.includes(metric.id)"
+                            [disabled]="isMetricDisabled(metric)"
+                            (change)="toggleChartMetric(metric.id)"
+                          />
+                        </label>
+                      </div>
+                    </details>
                   </div>
                 </div>
               </div>
@@ -1029,6 +1040,28 @@ export class WorkspaceDetailComponent implements OnInit {
     return selectedCategory !== null && metric.category !== selectedCategory;
   }
 
+  metricGroups(): MetricGroup[] {
+    const order = ['AdmissionsFinance', 'Safety', 'Compliance', 'Achievement'];
+    return order
+      .map((category) => ({
+        category,
+        metrics: this.metricVariables.filter((metric) => metric.category === category),
+      }))
+      .filter((group) => group.metrics.length > 0);
+  }
+
+  selectedMetricCount(group: MetricGroup): number {
+    return group.metrics.filter((metric) => this.chartDraft.metrics.includes(metric.id)).length;
+  }
+
+  trackMetricGroup(_index: number, group: MetricGroup): string {
+    return group.category;
+  }
+
+  trackMetric(_index: number, metric: MetricVariable): string {
+    return metric.id;
+  }
+
   private selectedChartCategory(): string | null {
     for (const metricId of this.chartDraft.metrics) {
       const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
@@ -1278,6 +1311,18 @@ export class WorkspaceDetailComponent implements OnInit {
     const category = translatedCategory === categoryKey ? metric.category : translatedCategory;
     const source = translatedSource === sourceKey ? metric.source : translatedSource;
     return `${category} · ${source}`;
+  }
+
+  categoryLabel(category: string): string {
+    const key = `workspace.categories.${category}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? category : translated;
+  }
+
+  sourceLabel(source: string): string {
+    const key = `workspace.sources.${source}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? source : translated;
   }
 
   chartMetrics(chart: CustomChart): MetricVariable[] {
