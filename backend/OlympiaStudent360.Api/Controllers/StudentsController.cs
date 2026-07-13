@@ -139,6 +139,116 @@ public class StudentsController : ControllerBase
         });
     }
 
+    [HttpGet("manual-entry-options")]
+    public async Task<ActionResult<ManualEntryOptionsDto>> GetManualEntryOptions()
+    {
+        var students = await VisibleStudents()
+            .OrderBy(student => student.FullName)
+            .ThenBy(student => student.StudentCode)
+            .Select(student => new ManualEntryStudentDto
+            {
+                Id = student.Id,
+                StudentCode = student.StudentCode,
+                FullName = student.FullName,
+                GradeLevel = student.GradeLevel,
+                Homeroom = student.Homeroom
+            })
+            .ToListAsync();
+
+        return Ok(new ManualEntryOptionsDto
+        {
+            Students = students,
+            BehaviourTypes = StudentClassificationService.SupportedBehaviourTypes,
+            ProjectSubjects = StudentDataEntryOptions.ProjectSubjects,
+            ProjectStatuses = StudentDataEntryOptions.ProjectStatuses
+        });
+    }
+
+    [HttpPost("{studentId:int}/behaviours")]
+    public async Task<ActionResult<StudentBehaviourDto>> CreateBehaviour(
+        int studentId,
+        [FromBody] CreateStudentBehaviourDto model)
+    {
+        var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
+        if (student == null)
+        {
+            return BadRequest(new { Message = "The selected student ID is invalid or is not assigned to you." });
+        }
+
+        if (!StudentClassificationService.IsSupportedBehaviourType(model.BehaviourType))
+        {
+            return BadRequest(new { Message = "The selected behaviour type is invalid." });
+        }
+
+        var recordedByName = await CurrentUserDisplayName();
+        var behaviour = new StudentBehaviour
+        {
+            StudentProfileId = student.Id,
+            IncidentDate = DateTime.SpecifyKind(model.IncidentDate!.Value, DateTimeKind.Utc),
+            BehaviourType = StudentClassificationService.SupportedBehaviourTypes
+                .First(type => string.Equals(type, model.BehaviourType, StringComparison.OrdinalIgnoreCase)),
+            Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim(),
+            RecordedByName = recordedByName
+        };
+
+        _context.StudentBehaviours.Add(behaviour);
+        _context.ImportHistories.Add(CreateManualImportHistory("student-behaviours", recordedByName));
+        await _context.SaveChangesAsync();
+
+        return Created($"/api/students/{student.Id}", new StudentBehaviourDto
+        {
+            Id = behaviour.Id,
+            IncidentDate = behaviour.IncidentDate,
+            BehaviourType = behaviour.BehaviourType,
+            Notes = behaviour.Notes,
+            RecordedByName = behaviour.RecordedByName
+        });
+    }
+
+    [HttpPost("{studentId:int}/projects")]
+    public async Task<ActionResult<StudentProjectDto>> CreateProject(
+        int studentId,
+        [FromBody] CreateStudentProjectDto model)
+    {
+        var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
+        if (student == null)
+        {
+            return BadRequest(new { Message = "The selected student ID is invalid or is not assigned to you." });
+        }
+
+        var subject = StudentDataEntryOptions.ProjectSubjects.FirstOrDefault(value =>
+            string.Equals(value, model.Subject, StringComparison.OrdinalIgnoreCase));
+        var status = StudentDataEntryOptions.ProjectStatuses.FirstOrDefault(value =>
+            string.Equals(value, model.Status, StringComparison.OrdinalIgnoreCase));
+        if (subject == null || status == null)
+        {
+            return BadRequest(new { Message = "The selected project subject or status is invalid." });
+        }
+
+        var project = new StudentProject
+        {
+            StudentProfileId = student.Id,
+            ProjectName = model.ProjectName.Trim(),
+            Subject = subject,
+            Status = status,
+            TeacherNotes = string.IsNullOrWhiteSpace(model.TeacherNotes) ? null : model.TeacherNotes.Trim()
+        };
+
+        _context.StudentProjects.Add(project);
+        _context.ImportHistories.Add(CreateManualImportHistory("student-projects", await CurrentUserDisplayName()));
+        await _context.SaveChangesAsync();
+
+        return Created($"/api/students/{student.Id}", new StudentProjectDto
+        {
+            Id = project.Id,
+            ProjectName = project.ProjectName,
+            Subject = project.Subject,
+            Status = project.Status,
+            TeacherNotes = project.TeacherNotes,
+            CreatedAt = project.CreatedAt
+        });
+    }
+
     [HttpGet("cohorts")]
     public async Task<ActionResult<CohortsResponseDto>> GetCohorts()
     {
@@ -299,6 +409,35 @@ public class StudentsController : ControllerBase
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         return query.Where(student => student.TeacherUserId == userId);
+    }
+
+    private async Task<string> CurrentUserDisplayName()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var fullName = string.IsNullOrWhiteSpace(userId)
+            ? null
+            : await _context.Users
+                .Where(user => user.Id == userId)
+                .Select(user => user.FullName)
+                .FirstOrDefaultAsync();
+
+        return string.IsNullOrWhiteSpace(fullName) ? User.Identity?.Name ?? "Unknown" : fullName;
+    }
+
+    private ImportHistory CreateManualImportHistory(string moduleId, string importedByName)
+    {
+        return new ImportHistory
+        {
+            ModuleId = moduleId,
+            Source = "Manual",
+            FileName = "Manual entry",
+            Status = "Valid",
+            ValidRows = 1,
+            InvalidRows = 0,
+            ImportedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
+            ImportedByUsername = User.Identity?.Name ?? "unknown",
+            ImportedByName = importedByName
+        };
     }
 
     private static (int Page, int PageSize) NormalizePaging(int page, int pageSize) =>

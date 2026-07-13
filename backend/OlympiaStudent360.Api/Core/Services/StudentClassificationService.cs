@@ -9,6 +9,16 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// </summary>
 public static class StudentClassificationService
 {
+    public static readonly IReadOnlyList<string> SupportedBehaviourTypes =
+    [
+        "Commendation",
+        "Excellent participation",
+        "Helped a classmate",
+        "Late to class",
+        "Homework not submitted",
+        "Disruptive in class"
+    ];
+
     private static readonly HashSet<string> ConcerningBehaviourTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "Late to class",
@@ -60,6 +70,9 @@ public static class StudentClassificationService
 
     public static bool IsCommendationBehaviour(StudentBehaviour behaviour) =>
         CommendationBehaviourTypes.Contains(behaviour.BehaviourType);
+
+    public static bool IsSupportedBehaviourType(string behaviourType) =>
+        SupportedBehaviourTypes.Contains(behaviourType, StringComparer.OrdinalIgnoreCase);
 
     private static bool IsGradeNine(string? gradeLevel) =>
         int.TryParse(gradeLevel, out var grade) && grade >= 9;

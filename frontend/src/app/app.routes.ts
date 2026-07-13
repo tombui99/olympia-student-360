@@ -66,13 +66,6 @@ export const routes: Routes = [
           ),
       },
       {
-        path: 'imports/:moduleId',
-        loadComponent: () =>
-          import('./imports/manual-excel-import-detail.component').then(
-            (m) => m.ManualExcelImportDetailComponent,
-          ),
-      },
-      {
         path: 'admin/accounts',
         loadComponent: () =>
           import('./admin/account-management.component').then((m) => m.AccountManagementComponent),

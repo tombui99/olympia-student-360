@@ -7,9 +7,10 @@ export type ImportModule = {
 };
 
 export type ImportRecord = {
-  id: string;
+  id: number;
   moduleId: string;
   moduleTitleKey: string;
+  source: 'Manual' | 'Excel';
   fileName: string;
   importedAt: string;
   importedBy: string;

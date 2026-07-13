@@ -49,6 +49,19 @@ public class StudentProject : BaseEntity
     public string? TeacherNotes { get; set; }
 }
 
+public class ImportHistory : BaseEntity
+{
+    public string ModuleId { get; set; } = default!;
+    public string Source { get; set; } = default!;
+    public string FileName { get; set; } = default!;
+    public string Status { get; set; } = default!;
+    public int ValidRows { get; set; }
+    public int InvalidRows { get; set; }
+    public string ImportedByUserId { get; set; } = default!;
+    public string ImportedByUsername { get; set; } = default!;
+    public string ImportedByName { get; set; } = default!;
+}
+
 public class CustomReport : BaseEntity
 {
     public string OwnerUserId { get; set; } = default!;

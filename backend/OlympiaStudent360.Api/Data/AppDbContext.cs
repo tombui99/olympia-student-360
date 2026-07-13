@@ -13,6 +13,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentProfile> StudentProfiles { get; set; }
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
+    public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<CustomReport> CustomReports { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -76,6 +77,20 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .WithMany(s => s.Projects)
                 .HasForeignKey(p => p.StudentProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ImportHistory>(history =>
+        {
+            history.Property(item => item.ModuleId).HasMaxLength(100);
+            history.Property(item => item.Source).HasMaxLength(20);
+            history.Property(item => item.FileName).HasMaxLength(255);
+            history.Property(item => item.Status).HasMaxLength(20);
+            history.Property(item => item.ImportedByUserId).HasMaxLength(450);
+            history.Property(item => item.ImportedByUsername).HasMaxLength(256);
+            history.Property(item => item.ImportedByName).HasMaxLength(255);
+            history.HasIndex(item => item.ImportedByUserId);
+            history.HasIndex(item => item.CreatedAt);
+            history.HasIndex(item => new { item.ModuleId, item.CreatedAt });
         });
 
         modelBuilder.Entity<CustomReport>()
