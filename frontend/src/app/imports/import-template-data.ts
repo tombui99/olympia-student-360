@@ -41,11 +41,4 @@ export const importModules: ImportModule[] = [
     headers: ['student_id', 'student_name', 'project_name', 'subject', 'status', 'teacher_notes'],
     requiredHeaders: ['student_id', 'student_name', 'project_name', 'subject', 'status'],
   },
-  {
-    id: 'student-parents',
-    titleKey: 'imports.modules.parents.title',
-    descriptionKey: 'imports.modules.parents.description',
-    headers: ['student_id', 'student_name', 'parent_name', 'relationship', 'phone', 'email'],
-    requiredHeaders: ['student_id', 'student_name', 'parent_name', 'relationship'],
-  },
 ];

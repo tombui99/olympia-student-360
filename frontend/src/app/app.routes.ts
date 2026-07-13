@@ -19,6 +19,36 @@ export const routes: Routes = [
           import('./dashboard/dashboard.component').then((m) => m.DashboardComponent),
       },
       {
+        path: 'students',
+        loadComponent: () =>
+          import('./students/students.component').then((m) => m.StudentsComponent),
+      },
+      {
+        path: 'at-risk',
+        loadComponent: () =>
+          import('./students/at-risk.component').then((m) => m.AtRiskComponent),
+      },
+      {
+        path: 'commendations',
+        loadComponent: () =>
+          import('./students/commendations.component').then((m) => m.CommendationsComponent),
+      },
+      {
+        path: 'cohorts',
+        loadComponent: () =>
+          import('./students/cohorts.component').then((m) => m.CohortsComponent),
+      },
+      {
+        path: 'students/:studentId',
+        loadComponent: () =>
+          import('./students/student-profile.component').then((m) => m.StudentProfileComponent),
+      },
+      {
+        path: 'students/:studentId/digest',
+        loadComponent: () =>
+          import('./students/student-digest.component').then((m) => m.StudentDigestComponent),
+      },
+      {
         path: 'workspace',
         loadComponent: () =>
           import('./workspace/workspace.component').then((m) => m.WorkspaceComponent),

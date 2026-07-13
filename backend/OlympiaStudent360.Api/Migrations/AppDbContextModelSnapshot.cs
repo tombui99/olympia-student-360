@@ -269,6 +269,46 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("CustomReports");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentBehaviour", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("BehaviourType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("IncidentDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("RecordedByName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentDate");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.ToTable("StudentBehaviours");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -310,6 +350,46 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("TeacherUserId");
 
                     b.ToTable("StudentProfiles");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProject", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ProjectName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("TeacherNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.ToTable("StudentProjects");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -363,6 +443,17 @@ namespace OlympiaStudent360.Api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentBehaviour", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany("Behaviours")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "Teacher")
@@ -373,9 +464,27 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Teacher");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProject", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany("Projects")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ApplicationUser", b =>
                 {
                     b.Navigation("AssignedStudents");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
+                {
+                    b.Navigation("Behaviours");
+
+                    b.Navigation("Projects");
                 });
 #pragma warning restore 612, 618
         }

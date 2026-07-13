@@ -16,3 +16,29 @@ button,
 input {
   font: inherit;
 }
+
+@media print {
+  /* Print only the digest: hide the app shell (sidebar, header, controls). */
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  .print-region {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+  }
+
+  .print-region .print-shadow-none {
+    box-shadow: none !important;
+  }
+
+  @page {
+    margin: 16mm;
+  }
+}

@@ -11,6 +11,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     }
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
+    public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
+    public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<CustomReport> CustomReports { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -50,6 +52,32 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<StudentProfile>()
             .HasIndex(s => s.TeacherUserId);
 
+        modelBuilder.Entity<StudentBehaviour>(behaviour =>
+        {
+            behaviour.Property(b => b.BehaviourType).HasMaxLength(100);
+            behaviour.Property(b => b.Notes).HasMaxLength(1000);
+            behaviour.Property(b => b.RecordedByName).HasMaxLength(255);
+            behaviour.HasIndex(b => b.StudentProfileId);
+            behaviour.HasIndex(b => b.IncidentDate);
+            behaviour.HasOne(b => b.Student)
+                .WithMany(s => s.Behaviours)
+                .HasForeignKey(b => b.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StudentProject>(project =>
+        {
+            project.Property(p => p.ProjectName).HasMaxLength(255);
+            project.Property(p => p.Subject).HasMaxLength(100);
+            project.Property(p => p.Status).HasMaxLength(50);
+            project.Property(p => p.TeacherNotes).HasMaxLength(1000);
+            project.HasIndex(p => p.StudentProfileId);
+            project.HasOne(p => p.Student)
+                .WithMany(s => s.Projects)
+                .HasForeignKey(p => p.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<CustomReport>()
             .Property(r => r.OwnerUserId)
             .HasMaxLength(450);
@@ -68,5 +96,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<CustomReport>()
             .HasIndex(r => r.OwnerUserId);
+
     }
 }

@@ -25,6 +25,28 @@ public class StudentProfile : BaseEntity
     public string? Homeroom { get; set; }
     public string? TeacherUserId { get; set; }
     public ApplicationUser? Teacher { get; set; }
+    public ICollection<StudentBehaviour> Behaviours { get; set; } = [];
+    public ICollection<StudentProject> Projects { get; set; } = [];
+}
+
+public class StudentBehaviour : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public DateTime IncidentDate { get; set; }
+    public string BehaviourType { get; set; } = default!;
+    public string? Notes { get; set; }
+    public string? RecordedByName { get; set; }
+}
+
+public class StudentProject : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public string ProjectName { get; set; } = default!;
+    public string? Subject { get; set; }
+    public string Status { get; set; } = default!;
+    public string? TeacherNotes { get; set; }
 }
 
 public class CustomReport : BaseEntity

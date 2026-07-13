@@ -14,6 +14,7 @@ import {
   ReportBuilderService,
   SystemUser,
 } from '../reports/report-builder.service';
+import { StudentListItem, StudentsService } from '../students/students.service';
 
 type WorkspaceSheetMode = 'edit';
 type SheetKind = 'workspace' | 'chart';
@@ -107,24 +108,35 @@ interface ChartDraft {
             >
               <ng-container *ngIf="chart.metrics.length; else emptyChart">
                 <div *ngIf="chart.kind === 'card'" class="grid gap-3 sm:grid-cols-2">
-                  <div
+                  <button
                     *ngFor="let metric of chartMetrics(chart)"
-                    class="rounded-md border border-[#ebe6ef] bg-white p-4"
+                    class="rounded-md border border-[#ebe6ef] bg-white p-4 text-left transition hover:border-[#f3c246] hover:bg-[#fff8e1] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f3c246]"
+                    type="button"
+                    [title]="languageService.t('workspace.drilldown.openHint')"
+                    (click)="openDrilldown(metric.id, null)"
                   >
                     <p class="text-sm text-[#6f6877]">{{ metricLabel(metric.id) }}</p>
                     <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ metric.value }}</p>
                     <p class="mt-2 text-sm font-medium text-[#8a6811]">{{ metric.trend }}</p>
-                  </div>
+                  </button>
                 </div>
 
                 <div
                   echarts
                   *ngIf="chart.kind !== 'card'"
-                  class="h-72 w-full"
+                  class="h-72 w-full cursor-pointer"
                   [options]="chartOptions(chart)"
                   role="img"
                   [attr.aria-label]="chart.title"
+                  (chartClick)="onChartPointClick(chart, $event)"
                 ></div>
+
+                <p
+                  *ngIf="chart.kind !== 'card'"
+                  class="mt-3 text-xs text-[#9a91a3]"
+                >
+                  {{ languageService.t('workspace.drilldown.chartHint') }}
+                </p>
 
                 <div class="mt-3 flex flex-wrap gap-3">
                   <span
@@ -439,6 +451,120 @@ interface ChartDraft {
           </ng-template>
         </aside>
       </div>
+
+      <div
+        *ngIf="drilldownMounted()"
+        class="fixed inset-0 z-40"
+        [class.pointer-events-none]="!drilldownOpen()"
+      >
+        <button
+          class="sheet-backdrop absolute inset-0 bg-[#24182f]/35"
+          [class.sheet-backdrop-open]="drilldownOpen()"
+          [class.sheet-backdrop-closing]="!drilldownOpen()"
+          type="button"
+          [attr.aria-label]="languageService.t('workspace.closeSheet')"
+          (click)="closeDrilldown()"
+        ></button>
+
+        <aside
+          class="sheet-panel absolute right-0 top-0 flex h-full w-full max-w-lg flex-col bg-white shadow-[0_24px_80px_rgba(36,24,47,0.28)]"
+          [class.sheet-panel-open]="drilldownOpen()"
+          [class.sheet-panel-closing]="!drilldownOpen()"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div class="flex items-start justify-between gap-4 border-b border-[#ebe6ef] px-6 py-5">
+            <div class="min-w-0">
+              <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">
+                {{ languageService.t('workspace.drilldown.eyebrow') }}
+              </p>
+              <h3 class="mt-2 truncate text-xl font-semibold text-[#32124f]">
+                {{ drilldownMetricLabel() }}
+              </h3>
+              <p class="mt-1 text-sm text-[#6f6877]">
+                <span *ngIf="drilldownPeriod()" class="font-semibold text-[#32124f]"
+                  >{{ drilldownPeriod() }} · </span
+                >{{ languageService.t('workspace.drilldown.subtitle') }}
+              </p>
+            </div>
+            <button
+              class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#d8d0df] text-lg font-semibold text-[#32124f]"
+              type="button"
+              (click)="closeDrilldown()"
+            >
+              x
+            </button>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <p
+              class="mb-4 rounded-md border border-[#efe7d3] bg-[#fff8e1] px-4 py-3 text-xs leading-5 text-[#7a5b12]"
+            >
+              {{ languageService.t('workspace.drilldown.dataNote') }}
+            </p>
+
+            <p
+              *ngIf="drilldownError()"
+              class="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              {{ drilldownError() }}
+            </p>
+
+            <p
+              *ngIf="drilldownLoading()"
+              class="py-10 text-center text-sm text-[#7c7284]"
+            >
+              {{ languageService.t('workspace.drilldown.loading') }}
+            </p>
+
+            <ul *ngIf="!drilldownLoading() && !drilldownError()" class="space-y-2">
+              <li *ngFor="let student of drilldownStudents()">
+                <a
+                  class="flex items-center gap-3 rounded-lg border border-[#ebe6ef] p-3 transition hover:border-[#d3c6db] hover:bg-[#fdfcff]"
+                  [routerLink]="['/students', student.id]"
+                  (click)="closeDrilldown()"
+                >
+                  <span
+                    class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1edf4] text-xs font-bold text-[#5b287d]"
+                  >
+                    {{ studentInitials(student.fullName) }}
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-semibold text-[#32124f]">{{
+                      student.fullName
+                    }}</span>
+                    <span class="mt-0.5 block truncate text-xs text-[#7c7284]">
+                      {{ student.studentCode }} ·
+                      {{ languageService.t('workspace.drilldown.grade') }}
+                      {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
+                    </span>
+                  </span>
+                  <span class="flex shrink-0 items-center gap-2">
+                    <span
+                      class="rounded-full bg-[#f3c246]/25 px-2.5 py-1 text-xs font-bold text-[#7a5b12]"
+                      [title]="languageService.t('workspace.drilldown.behaviours')"
+                    >
+                      {{ student.behaviourCount }}
+                    </span>
+                    <span
+                      class="rounded-full bg-[#f1edf4] px-2.5 py-1 text-xs font-bold text-[#5b287d]"
+                      [title]="languageService.t('workspace.drilldown.projects')"
+                    >
+                      {{ student.projectCount }}
+                    </span>
+                  </span>
+                </a>
+              </li>
+              <li
+                *ngIf="!drilldownStudents().length"
+                class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center text-sm text-[#7c7284]"
+              >
+                {{ languageService.t('workspace.drilldown.empty') }}
+              </li>
+            </ul>
+          </div>
+        </aside>
+      </div>
     </section>
   `,
   styles: `
@@ -519,6 +645,7 @@ export class WorkspaceDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly reportBuilderService = inject(ReportBuilderService);
+  private readonly studentsService = inject(StudentsService);
   readonly languageService = inject(LanguageService);
 
   readonly customReports = signal<CustomReport[]>([]);
@@ -531,7 +658,27 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly shareDropdownOpen = signal(false);
   readonly metricVariables = this.reportBuilderService.metricVariables;
 
+  readonly drilldownMounted = signal(false);
+  readonly drilldownOpen = signal(false);
+  readonly drilldownLoading = signal(false);
+  readonly drilldownError = signal<string | null>(null);
+  readonly drilldownMetricId = signal<string | null>(null);
+  readonly drilldownMetricLabel = signal<string>('');
+  readonly drilldownPeriod = signal<string | null>(null);
+  private readonly drilldownStudentPool = signal<StudentListItem[]>([]);
+
+  readonly drilldownStudents = computed(() => {
+    const students = [...this.drilldownStudentPool()];
+    const rankByProjects = this.isProjectMetric(this.drilldownMetricId());
+    return students.sort((a, b) =>
+      rankByProjects
+        ? b.projectCount - a.projectCount || a.fullName.localeCompare(b.fullName)
+        : b.behaviourCount - a.behaviourCount || a.fullName.localeCompare(b.fullName),
+    );
+  });
+
   private sheetUnmountTimer: number | null = null;
+  private drilldownUnmountTimer: number | null = null;
 
   workspaceDraft: WorkspaceDraft = this.emptyWorkspaceDraft();
   chartDraft: ChartDraft = this.emptyChartDraft();
@@ -943,6 +1090,90 @@ export class WorkspaceDetailComponent implements OnInit {
 
   seriesColor(index: number): string {
     return ['#32124f', '#b38116', '#31706f', '#7b4aa4'][index % 4];
+  }
+
+  onChartPointClick(chart: CustomChart, event: { seriesName?: string; name?: string; data?: unknown }): void {
+    const metrics = this.chartMetrics(chart);
+    if (!metrics.length) {
+      return;
+    }
+
+    const seriesName = event?.seriesName ?? event?.name;
+    const metric = metrics.find((candidate) => this.metricLabel(candidate.id) === seriesName) ?? metrics[0];
+
+    let period: string | null = null;
+    if (chart.kind === 'bar' || chart.kind === 'line') {
+      period = typeof event?.name === 'string' ? event.name : null;
+    } else if (chart.kind === 'scatter') {
+      const scatterPoint = event?.data as { name?: string } | undefined;
+      period = scatterPoint?.name ?? null;
+    }
+
+    this.openDrilldown(metric.id, period);
+  }
+
+  openDrilldown(metricId: string, period: string | null): void {
+    this.drilldownMetricId.set(metricId);
+    this.drilldownMetricLabel.set(this.metricLabel(metricId));
+    this.drilldownPeriod.set(period);
+    this.drilldownError.set(null);
+    this.mountDrilldown();
+    this.loadDrilldownStudents();
+  }
+
+  closeDrilldown(): void {
+    this.drilldownOpen.set(false);
+    this.drilldownUnmountTimer = window.setTimeout(() => {
+      this.drilldownMounted.set(false);
+      this.drilldownUnmountTimer = null;
+    }, 300);
+  }
+
+  studentInitials(name: string): string {
+    return (
+      name
+        .trim()
+        .split(/\s+/)
+        .slice(-2)
+        .map((part) => part[0]?.toUpperCase())
+        .join('') || 'S'
+    );
+  }
+
+  private isProjectMetric(metricId: string | null): boolean {
+    if (!metricId) {
+      return false;
+    }
+    const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
+    return !!metric && ['Learning', 'Engagement'].includes(metric.category);
+  }
+
+  private loadDrilldownStudents(): void {
+    if (this.drilldownStudentPool().length) {
+      return;
+    }
+
+    this.drilldownLoading.set(true);
+    this.studentsService.list().subscribe({
+      next: (students) => {
+        this.drilldownStudentPool.set(students);
+        this.drilldownLoading.set(false);
+      },
+      error: () => {
+        this.drilldownLoading.set(false);
+        this.drilldownError.set(this.languageService.t('workspace.drilldown.loadError'));
+      },
+    });
+  }
+
+  private mountDrilldown(): void {
+    if (this.drilldownUnmountTimer !== null) {
+      window.clearTimeout(this.drilldownUnmountTimer);
+      this.drilldownUnmountTimer = null;
+    }
+
+    this.drilldownMounted.set(true);
+    this.drilldownOpen.set(true);
   }
 
   private openSheet(kind: SheetKind) {

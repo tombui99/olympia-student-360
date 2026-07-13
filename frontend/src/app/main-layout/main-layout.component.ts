@@ -9,6 +9,10 @@ import {
   faBars,
   faRightFromBracket,
   faArrowRightArrowLeft,
+  faUserGraduate,
+  faTriangleExclamation,
+  faLayerGroup,
+  faAward,
   faUsersGear,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
@@ -22,13 +26,18 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
+interface NavSection {
+  titleKey: string;
+  items: NavItem[];
+}
+
 @Component({
   selector: 'app-main-layout',
   imports: [RouterOutlet, RouterLink, RouterLinkActive, FontAwesomeModule],
   template: `
     <div class="layout-shell min-h-screen bg-[#f6f4ef] text-[#24182f]" [class.sidebar-collapsed]="sidebarCollapsed()">
       <aside
-        class="sidebar flex flex-col bg-[#32124f] px-5 py-6 text-white lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto"
+        class="sidebar no-print flex flex-col bg-[#32124f] px-5 py-6 text-white lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto"
         [class.sidebar-compact]="sidebarCollapsed()"
       >
         <div class="sidebar-header flex items-center justify-between gap-2">
@@ -53,22 +62,33 @@ interface NavItem {
           </button>
         </div>
 
-        <nav class="mt-9 space-y-1">
-          @for (item of navItems; track item.path) {
-            @if (!item.adminOnly || authService.getUserRole() === 'Admin') {
-              <a
-                [routerLink]="item.path"
-                routerLinkActive="nav-link-active"
-                class="nav-link flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold transition"
-                [class.justify-center]="sidebarCollapsed()"
-                [attr.aria-label]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
-                [attr.title]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
-              >
-                <fa-icon class="nav-icon" [icon]="item.icon" />
+        <nav class="mt-9">
+          @for (section of navSections; track section.titleKey; let first = $first) {
+            @if (visibleItems(section).length) {
+              <div class="nav-section space-y-1" [class.mt-6]="!first">
                 @if (!sidebarCollapsed()) {
-                  <span>{{ languageService.t(item.labelKey) }}</span>
+                  <p class="nav-section-title px-4 pb-1 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#b79bd0]">
+                    {{ languageService.t(section.titleKey) }}
+                  </p>
+                } @else if (!first) {
+                  <div class="nav-section-divider mx-auto mb-2 h-px w-7 bg-white/15" aria-hidden="true"></div>
                 }
-              </a>
+                @for (item of visibleItems(section); track item.path) {
+                  <a
+                    [routerLink]="item.path"
+                    routerLinkActive="nav-link-active"
+                    class="nav-link flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold transition"
+                    [class.justify-center]="sidebarCollapsed()"
+                    [attr.aria-label]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
+                    [attr.title]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
+                  >
+                    <fa-icon class="nav-icon" [icon]="item.icon" />
+                    @if (!sidebarCollapsed()) {
+                      <span>{{ languageService.t(item.labelKey) }}</span>
+                    }
+                  </a>
+                }
+              </div>
             }
           }
         </nav>
@@ -101,7 +121,7 @@ interface NavItem {
       </aside>
 
       <div class="min-w-0">
-        <header class="flex flex-wrap items-center justify-between gap-4 border-b border-[#e4dde8] bg-white px-6 py-4 lg:px-8">
+        <header class="no-print flex flex-wrap items-center justify-between gap-4 border-b border-[#e4dde8] bg-white px-6 py-4 lg:px-8">
           <div>
             <p class="text-sm text-[#7c7284]">{{ languageService.t('app.school') }}</p>
             <h1 class="text-xl font-semibold text-[#32124f]">{{ languageService.t('app.headerTitle') }}</h1>
@@ -220,22 +240,44 @@ export class MainLayoutComponent {
   readonly sidebarCollapsed = signal(false);
   readonly menuIcon = faBars;
   readonly signOutIcon = faRightFromBracket;
-  readonly navItems: NavItem[] = [
-    { path: '/dashboard', labelKey: 'nav.dashboard', icon: faGaugeHigh },
-    { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
-    { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
-    { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
+  readonly navSections: NavSection[] = [
     {
-      path: '/admin/teacher-student-assignments',
-      labelKey: 'nav.teacherAssignments',
-      icon: faArrowRightArrowLeft,
-      adminOnly: true,
+      titleKey: 'navSection.overview',
+      items: [{ path: '/dashboard', labelKey: 'nav.dashboard', icon: faGaugeHigh }],
     },
     {
-      path: '/admin/sync-history',
-      labelKey: 'nav.syncHistory',
-      icon: faClockRotateLeft,
-      adminOnly: true,
+      titleKey: 'navSection.students',
+      items: [
+        { path: '/students', labelKey: 'nav.students', icon: faUserGraduate },
+        { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation },
+        { path: '/commendations', labelKey: 'nav.commendations', icon: faAward },
+        { path: '/cohorts', labelKey: 'nav.cohorts', icon: faLayerGroup },
+      ],
+    },
+    {
+      titleKey: 'navSection.data',
+      items: [
+        { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
+        { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
+      ],
+    },
+    {
+      titleKey: 'navSection.administration',
+      items: [
+        { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
+        {
+          path: '/admin/teacher-student-assignments',
+          labelKey: 'nav.teacherAssignments',
+          icon: faArrowRightArrowLeft,
+          adminOnly: true,
+        },
+        {
+          path: '/admin/sync-history',
+          labelKey: 'nav.syncHistory',
+          icon: faClockRotateLeft,
+          adminOnly: true,
+        },
+      ],
     },
   ];
 
@@ -243,6 +285,11 @@ export class MainLayoutComponent {
     readonly authService: AuthenticationService,
     readonly languageService: LanguageService,
   ) {}
+
+  visibleItems(section: NavSection): NavItem[] {
+    const isAdmin = this.authService.getUserRole() === 'Admin';
+    return section.items.filter((item) => !item.adminOnly || isAdmin);
+  }
 
   toggleSidebar(): void {
     this.sidebarCollapsed.update((collapsed) => !collapsed);
