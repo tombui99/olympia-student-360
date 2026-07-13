@@ -12,9 +12,11 @@ import { LanguageService } from '../../core/language/language.service';
     <main class="min-h-screen bg-[#f6f4ef] lg:grid lg:grid-cols-[1.05fr_0.95fr]">
       <section class="hidden bg-[#32124f] px-12 py-10 text-white lg:flex lg:flex-col">
         <div class="flex items-center gap-4">
-          <div class="grid h-12 w-12 place-items-center rounded bg-[#f3c246] text-xl font-bold text-[#32124f]">
-            O
-          </div>
+          <img
+            src="/assets/olympia_logo.png"
+            [alt]="languageService.t('app.school')"
+            class="h-14 w-14 shrink-0 object-contain"
+          />
           <div>
             <p class="text-sm uppercase tracking-[0.18em] text-[#f3c246]">{{ languageService.t('app.school') }}</p>
             <h1 class="text-2xl font-semibold">{{ languageService.t('app.brand') }}</h1>
@@ -35,9 +37,11 @@ import { LanguageService } from '../../core/language/language.service';
       <section class="flex min-h-screen items-center justify-center px-6 py-12">
         <div class="w-full max-w-md">
           <div class="mb-10 lg:hidden">
-            <div class="mb-5 grid h-12 w-12 place-items-center rounded bg-[#32124f] text-xl font-bold text-[#f3c246]">
-              O
-            </div>
+            <img
+              src="/assets/olympia_logo.png"
+              [alt]="languageService.t('app.school')"
+              class="mb-5 h-16 w-16 object-contain"
+            />
             <p class="text-sm uppercase tracking-[0.18em] text-[#7a5b12]">{{ languageService.t('app.school') }}</p>
             <h1 class="mt-2 text-3xl font-semibold text-[#32124f]">{{ languageService.t('app.brand') }}</h1>
           </div>

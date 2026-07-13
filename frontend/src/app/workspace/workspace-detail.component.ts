@@ -739,18 +739,20 @@ interface MetricGroup {
                       {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
                     </span>
                   </span>
-                  <span class="flex shrink-0 items-center gap-2">
+                  <span class="grid shrink-0 gap-1.5 text-[11px]">
                     <span
-                      class="rounded-full bg-[#f3c246]/25 px-2.5 py-1 text-xs font-bold text-[#7a5b12]"
+                      class="inline-flex min-w-28 items-center justify-between gap-2 rounded-full bg-[#f3c246]/25 px-2.5 py-1 font-semibold text-[#7a5b12]"
                       [title]="languageService.t('workspace.drilldown.behaviours')"
                     >
-                      {{ student.behaviourCount }}
+                      <span>{{ languageService.t('workspace.drilldown.behaviours') }}</span>
+                      <strong class="text-xs">{{ student.behaviourCount }}</strong>
                     </span>
                     <span
-                      class="rounded-full bg-[#f1edf4] px-2.5 py-1 text-xs font-bold text-[#5b287d]"
+                      class="inline-flex min-w-28 items-center justify-between gap-2 rounded-full bg-[#f1edf4] px-2.5 py-1 font-semibold text-[#5b287d]"
                       [title]="languageService.t('workspace.drilldown.projects')"
                     >
-                      {{ student.projectCount }}
+                      <span>{{ languageService.t('workspace.drilldown.projects') }}</span>
+                      <strong class="text-xs">{{ student.projectCount }}</strong>
                     </span>
                   </span>
                 </a>

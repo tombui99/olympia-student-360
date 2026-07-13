@@ -57,9 +57,11 @@ import { riskBadgeClass } from './risk.util';
               </h1>
               <p class="mt-1 text-sm text-[#6f6877]">{{ generatedLine() }}</p>
             </div>
-            <div class="grid h-14 w-14 shrink-0 place-items-center rounded bg-[#f3c246] text-2xl font-bold text-[#32124f]">
-              O
-            </div>
+            <img
+              src="/assets/olympia_logo.png"
+              [alt]="languageService.t('app.school')"
+              class="h-16 w-16 shrink-0 object-contain"
+            />
           </header>
 
           <section class="mt-6 grid gap-4 sm:grid-cols-2">
