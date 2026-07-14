@@ -121,7 +121,87 @@ public class ImportsController : ControllerBase
         return Created($"/api/import-history/{history.Id}", ToDto(history));
     }
 
+    [HttpPost("student-health-incidents")]
+    [Authorize(Roles = "Admin,Principal,Teacher")]
+    public async Task<ActionResult<ImportHistoryDto>> ImportHealthIncidents(
+        [FromBody] ExcelHealthIncidentImportDto model)
+    {
+        var students = await VisibleStudents().ToDictionaryAsync(student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+        var academicYears = await _context.AcademicPeriods.AsNoTracking()
+            .Select(period => period.AcademicYear)
+            .Distinct()
+            .ToHashSetAsync(StringComparer.OrdinalIgnoreCase);
+        var errors = new List<string>();
+        var incidents = new List<StudentHealthIncident>();
+        var recordedByName = await CurrentUserDisplayName();
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+
+        for (var index = 0; index < model.Rows.Count; index++)
+        {
+            var row = model.Rows[index];
+            var rowNumber = index + 2;
+            if (!TryGetStudent(students, row.StudentId, row.StudentName, rowNumber, errors, out var student))
+            {
+                continue;
+            }
+
+            var incidentType = Canonical(StudentDataEntryOptions.HealthIncidentTypes, row.IncidentType);
+            var bodyArea = string.IsNullOrWhiteSpace(row.BodyArea)
+                ? null
+                : Canonical(StudentDataEntryOptions.HealthBodyAreas, row.BodyArea);
+            var location = string.IsNullOrWhiteSpace(row.Location)
+                ? null
+                : Canonical(StudentDataEntryOptions.HealthLocations, row.Location);
+            if (!academicYears.Contains(row.AcademicYear.Trim()))
+                errors.Add($"Row {rowNumber}: academic_year is not configured.");
+            if (incidentType == null)
+                errors.Add($"Row {rowNumber}: incident_type is not supported.");
+            if (!StudentDataEntryOptions.HealthSeverityLevels.Contains(row.SeverityLevel))
+                errors.Add($"Row {rowNumber}: severity_level must be 1, 2, or 3.");
+            if (!string.IsNullOrWhiteSpace(row.BodyArea) && bodyArea == null)
+                errors.Add($"Row {rowNumber}: body_area is not supported.");
+            if (!string.IsNullOrWhiteSpace(row.Location) && location == null)
+                errors.Add($"Row {rowNumber}: location is not supported.");
+            if (incidentType == null || bodyArea == null && !string.IsNullOrWhiteSpace(row.BodyArea) ||
+                location == null && !string.IsNullOrWhiteSpace(row.Location) ||
+                !academicYears.Contains(row.AcademicYear.Trim()) ||
+                !StudentDataEntryOptions.HealthSeverityLevels.Contains(row.SeverityLevel))
+            {
+                continue;
+            }
+
+            incidents.Add(new StudentHealthIncident
+            {
+                StudentProfileId = student!.Id,
+                IncidentDate = DateTime.SpecifyKind(row.IncidentDate!.Value, DateTimeKind.Utc),
+                AcademicYear = row.AcademicYear.Trim(),
+                IncidentType = incidentType,
+                SeverityLevel = row.SeverityLevel,
+                BodyArea = bodyArea,
+                Location = location,
+                Cause = row.Cause.Trim(),
+                ActionTaken = Clean(row.ActionTaken),
+                RecordedByUserId = userId,
+                RecordedByName = recordedByName
+            });
+        }
+
+        if (errors.Count > 0)
+        {
+            return BadRequest(new { Message = "No rows were imported. Correct every error and try again.", Errors = errors });
+        }
+
+        var history = await CreateExcelHistory("student-health-incidents", model.FileName, incidents.Count);
+        _context.StudentHealthIncidents.AddRange(incidents);
+        _context.ImportHistories.Add(history);
+        await _context.SaveChangesAsync();
+        return Created($"/api/import-history/{history.Id}", ToDto(history));
+    }
+
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? Canonical(IReadOnlyList<string> options, string value) =>
+        options.FirstOrDefault(option => string.Equals(option, value, StringComparison.OrdinalIgnoreCase));
 
     private static bool TryGetStudent(
         IReadOnlyDictionary<string, StudentProfile> students,

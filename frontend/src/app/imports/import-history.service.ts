@@ -29,7 +29,7 @@ export class ImportHistoryService {
   }
 
   importExcel(moduleId: string, fileName: string, rows: Record<string, string>[]) {
-    const endpoint = moduleId === 'student-behaviours' ? 'student-behaviours' : 'student-projects';
+    const endpoint = moduleId;
     const mappedRows = moduleId === 'student-behaviours'
       ? rows.map((row) => ({
           studentId: row['student_id'],
@@ -38,13 +38,24 @@ export class ImportHistoryService {
           behaviourType: row['behaviour_type'],
           notes: row['notes'] || null,
         }))
-      : rows.map((row) => ({
+      : moduleId === 'student-projects' ? rows.map((row) => ({
           studentId: row['student_id'],
           studentName: row['student_name'],
           projectName: row['project_name'],
           subject: row['subject'],
           status: row['status'],
           teacherNotes: row['teacher_notes'] || null,
+        })) : rows.map((row) => ({
+          studentId: row['student_id'],
+          studentName: row['student_name'],
+          incidentDate: row['incident_date'],
+          academicYear: row['academic_year'],
+          incidentType: row['incident_type'],
+          severityLevel: Number(row['severity_level']),
+          bodyArea: row['body_area'] || null,
+          location: row['location'] || null,
+          cause: row['cause'],
+          actionTaken: row['action_taken'] || null,
         }));
 
     return this.http

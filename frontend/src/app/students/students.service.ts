@@ -20,6 +20,7 @@ export interface StudentListItem {
   teacherName?: string | null;
   behaviourCount: number;
   projectCount: number;
+  healthIncidentCount: number;
   riskLevel: RiskLevel;
   riskFlagCount: number;
 }
@@ -104,6 +105,19 @@ export interface StudentProject {
   createdAt: string;
 }
 
+export interface StudentHealthIncident {
+  id: number;
+  incidentDate: string;
+  academicYear: string;
+  incidentType: string;
+  severityLevel: number;
+  bodyArea?: string | null;
+  location?: string | null;
+  cause: string;
+  actionTaken?: string | null;
+  recordedByName?: string | null;
+}
+
 export interface StudentParent {
   id: number;
   fullName: string;
@@ -127,6 +141,7 @@ export interface StudentProfileDetail {
   summary: StudentSummary;
   behaviours: StudentBehaviour[];
   projects: StudentProject[];
+  healthIncidents: StudentHealthIncident[];
   parents: StudentParent[];
 }
 

@@ -65,6 +65,7 @@ public class StudentsController : ControllerBase
                     TeacherName = entry.Student.Teacher?.FullName,
                     BehaviourCount = entry.Student.Behaviours.Count,
                     ProjectCount = entry.Student.Projects.Count,
+                    HealthIncidentCount = entry.Student.HealthIncidents.Count,
                     RiskLevel = entry.Risk.Level,
                     RiskFlagCount = entry.Risk.Flags.Count,
                     Flags = entry.Risk.Flags
@@ -142,6 +143,11 @@ public class StudentsController : ControllerBase
     [HttpGet("manual-entry-options")]
     public async Task<ActionResult<ManualEntryOptionsDto>> GetManualEntryOptions()
     {
+        var academicYears = await _context.AcademicPeriods.AsNoTracking()
+            .Select(period => period.AcademicYear)
+            .Distinct()
+            .OrderByDescending(year => year)
+            .ToListAsync();
         var students = await VisibleStudents()
             .OrderBy(student => student.FullName)
             .ThenBy(student => student.StudentCode)
@@ -160,7 +166,12 @@ public class StudentsController : ControllerBase
             Students = students,
             BehaviourTypes = StudentClassificationService.SupportedBehaviourTypes,
             ProjectSubjects = StudentDataEntryOptions.ProjectSubjects,
-            ProjectStatuses = StudentDataEntryOptions.ProjectStatuses
+            ProjectStatuses = StudentDataEntryOptions.ProjectStatuses,
+            AcademicYears = academicYears,
+            HealthIncidentTypes = StudentDataEntryOptions.HealthIncidentTypes,
+            HealthSeverityLevels = StudentDataEntryOptions.HealthSeverityLevels,
+            HealthBodyAreas = StudentDataEntryOptions.HealthBodyAreas,
+            HealthLocations = StudentDataEntryOptions.HealthLocations
         });
     }
 
@@ -258,6 +269,60 @@ public class StudentsController : ControllerBase
         });
     }
 
+    [HttpPost("{studentId:int}/health-incidents")]
+    [Authorize(Roles = "Admin,Principal,Teacher")]
+    public async Task<ActionResult<StudentHealthIncidentDto>> CreateHealthIncident(
+        int studentId,
+        [FromBody] CreateStudentHealthIncidentDto model)
+    {
+        var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
+        if (student == null)
+        {
+            return BadRequest(new { Message = "The selected student ID is invalid." });
+        }
+
+        if (!await _context.AcademicPeriods.AsNoTracking()
+                .AnyAsync(period => period.AcademicYear == model.AcademicYear.Trim()))
+        {
+            return BadRequest(new { Message = "The selected academic year is not configured." });
+        }
+
+        var incidentType = Canonical(StudentDataEntryOptions.HealthIncidentTypes, model.IncidentType);
+        var bodyArea = string.IsNullOrWhiteSpace(model.BodyArea)
+            ? null
+            : Canonical(StudentDataEntryOptions.HealthBodyAreas, model.BodyArea);
+        var location = string.IsNullOrWhiteSpace(model.Location)
+            ? null
+            : Canonical(StudentDataEntryOptions.HealthLocations, model.Location);
+        if (incidentType == null || (model.BodyArea != null && bodyArea == null) ||
+            (model.Location != null && location == null) ||
+            !StudentDataEntryOptions.HealthSeverityLevels.Contains(model.SeverityLevel))
+        {
+            return BadRequest(new { Message = "The selected health incident options are invalid." });
+        }
+
+        var recordedByName = await CurrentUserDisplayName();
+        var incident = new StudentHealthIncident
+        {
+            StudentProfileId = student.Id,
+            IncidentDate = DateTime.SpecifyKind(model.IncidentDate!.Value, DateTimeKind.Utc),
+            AcademicYear = model.AcademicYear.Trim(),
+            IncidentType = incidentType,
+            SeverityLevel = model.SeverityLevel,
+            BodyArea = bodyArea,
+            Location = location,
+            Cause = model.Cause.Trim(),
+            ActionTaken = Clean(model.ActionTaken),
+            RecordedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
+            RecordedByName = recordedByName
+        };
+
+        _context.StudentHealthIncidents.Add(incident);
+        _context.ImportHistories.Add(CreateManualImportHistory("student-health-incidents", recordedByName));
+        await _context.SaveChangesAsync();
+        return Created($"/api/students/{student.Id}", ToHealthIncidentDto(incident));
+    }
+
     [HttpGet("cohorts")]
     public async Task<ActionResult<CohortsResponseDto>> GetCohorts()
     {
@@ -294,10 +359,12 @@ public class StudentsController : ControllerBase
     public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(int id)
     {
         var student = await VisibleStudents()
+            .AsSplitQuery()
             .Include(candidate => candidate.Teacher)
             .Include(candidate => candidate.Behaviours)
             .Include(candidate => candidate.Projects)
             .Include(candidate => candidate.Parents)
+            .Include(candidate => candidate.HealthIncidents)
             .FirstOrDefaultAsync(candidate => candidate.Id == id);
 
         if (student == null)
@@ -371,6 +438,10 @@ public class StudentsController : ControllerBase
                     Occupation = parent.Occupation,
                     EmploymentSector = parent.EmploymentSector
                 })
+                .ToList(),
+            HealthIncidents = student.HealthIncidents
+                .OrderByDescending(incident => incident.IncidentDate)
+                .Select(ToHealthIncidentDto)
                 .ToList()
         };
 
@@ -393,12 +464,30 @@ public class StudentsController : ControllerBase
             TeacherName = student.Teacher?.FullName,
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
+            HealthIncidentCount = student.HealthIncidents.Count,
             RiskLevel = risk.Level,
             RiskFlagCount = risk.Flags.Count
         };
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? Canonical(IReadOnlyList<string> options, string value) =>
+        options.FirstOrDefault(option => string.Equals(option, value, StringComparison.OrdinalIgnoreCase));
+
+    private static StudentHealthIncidentDto ToHealthIncidentDto(StudentHealthIncident incident) => new()
+    {
+        Id = incident.Id,
+        IncidentDate = incident.IncidentDate,
+        AcademicYear = incident.AcademicYear,
+        IncidentType = incident.IncidentType,
+        SeverityLevel = incident.SeverityLevel,
+        BodyArea = incident.BodyArea,
+        Location = incident.Location,
+        Cause = incident.Cause,
+        ActionTaken = incident.ActionTaken,
+        RecordedByName = incident.RecordedByName
+    };
 
     private static List<CohortStatsDto> BuildCohorts(
         IEnumerable<IGrouping<string, CohortEntry>> groups,
@@ -429,9 +518,11 @@ public class StudentsController : ControllerBase
     private async Task<List<StudentProfile>> LoadVisibleWithActivity()
     {
         return await VisibleStudents()
+            .AsSplitQuery()
             .Include(student => student.Teacher)
             .Include(student => student.Behaviours)
             .Include(student => student.Projects)
+            .Include(student => student.HealthIncidents)
             .ToListAsync();
     }
 

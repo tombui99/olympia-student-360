@@ -31,6 +31,23 @@ public class StudentProfile : BaseEntity
     public ICollection<StudentBehaviour> Behaviours { get; set; } = [];
     public ICollection<StudentProject> Projects { get; set; } = [];
     public ICollection<StudentParent> Parents { get; set; } = [];
+    public ICollection<StudentHealthIncident> HealthIncidents { get; set; } = [];
+}
+
+public class StudentHealthIncident : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public DateTime IncidentDate { get; set; }
+    public string AcademicYear { get; set; } = default!;
+    public string IncidentType { get; set; } = default!;
+    public int SeverityLevel { get; set; }
+    public string? BodyArea { get; set; }
+    public string? Location { get; set; }
+    public string Cause { get; set; } = default!;
+    public string? ActionTaken { get; set; }
+    public string RecordedByUserId { get; set; } = default!;
+    public string RecordedByName { get; set; } = default!;
 }
 
 public class StudentParent : BaseEntity

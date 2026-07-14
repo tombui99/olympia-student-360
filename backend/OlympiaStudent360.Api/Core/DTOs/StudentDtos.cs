@@ -13,6 +13,7 @@ public class StudentListItemDto
     public string? TeacherName { get; set; }
     public int BehaviourCount { get; set; }
     public int ProjectCount { get; set; }
+    public int HealthIncidentCount { get; set; }
     public string RiskLevel { get; set; } = "None";
     public int RiskFlagCount { get; set; }
 }
@@ -103,6 +104,21 @@ public class StudentProfileDetailDto
     public List<StudentBehaviourDto> Behaviours { get; set; } = [];
     public List<StudentProjectDto> Projects { get; set; } = [];
     public List<StudentParentDto> Parents { get; set; } = [];
+    public List<StudentHealthIncidentDto> HealthIncidents { get; set; } = [];
+}
+
+public class StudentHealthIncidentDto
+{
+    public int Id { get; set; }
+    public DateTime IncidentDate { get; set; }
+    public string AcademicYear { get; set; } = default!;
+    public string IncidentType { get; set; } = default!;
+    public int SeverityLevel { get; set; }
+    public string? BodyArea { get; set; }
+    public string? Location { get; set; }
+    public string Cause { get; set; } = default!;
+    public string? ActionTaken { get; set; }
+    public string RecordedByName { get; set; } = default!;
 }
 
 public class StudentParentDto

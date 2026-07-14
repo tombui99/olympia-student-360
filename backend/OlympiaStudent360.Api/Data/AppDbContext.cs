@@ -14,6 +14,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<StudentParent> StudentParents { get; set; }
+    public DbSet<StudentHealthIncident> StudentHealthIncidents { get; set; }
     public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<CustomReport> CustomReports { get; set; }
     public DbSet<AcademicPeriod> AcademicPeriods { get; set; }
@@ -110,6 +111,25 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             parent.HasOne(p => p.Student)
                 .WithMany(s => s.Parents)
                 .HasForeignKey(p => p.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StudentHealthIncident>(incident =>
+        {
+            incident.Property(i => i.AcademicYear).HasMaxLength(20);
+            incident.Property(i => i.IncidentType).HasMaxLength(100);
+            incident.Property(i => i.BodyArea).HasMaxLength(100);
+            incident.Property(i => i.Location).HasMaxLength(150);
+            incident.Property(i => i.Cause).HasMaxLength(1000);
+            incident.Property(i => i.ActionTaken).HasMaxLength(1000);
+            incident.Property(i => i.RecordedByUserId).HasMaxLength(450);
+            incident.Property(i => i.RecordedByName).HasMaxLength(255);
+            incident.HasIndex(i => i.StudentProfileId);
+            incident.HasIndex(i => i.IncidentDate);
+            incident.HasIndex(i => new { i.AcademicYear, i.SeverityLevel });
+            incident.HasOne(i => i.Student)
+                .WithMany(s => s.HealthIncidents)
+                .HasForeignKey(i => i.StudentProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

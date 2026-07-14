@@ -66,10 +66,16 @@ public static class StudentClassificationService
     }
 
     public static bool IsConcerningBehaviour(StudentBehaviour behaviour) =>
-        ConcerningBehaviourTypes.Contains(behaviour.BehaviourType);
+        IsConcerningBehaviourType(behaviour.BehaviourType);
 
     public static bool IsCommendationBehaviour(StudentBehaviour behaviour) =>
-        CommendationBehaviourTypes.Contains(behaviour.BehaviourType);
+        IsCommendationBehaviourType(behaviour.BehaviourType);
+
+    public static bool IsConcerningBehaviourType(string behaviourType) =>
+        ConcerningBehaviourTypes.Contains(behaviourType);
+
+    public static bool IsCommendationBehaviourType(string behaviourType) =>
+        CommendationBehaviourTypes.Contains(behaviourType);
 
     public static bool IsSupportedBehaviourType(string behaviourType) =>
         SupportedBehaviourTypes.Contains(behaviourType, StringComparer.OrdinalIgnoreCase);

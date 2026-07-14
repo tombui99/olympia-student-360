@@ -154,9 +154,179 @@ public class DashboardController : ControllerBase
                 KpiTarget = group.OrderByDescending(o => o.PeriodStart).First().KpiTarget,
                 Series = points
             };
-        }).OrderBy(metric => metric.Category).ThenBy(metric => metric.Label).ToList();
+        }).ToList();
+
+        result.AddRange(await ImportedDataMetrics(
+            year, term, cycle, campus, level, grade, homeroom, studentId, program, subject));
+        result = result
+            .OrderBy(metric => metric.Category)
+            .ThenBy(metric => metric.Label)
+            .ToList();
         return Ok(result);
     }
+
+    private async Task<List<DashboardMetricDto>> ImportedDataMetrics(
+        string? year, string? term, string? cycle, string? campus, string? level, string? grade,
+        string? homeroom, int? studentId, string? program, string? subject)
+    {
+        var behaviours = _context.StudentBehaviours.AsNoTracking().AsQueryable();
+        var projects = _context.StudentProjects.AsNoTracking().AsQueryable();
+        var healthIncidents = _context.StudentHealthIncidents.AsNoTracking().AsQueryable();
+
+        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            behaviours = behaviours.Where(item => item.Student.TeacherUserId == userId);
+            projects = projects.Where(item => item.Student.TeacherUserId == userId);
+            healthIncidents = healthIncidents.Where(item => item.Student.TeacherUserId == userId);
+        }
+
+        if (studentId.HasValue)
+        {
+            behaviours = behaviours.Where(item => item.StudentProfileId == studentId.Value);
+            projects = projects.Where(item => item.StudentProfileId == studentId.Value);
+            healthIncidents = healthIncidents.Where(item => item.StudentProfileId == studentId.Value);
+        }
+        if (HasFilter(campus))
+        {
+            behaviours = behaviours.Where(item => item.Student.Campus == campus);
+            projects = projects.Where(item => item.Student.Campus == campus);
+            healthIncidents = healthIncidents.Where(item => item.Student.Campus == campus);
+        }
+        if (HasFilter(level))
+        {
+            behaviours = behaviours.Where(item => item.Student.EducationLevel == level);
+            projects = projects.Where(item => item.Student.EducationLevel == level);
+            healthIncidents = healthIncidents.Where(item => item.Student.EducationLevel == level);
+        }
+        if (HasFilter(grade))
+        {
+            behaviours = behaviours.Where(item => item.Student.GradeLevel == grade);
+            projects = projects.Where(item => item.Student.GradeLevel == grade);
+            healthIncidents = healthIncidents.Where(item => item.Student.GradeLevel == grade);
+        }
+        if (HasFilter(homeroom))
+        {
+            behaviours = behaviours.Where(item => item.Student.Homeroom == homeroom);
+            projects = projects.Where(item => item.Student.Homeroom == homeroom);
+            healthIncidents = healthIncidents.Where(item => item.Student.Homeroom == homeroom);
+        }
+        if (HasFilter(program))
+        {
+            behaviours = behaviours.Where(item => item.Program == program ||
+                (item.Program == null && item.Student.Program == program));
+            projects = projects.Where(item => item.Program == program ||
+                (item.Program == null && item.Student.Program == program));
+            healthIncidents = healthIncidents.Where(item => item.Student.Program == program);
+        }
+        if (HasFilter(subject))
+        {
+            behaviours = behaviours.Where(item => item.Subject == subject);
+            projects = projects.Where(item => item.Subject == subject);
+            // Health incidents have no subject dimension, so a subject-specific report has no health rows.
+            healthIncidents = healthIncidents.Where(_ => false);
+        }
+        if (HasFilter(cycle))
+        {
+            behaviours = behaviours.Where(item => item.MeasurementCycle == cycle);
+            projects = projects.Where(item => item.MeasurementCycle == cycle);
+            // Health incidents are event records and do not use a measurement cycle.
+            healthIncidents = healthIncidents.Where(_ => false);
+        }
+
+        var hasYear = HasFilter(year);
+        var hasTerm = HasFilter(term);
+        (string Year, string Term, DateTime Start, DateTime End)? period = null;
+        if (hasYear || hasTerm)
+        {
+            period = await ResolvePeriod(year, term, DateTime.UtcNow);
+        }
+        if (hasYear && period.HasValue)
+        {
+            var selectedYear = year!;
+            var start = period.Value.Start;
+            var end = period.Value.End;
+            behaviours = behaviours.Where(item => item.AcademicYear == selectedYear ||
+                (item.AcademicYear == null && item.IncidentDate >= start && item.IncidentDate < end));
+            projects = projects.Where(item => item.AcademicYear == selectedYear ||
+                (item.AcademicYear == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
+                 (item.ActivityDate ?? item.CreatedAt) < end));
+            healthIncidents = healthIncidents.Where(item => item.AcademicYear == selectedYear);
+        }
+        if (hasTerm && period.HasValue)
+        {
+            var selectedTerm = term!;
+            var start = period.Value.Start;
+            var end = period.Value.End;
+            behaviours = behaviours.Where(item => item.Term == selectedTerm ||
+                (item.Term == null && item.IncidentDate >= start && item.IncidentDate < end));
+            projects = projects.Where(item => item.Term == selectedTerm ||
+                (item.Term == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
+                 (item.ActivityDate ?? item.CreatedAt) < end));
+            healthIncidents = healthIncidents.Where(item => item.IncidentDate >= start && item.IncidentDate < end);
+        }
+
+        var behaviourRows = await behaviours
+            .Select(item => new { Date = item.IncidentDate, Type = item.BehaviourType })
+            .ToListAsync();
+        var projectRows = await projects
+            .Select(item => new { Date = item.ActivityDate ?? item.CreatedAt, item.Status })
+            .ToListAsync();
+        var healthRows = await healthIncidents
+            .Select(item => new { Date = item.IncidentDate, item.SeverityLevel })
+            .ToListAsync();
+
+        return
+        [
+            CountMetric("behaviour-records", "Behaviour records", "Compliance", "StudentBehaviours",
+                behaviourRows.Select(item => item.Date)),
+            CountMetric("concern-behaviour-records", "Concerning behaviour records", "Compliance", "StudentBehaviours",
+                behaviourRows.Where(item => StudentClassificationService.IsConcerningBehaviourType(item.Type))
+                    .Select(item => item.Date)),
+            CountMetric("commendation-records", "Commendation records", "Achievement", "StudentBehaviours",
+                behaviourRows.Where(item => StudentClassificationService.IsCommendationBehaviourType(item.Type))
+                    .Select(item => item.Date)),
+            CountMetric("project-records", "Student projects", "Achievement", "StudentProjects",
+                projectRows.Select(item => item.Date)),
+            CountMetric("active-project-records", "Active student projects", "Achievement", "StudentProjects",
+                projectRows.Where(item => !string.Equals(item.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+                    .Select(item => item.Date)),
+            CountMetric("health-incident-records", "Health and injury incidents", "Safety", "StudentHealthIncidents",
+                healthRows.Select(item => item.Date)),
+            CountMetric("serious-health-incident-records", "Serious health incidents", "Safety", "StudentHealthIncidents",
+                healthRows.Where(item => item.SeverityLevel == 3).Select(item => item.Date))
+        ];
+    }
+
+    private static DashboardMetricDto CountMetric(
+        string id, string label, string category, string source, IEnumerable<DateTime> dates)
+    {
+        var values = dates.ToList();
+        var points = values
+            .GroupBy(date => new DateTime(date.Year, date.Month, 1, 0, 0, 0, DateTimeKind.Utc))
+            .OrderBy(group => group.Key)
+            .Select(group => new DashboardMetricPointDto
+            {
+                PeriodStart = group.Key,
+                Value = group.Count()
+            })
+            .ToList();
+
+        return new DashboardMetricDto
+        {
+            Id = id,
+            Label = label,
+            Category = category,
+            Source = source,
+            Unit = "records",
+            Value = values.Count,
+            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
+            Series = points
+        };
+    }
+
+    private static bool HasFilter(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "all", StringComparison.OrdinalIgnoreCase);
 
     [HttpGet("overview")]
     public async Task<ActionResult<DashboardOverviewDto>> Overview(

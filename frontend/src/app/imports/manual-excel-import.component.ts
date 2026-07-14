@@ -2,7 +2,12 @@ import { Component, OnInit, signal } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
-import { ImportRecord, importModules } from './import-template-data';
+import {
+  ImportModuleCategoryId,
+  ImportRecord,
+  importModuleCategories,
+  importModules,
+} from './import-template-data';
 import { ManualEntrySheetComponent } from './manual-entry-sheet.component';
 import { ImportHistoryService } from './import-history.service';
 import { ExcelImportSheetComponent } from './excel-import-sheet.component';
@@ -29,49 +34,64 @@ import { ExcelImportSheetComponent } from './excel-import-sheet.component';
         </div>
       }
 
-      <section class="grid gap-4 lg:grid-cols-2">
-        <article
-          *ngFor="let module of modules"
-          class="rounded-lg border border-[#ebe6ef] bg-white p-5 text-left shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
-        >
-          <div class="flex items-start justify-between gap-4">
-            <div class="grid h-11 w-11 place-items-center rounded bg-[#32124f] text-sm font-bold text-[#f3c246]">
-              XLS
+      <div class="space-y-6">
+        <section *ngFor="let category of categories" class="rounded-xl border border-[#e9e2ed] bg-[#f8f5f8] p-4 sm:p-5">
+          <div class="mb-4 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h3 class="text-base font-semibold text-[#32124f]">{{ languageService.t(category.titleKey) }}</h3>
+              <p class="mt-1 text-sm text-[#746b7b]">{{ languageService.t(category.descriptionKey) }}</p>
             </div>
-            <span class="rounded-full bg-[#e8f5ef] px-3 py-1 text-xs font-semibold text-[#31706f]">
-              {{ languageService.t('imports.manual.available') }}
+            <span class="text-xs font-semibold text-[#8a6811]">
+              {{ modulesForCategory(category.id).length }} {{ languageService.t('imports.categories.modules') }}
             </span>
           </div>
-          <h3 class="mt-4 text-lg font-semibold text-[#32124f]">{{ languageService.t(module.titleKey) }}</h3>
-          <p class="mt-2 text-sm leading-6 text-[#6f6877]">{{ languageService.t(module.descriptionKey) }}</p>
-          <div class="mt-5 flex flex-wrap gap-2">
-            <span
-              *ngFor="let header of module.requiredHeaders"
-              class="rounded bg-[#faf9f6] px-3 py-1 text-xs font-semibold text-[#6f6877]"
+
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <article
+              *ngFor="let module of modulesForCategory(category.id)"
+              class="flex min-h-48 flex-col rounded-lg border border-[#e2dbe7] bg-white p-4 text-left shadow-[0_6px_18px_rgba(50,18,79,0.05)] transition hover:-translate-y-0.5 hover:border-[#cfc0d8] hover:shadow-[0_10px_24px_rgba(50,18,79,0.09)]"
             >
-              {{ header }}
-            </span>
+              <div class="flex items-start gap-3">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#32124f] text-[#f3c246]">
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3v12" />
+                    <path d="m7 10 5 5 5-5" />
+                    <path d="M5 21h14" />
+                  </svg>
+                </span>
+                <div class="min-w-0">
+                  <h4 class="font-semibold leading-6 text-[#32124f]">{{ languageService.t(module.titleKey) }}</h4>
+                  <span class="mt-1 inline-block rounded-full bg-[#e8f5ef] px-2.5 py-0.5 text-[11px] font-semibold text-[#31706f]">
+                    {{ languageService.t('imports.manual.available') }}
+                  </span>
+                </div>
+              </div>
+              <p class="mt-3 line-clamp-2 text-sm leading-5 text-[#6f6877]">{{ languageService.t(module.descriptionKey) }}</p>
+              <div class="mt-auto grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-4">
+                <button
+                  class="rounded-md border border-[#d8d0df] px-3 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+                  type="button"
+                  [attr.data-testid]="'import-excel-' + module.id"
+                  (click)="openExcelImport(module.id)"
+                >
+                  {{ languageService.t('imports.manual.importExcel') }}
+                </button>
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#f3eff6] text-[9px] font-bold uppercase leading-none text-[#6f6877]">
+                  {{ languageService.t('imports.manual.or') }}
+                </span>
+                <button
+                  class="rounded-md bg-[#32124f] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#4b2070]"
+                  type="button"
+                  [attr.data-testid]="'add-manual-' + module.id"
+                  (click)="openManualEntry(module.id)"
+                >
+                  {{ languageService.t('imports.manual.add') }}
+                </button>
+              </div>
+            </article>
           </div>
-          <div class="mt-5 flex flex-wrap gap-3 border-t border-[#ebe6ef] pt-5">
-            <button
-              class="rounded-md border border-[#d8d0df] px-4 py-2.5 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
-              type="button"
-              [attr.data-testid]="'import-excel-' + module.id"
-              (click)="openExcelImport(module.id)"
-            >
-              {{ languageService.t('imports.manual.importExcel') }}
-            </button>
-            <button
-              class="rounded-md bg-[#32124f] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4b2070]"
-              type="button"
-              [attr.data-testid]="'add-manual-' + module.id"
-              (click)="openManualEntry(module.id)"
-            >
-              {{ languageService.t('imports.manual.add') }}
-            </button>
-          </div>
-        </article>
-      </section>
+        </section>
+      </div>
 
       <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
         <div class="border-b border-[#ebe6ef] p-6">
@@ -143,6 +163,7 @@ import { ExcelImportSheetComponent } from './excel-import-sheet.component';
 })
 export class ManualExcelImportComponent implements OnInit {
   modules = importModules;
+  categories = importModuleCategories;
   records = signal<ImportRecord[]>([]);
   manualModuleId = signal<string | null>(null);
   excelModuleId = signal<string | null>(null);
@@ -176,6 +197,10 @@ export class ManualExcelImportComponent implements OnInit {
       timeStyle: 'short',
       timeZone: 'Asia/Ho_Chi_Minh',
     }).format(new Date(value));
+  }
+
+  modulesForCategory(categoryId: ImportModuleCategoryId) {
+    return this.modules.filter((module) => module.category === categoryId);
   }
 
   openManualEntry(moduleId: string): void {

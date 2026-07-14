@@ -15,6 +15,11 @@ export interface ManualEntryOptions {
   behaviourTypes: string[];
   projectSubjects: string[];
   projectStatuses: string[];
+  academicYears: string[];
+  healthIncidentTypes: string[];
+  healthSeverityLevels: number[];
+  healthBodyAreas: string[];
+  healthLocations: string[];
 }
 
 export interface CreateBehaviourRequest {
@@ -28,6 +33,17 @@ export interface CreateProjectRequest {
   subject: string;
   status: string;
   teacherNotes?: string | null;
+}
+
+export interface CreateHealthIncidentRequest {
+  incidentDate: string;
+  academicYear: string;
+  incidentType: string;
+  severityLevel: number;
+  bodyArea?: string | null;
+  location?: string | null;
+  cause: string;
+  actionTaken?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -45,5 +61,9 @@ export class ManualEntryService {
 
   createProject(studentId: number, request: CreateProjectRequest) {
     return this.http.post(`${this.basePath}/api/students/${studentId}/projects`, request);
+  }
+
+  createHealthIncident(studentId: number, request: CreateHealthIncidentRequest) {
+    return this.http.post(`${this.basePath}/api/students/${studentId}/health-incidents`, request);
   }
 }

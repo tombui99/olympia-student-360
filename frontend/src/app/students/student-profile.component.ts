@@ -251,6 +251,51 @@ import { riskBadgeClass } from './risk.util';
             </div>
           </article>
         </div>
+
+        <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+          <div class="border-b border-[#ebe6ef] p-6">
+            <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.health.title') }}</h3>
+            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.health.hint') }}</p>
+          </div>
+          <div class="grid gap-4 p-5 lg:grid-cols-2">
+            @for (incident of profile.healthIncidents; track incident.id) {
+              <article class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-5">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p class="font-semibold text-[#32124f]">{{ healthOptionLabel('type', incident.incidentType) }}</p>
+                    <p class="mt-1 text-xs text-[#7c7284]">{{ formatDate(incident.incidentDate) }} · {{ incident.academicYear }}</p>
+                  </div>
+                  <span class="rounded-full px-3 py-1 text-xs font-semibold" [ngClass]="severityClass(incident.severityLevel)">
+                    {{ languageService.t('studentProfile.health.severity') }} {{ incident.severityLevel }} — {{ languageService.t('imports.manual.severity.' + incident.severityLevel) }}
+                  </span>
+                </div>
+                <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.health.bodyArea') }}</dt>
+                    <dd class="mt-1 font-medium text-[#32124f]">{{ incident.bodyArea ? healthOptionLabel('bodyArea', incident.bodyArea) : '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.health.location') }}</dt>
+                    <dd class="mt-1 font-medium text-[#32124f]">{{ incident.location ? healthOptionLabel('location', incident.location) : '—' }}</dd>
+                  </div>
+                </dl>
+                <div class="mt-4 border-t border-[#e5dee9] pt-4 text-sm">
+                  <p><span class="font-semibold text-[#32124f]">{{ languageService.t('studentProfile.health.cause') }}:</span> <span class="text-[#6f6877]">{{ incident.cause }}</span></p>
+                  @if (incident.actionTaken) {
+                    <p class="mt-2"><span class="font-semibold text-[#32124f]">{{ languageService.t('studentProfile.health.actionTaken') }}:</span> <span class="text-[#6f6877]">{{ incident.actionTaken }}</span></p>
+                  }
+                  @if (incident.recordedByName) {
+                    <p class="mt-2 text-xs text-[#9a91a3]">{{ languageService.t('studentProfile.recordedBy') }} {{ incident.recordedByName }}</p>
+                  }
+                </div>
+              </article>
+            } @empty {
+              <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center text-sm text-[#7c7284] lg:col-span-2">
+                {{ languageService.t('studentProfile.health.empty') }}
+              </p>
+            }
+          </div>
+        </section>
       }
     </section>
   `,
@@ -385,6 +430,19 @@ export class StudentProfileComponent implements OnInit {
       return 'bg-[#fff8e1] text-[#7a5b12]';
     }
     return 'bg-[#f1edf4] text-[#5b287d]';
+  }
+
+  healthOptionLabel(kind: 'type' | 'bodyArea' | 'location', value: string): string {
+    const slug = value.toLowerCase().replace(/\s+/g, '-');
+    const key = `imports.healthOptions.${kind}.${slug}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? value : translated;
+  }
+
+  severityClass(level: number): string {
+    if (level === 3) return 'bg-red-50 text-red-700';
+    if (level === 2) return 'bg-[#fff3cd] text-[#795b0b]';
+    return 'bg-green-50 text-green-700';
   }
 
   initials(name: string): string {

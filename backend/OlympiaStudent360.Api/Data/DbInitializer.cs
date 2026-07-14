@@ -26,6 +26,7 @@ public static class DbInitializer
         }
 
         await RemoveUnsupportedRole("Leadership", userManager, roleManager, logger);
+        await RemoveUnsupportedRole("Nurse", userManager, roleManager, logger);
 
         var adminPassword = app.Configuration["SeedAdmin:Password"];
         if (string.IsNullOrWhiteSpace(adminPassword))

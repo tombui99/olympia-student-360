@@ -102,7 +102,7 @@ import { ManualEntryOptions, ManualEntryService } from './manual-entry.service';
                   [placeholder]="languageService.t('imports.manual.optional')"
                 ></textarea>
               </label>
-            } @else {
+            } @else if (moduleId === 'student-projects') {
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.projectName') }}</span>
                 <input
@@ -153,6 +153,60 @@ import { ManualEntryOptions, ManualEntryService } from './manual-entry.service';
                   [placeholder]="languageService.t('imports.manual.optional')"
                 ></textarea>
               </label>
+            } @else {
+              <div class="grid gap-5 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.incidentDate') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" type="date" name="healthIncidentDate" required [(ngModel)]="incidentDate" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.academicYear') }}</span>
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="academicYear" required [(ngModel)]="academicYear">
+                    <option value="">{{ languageService.t('imports.manual.selectAcademicYear') }}</option>
+                    @for (year of options()?.academicYears ?? []; track year) { <option [value]="year">{{ year }}</option> }
+                  </select>
+                </label>
+              </div>
+              <div class="grid gap-5 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.healthIncidentType') }}</span>
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="healthIncidentType" required [(ngModel)]="healthIncidentType">
+                    <option value="">{{ languageService.t('imports.manual.selectHealthIncidentType') }}</option>
+                    @for (value of options()?.healthIncidentTypes ?? []; track value) { <option [value]="value">{{ healthOptionLabel('type', value) }}</option> }
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.severityLevel') }}</span>
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="severityLevel" required [(ngModel)]="severityLevel">
+                    <option [ngValue]="null">{{ languageService.t('imports.manual.selectSeverity') }}</option>
+                    @for (value of options()?.healthSeverityLevels ?? []; track value) { <option [ngValue]="value">{{ languageService.t('imports.manual.severity.' + value) }}</option> }
+                  </select>
+                </label>
+              </div>
+              <div class="grid gap-5 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.bodyArea') }}</span>
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="bodyArea" [(ngModel)]="bodyArea">
+                    <option value="">{{ languageService.t('imports.manual.optional') }}</option>
+                    @for (value of options()?.healthBodyAreas ?? []; track value) { <option [value]="value">{{ healthOptionLabel('bodyArea', value) }}</option> }
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.healthLocation') }}</span>
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="healthLocation" [(ngModel)]="healthLocation">
+                    <option value="">{{ languageService.t('imports.manual.optional') }}</option>
+                    @for (value of options()?.healthLocations ?? []; track value) { <option [value]="value">{{ healthOptionLabel('location', value) }}</option> }
+                  </select>
+                </label>
+              </div>
+              <label class="block">
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.cause') }}</span>
+                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="cause" maxlength="1000" required [(ngModel)]="cause"></textarea>
+              </label>
+              <label class="block">
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.actionTaken') }}</span>
+                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="actionTaken" maxlength="1000" [(ngModel)]="actionTaken" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
+              </label>
             }
 
             @if (submitError()) {
@@ -200,6 +254,13 @@ export class ManualEntrySheetComponent implements OnInit {
   subject = '';
   status = '';
   teacherNotes = '';
+  academicYear = '';
+  healthIncidentType = '';
+  severityLevel: number | null = null;
+  bodyArea = '';
+  healthLocation = '';
+  cause = '';
+  actionTaken = '';
 
   ngOnInit(): void {
     this.manualEntryService.options().subscribe({
@@ -220,18 +281,19 @@ export class ManualEntrySheetComponent implements OnInit {
   }
 
   moduleTitleKey(): string {
-    return this.moduleId === 'student-behaviours'
-      ? 'imports.modules.behaviours.title'
-      : 'imports.modules.projects.title';
+    if (this.moduleId === 'student-behaviours') return 'imports.modules.behaviours.title';
+    if (this.moduleId === 'student-projects') return 'imports.modules.projects.title';
+    return 'imports.modules.health.title';
   }
 
   canSubmit(): boolean {
     if (!this.studentId) {
       return false;
     }
-    return this.moduleId === 'student-behaviours'
-      ? !!this.incidentDate && !!this.behaviourType
-      : !!this.projectName.trim() && !!this.subject && !!this.status;
+    if (this.moduleId === 'student-behaviours') return !!this.incidentDate && !!this.behaviourType;
+    if (this.moduleId === 'student-projects') return !!this.projectName.trim() && !!this.subject && !!this.status;
+    return !!this.incidentDate && !!this.academicYear && !!this.healthIncidentType &&
+      this.severityLevel !== null && !!this.cause.trim();
   }
 
   submit(): void {
@@ -247,11 +309,20 @@ export class ManualEntrySheetComponent implements OnInit {
           behaviourType: this.behaviourType,
           notes: this.notes.trim() || null,
         })
-      : this.manualEntryService.createProject(this.studentId, {
+      : this.moduleId === 'student-projects' ? this.manualEntryService.createProject(this.studentId, {
           projectName: this.projectName.trim(),
           subject: this.subject,
           status: this.status,
           teacherNotes: this.teacherNotes.trim() || null,
+        }) : this.manualEntryService.createHealthIncident(this.studentId, {
+          incidentDate: this.incidentDate,
+          academicYear: this.academicYear,
+          incidentType: this.healthIncidentType,
+          severityLevel: this.severityLevel!,
+          bodyArea: this.bodyArea || null,
+          location: this.healthLocation || null,
+          cause: this.cause.trim(),
+          actionTaken: this.actionTaken.trim() || null,
         });
 
     request.pipe(finalize(() => this.saving.set(false))).subscribe({
@@ -260,5 +331,12 @@ export class ManualEntrySheetComponent implements OnInit {
         this.submitError.set(error?.error?.message || this.languageService.t('imports.manual.saveError'));
       },
     });
+  }
+
+  healthOptionLabel(kind: 'type' | 'bodyArea' | 'location', value: string): string {
+    const slug = value.toLowerCase().replace(/\s+/g, '-');
+    const key = `imports.healthOptions.${kind}.${slug}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? value : translated;
   }
 }

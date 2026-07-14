@@ -754,6 +754,13 @@ interface MetricGroup {
                       <span>{{ languageService.t('workspace.drilldown.projects') }}</span>
                       <strong class="text-xs">{{ student.projectCount }}</strong>
                     </span>
+                    <span
+                      class="inline-flex min-w-28 items-center justify-between gap-2 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700"
+                      [title]="languageService.t('workspace.drilldown.healthIncidents')"
+                    >
+                      <span>{{ languageService.t('workspace.drilldown.healthIncidents') }}</span>
+                      <strong class="text-xs">{{ student.healthIncidentCount }}</strong>
+                    </span>
                   </span>
                 </a>
               </li>
@@ -937,12 +944,15 @@ export class WorkspaceDetailComponent implements OnInit {
 
   readonly drilldownStudents = computed(() => {
     const students = [...this.drilldownStudentPool()];
-    const rankByProjects = this.isProjectMetric(this.drilldownMetricId());
-    return students.sort((a, b) =>
-      rankByProjects
-        ? b.projectCount - a.projectCount || a.fullName.localeCompare(b.fullName)
-        : b.behaviourCount - a.behaviourCount || a.fullName.localeCompare(b.fullName),
-    );
+    const source = this.drilldownMetricSource(this.drilldownMetricId());
+    return students.sort((a, b) => {
+      const difference = source === 'StudentProjects'
+        ? b.projectCount - a.projectCount
+        : source === 'StudentHealthIncidents'
+          ? b.healthIncidentCount - a.healthIncidentCount
+          : b.behaviourCount - a.behaviourCount;
+      return difference || a.fullName.localeCompare(b.fullName);
+    });
   });
 
   private sheetUnmountTimer: number | null = null;
@@ -1608,12 +1618,10 @@ export class WorkspaceDetailComponent implements OnInit {
     );
   }
 
-  private isProjectMetric(metricId: string | null): boolean {
-    if (!metricId) {
-      return false;
-    }
-    const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
-    return !!metric && ['Compliance', 'Achievement'].includes(metric.category);
+  private drilldownMetricSource(metricId: string | null): string | null {
+    return metricId
+      ? this.metricVariables.find((candidate) => candidate.id === metricId)?.source ?? null
+      : null;
   }
 
   private loadDrilldownStudents(): void {
