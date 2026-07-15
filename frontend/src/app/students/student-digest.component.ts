@@ -183,6 +183,51 @@ import { riskBadgeClass } from './risk.util';
             }
           </section>
 
+          <section class="mt-6">
+            <h2 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#32124f]">
+              {{ languageService.t('digest.canvas.title') }}
+            </h2>
+            @if (profile.canvas.hasData) {
+              <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                  <p class="text-xs text-[#7c7284]">{{ languageService.t('digest.canvas.avgCourseGrade') }}</p>
+                  <p class="mt-1 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageCourseGrade ?? '—' }}{{ profile.canvas.averageCourseGrade !== null ? '%' : '' }}</p>
+                </div>
+                <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                  <p class="text-xs text-[#7c7284]">{{ languageService.t('digest.canvas.avgAssignmentScore') }}</p>
+                  <p class="mt-1 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageAssignmentScore ?? '—' }}{{ profile.canvas.averageAssignmentScore !== null ? '%' : '' }}</p>
+                </div>
+                <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                  <p class="text-xs text-[#7c7284]">{{ languageService.t('digest.canvas.graded') }}</p>
+                  <p class="mt-1 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.assignmentsGraded }}/{{ profile.canvas.assignmentsSubmitted }}</p>
+                </div>
+                <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                  <p class="text-xs text-[#7c7284]">{{ languageService.t('digest.canvas.attention') }}</p>
+                  <p class="mt-1 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.missingAssignments }} · {{ profile.canvas.lateSubmissions }}</p>
+                  <p class="mt-0.5 text-[10px] uppercase tracking-[0.08em] text-[#9a91a3]">{{ languageService.t('digest.canvas.missingLate') }}</p>
+                </div>
+              </div>
+
+              @if (profile.canvas.courses.length) {
+                <ul class="mt-3 divide-y divide-[#ebe6ef] rounded-md border border-[#ebe6ef]">
+                  @for (course of profile.canvas.courses; track $index) {
+                    <li class="flex items-start justify-between gap-3 px-4 py-2.5 text-sm">
+                      <span>
+                        <span class="font-semibold text-[#32124f]">{{ course.subject || course.courseName }}</span>
+                        <span class="block text-xs text-[#7c7284]">{{ course.gradingPeriodTitle || course.term || '—' }}</span>
+                      </span>
+                      <span class="shrink-0 text-xs font-semibold text-[#5b287d]">{{ course.finalScore ?? course.currentScore ?? '—' }}{{ (course.finalScore ?? course.currentScore) !== null ? '%' : '' }}</span>
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <p class="mt-2 text-sm text-[#7c7284]">{{ languageService.t('digest.canvas.noCourses') }}</p>
+              }
+            } @else {
+              <p class="mt-2 text-sm text-[#7c7284]">{{ languageService.t('digest.canvas.empty') }}</p>
+            }
+          </section>
+
           <footer class="mt-8 border-t border-[#ebe6ef] pt-4 text-xs text-[#9a91a3]">
             {{ languageService.t('digest.footer') }}
           </footer>

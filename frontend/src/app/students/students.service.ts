@@ -20,9 +20,18 @@ export interface StudentListItem {
   teacherName?: string | null;
   behaviourCount: number;
   projectCount: number;
-  healthIncidentCount: number;
+  mentalHealthCount: number;
   riskLevel: RiskLevel;
   riskFlagCount: number;
+}
+
+export interface StudentsPage {
+  items: StudentListItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  availableGrades: string[];
 }
 
 export interface AtRiskStudent extends StudentListItem {
@@ -94,6 +103,9 @@ export interface StudentBehaviour {
   behaviourType: string;
   notes?: string | null;
   recordedByName?: string | null;
+  academicYear?: string | null;
+  term?: string | null;
+  customFields?: Record<string, string>;
 }
 
 export interface StudentProject {
@@ -103,19 +115,49 @@ export interface StudentProject {
   status: string;
   teacherNotes?: string | null;
   createdAt: string;
+  academicYear?: string | null;
+  term?: string | null;
+  customFields?: Record<string, string>;
 }
 
-export interface StudentHealthIncident {
+export interface StudentMentalHealthRecord {
   id: number;
-  incidentDate: string;
+  recordDate: string;
   academicYear: string;
-  incidentType: string;
-  severityLevel: number;
-  bodyArea?: string | null;
-  location?: string | null;
-  cause: string;
-  actionTaken?: string | null;
+  concernType: string;
+  riskLevel: string;
+  notes?: string | null;
   recordedByName?: string | null;
+  customFields?: Record<string, string>;
+}
+
+export interface StudentBusAttendanceRecord {
+  id: number;
+  attendanceDate: string;
+  tripDirection: string;
+  violationType: string;
+  busCode?: string | null;
+  routeName?: string | null;
+  notes?: string | null;
+  recordedByName?: string | null;
+  academicYear?: string | null;
+  term?: string | null;
+  customFields?: Record<string, string>;
+}
+
+/** Health/injury clinic visit synced from SIS (read-only). */
+export interface SISHealthVisit {
+  id: number;
+  examTime: string;
+  fullName: string;
+  gender?: string | null;
+  className?: string | null;
+  symptoms?: string | null;
+  diagnosis?: string | null;
+  classification?: string | null;
+  treatment?: string | null;
+  medication?: string | null;
+  examinedBy?: string | null;
 }
 
 export interface StudentParent {
@@ -129,6 +171,53 @@ export interface StudentParent {
   employmentSector?: string | null;
 }
 
+export interface StudentCanvasCourse {
+  courseName: string;
+  subject?: string | null;
+  term?: string | null;
+  gradingPeriodTitle?: string | null;
+  currentScore?: number | null;
+  finalScore?: number | null;
+}
+
+export interface StudentCanvasSubmission {
+  assignmentTitle: string;
+  courseName?: string | null;
+  subject?: string | null;
+  workflowState: string;
+  score?: number | null;
+  pointsPossible?: number | null;
+  dueAt?: string | null;
+  submittedAt?: string | null;
+  late: boolean;
+  missing: boolean;
+  excused: boolean;
+}
+
+export interface StudentCanvasJourneyPoint {
+  academicYear: string;
+  term?: string | null;
+  gradeLevel?: string | null;
+  label: string;
+  averageGrade?: number | null;
+  courseCount: number;
+}
+
+export interface StudentCanvas {
+  hasData: boolean;
+  academicYear?: string | null;
+  coursesEnrolled: number;
+  averageCourseGrade?: number | null;
+  averageAssignmentScore?: number | null;
+  assignmentsSubmitted: number;
+  assignmentsGraded: number;
+  missingAssignments: number;
+  lateSubmissions: number;
+  courses: StudentCanvasCourse[];
+  recentSubmissions: StudentCanvasSubmission[];
+  journey: StudentCanvasJourneyPoint[];
+}
+
 export interface StudentProfileDetail {
   id: number;
   studentCode: string;
@@ -139,10 +228,20 @@ export interface StudentProfileDetail {
   riskLevel: RiskLevel;
   flags: RiskFlag[];
   summary: StudentSummary;
+  behaviourTrend: StudentBehaviourTrendPoint[];
   behaviours: StudentBehaviour[];
   projects: StudentProject[];
-  healthIncidents: StudentHealthIncident[];
+  mentalHealthRecords: StudentMentalHealthRecord[];
+  busAttendanceRecords: StudentBusAttendanceRecord[];
+  healthVisits: SISHealthVisit[];
   parents: StudentParent[];
+  canvas: StudentCanvas;
+}
+
+export interface StudentBehaviourTrendPoint {
+  year: number;
+  month: number;
+  total: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -150,8 +249,18 @@ export class StudentsService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  list(): Observable<StudentListItem[]> {
-    return this.http.get<StudentListItem[]>(`${this.basePath}/api/students`);
+  list(
+    page = 1,
+    pageSize = 20,
+    search = '',
+    grade = '',
+    atRiskOnly = false,
+  ): Observable<StudentsPage> {
+    let params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    if (search.trim()) params = params.set('search', search.trim());
+    if (grade) params = params.set('grade', grade);
+    if (atRiskOnly) params = params.set('atRiskOnly', true);
+    return this.http.get<StudentsPage>(`${this.basePath}/api/students`, { params });
   }
 
   atRisk(page = 1, pageSize = 10): Observable<AtRiskStudentsPage> {
@@ -179,7 +288,8 @@ export class StudentsService {
     return this.http.get<CohortsResponse>(`${this.basePath}/api/students/cohorts`);
   }
 
-  get(id: number): Observable<StudentProfileDetail> {
-    return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`);
+  get(id: number, academicYear?: string): Observable<StudentProfileDetail> {
+    const params = academicYear ? new HttpParams().set('academicYear', academicYear) : undefined;
+    return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
   }
 }

@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { map } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
@@ -7,7 +7,6 @@ import { ImportRecord, importModules } from './import-template-data';
 type ImportHistoryResponse = {
   id: number;
   moduleId: string;
-  source: 'Manual' | 'Excel';
   fileName: string;
   importedAt: string;
   importedBy: string;
@@ -17,19 +16,65 @@ type ImportHistoryResponse = {
   invalidRows: number;
 };
 
+export type ImportHistoryRecordResponse = {
+  id: number;
+  studentCode: string;
+  studentName: string;
+  values: Record<string, string | null>;
+};
+
+export type ImportHistoryDetailResponse = ImportHistoryResponse & {
+  records: ImportHistoryRecordResponse[];
+};
+
+type ImportHistoryPageResponse = {
+  items: ImportHistoryResponse[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+};
+
 @Injectable({ providedIn: 'root' })
 export class ImportHistoryService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  list() {
+  list(page = 1, pageSize = 20) {
+    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
     return this.http
-      .get<ImportHistoryResponse[]>(`${this.basePath}/api/import-history`)
-      .pipe(map((records) => records.map((record) => this.toRecord(record))));
+      .get<ImportHistoryPageResponse>(`${this.basePath}/api/import-history`, { params })
+      .pipe(map((response) => ({
+        ...response,
+        items: response.items.map((record) => this.toRecord(record)),
+      })));
   }
 
-  importExcel(moduleId: string, fileName: string, rows: Record<string, string>[]) {
+  detail(id: number) {
+    return this.http.get<ImportHistoryDetailResponse>(`${this.basePath}/api/import-history/${id}`);
+  }
+
+  rename(id: number, fileName: string) {
+    return this.http.put<void>(`${this.basePath}/api/import-history/${id}`, { fileName });
+  }
+
+  updateRecord(id: number, recordId: number, values: Record<string, string | null>) {
+    return this.http.put<void>(`${this.basePath}/api/import-history/${id}/records/${recordId}`, { values });
+  }
+
+  deleteRecord(id: number, recordId: number) {
+    return this.http.delete<void>(`${this.basePath}/api/import-history/${id}/records/${recordId}`);
+  }
+
+  deleteHistory(id: number) {
+    return this.http.delete<void>(`${this.basePath}/api/import-history/${id}`);
+  }
+
+  importExcel(moduleId: string, fileName: string, rows: Record<string, string>[], customFieldKeys: string[] = []) {
     const endpoint = moduleId;
+    const customFieldsFor = (row: Record<string, string>): Record<string, string> =>
+      Object.fromEntries(customFieldKeys.map((key) => [key, row[key] ?? '']));
+
     const mappedRows = moduleId === 'student-behaviours'
       ? rows.map((row) => ({
           studentId: row['student_id'],
@@ -37,6 +82,7 @@ export class ImportHistoryService {
           incidentDate: row['incident_date'],
           behaviourType: row['behaviour_type'],
           notes: row['notes'] || null,
+          customFields: customFieldsFor(row),
         }))
       : moduleId === 'student-projects' ? rows.map((row) => ({
           studentId: row['student_id'],
@@ -45,17 +91,26 @@ export class ImportHistoryService {
           subject: row['subject'],
           status: row['status'],
           teacherNotes: row['teacher_notes'] || null,
+          customFields: customFieldsFor(row),
+        })) : moduleId === 'student-bus-attendance' ? rows.map((row) => ({
+          studentId: row['student_id'],
+          studentName: row['student_name'],
+          attendanceDate: row['attendance_date'],
+          tripDirection: row['trip_direction'],
+          violationType: row['violation_type'],
+          busCode: row['bus_code'] || null,
+          routeName: row['route_name'] || null,
+          notes: row['notes'] || null,
+          customFields: customFieldsFor(row),
         })) : rows.map((row) => ({
           studentId: row['student_id'],
           studentName: row['student_name'],
-          incidentDate: row['incident_date'],
+          recordDate: row['record_date'],
           academicYear: row['academic_year'],
-          incidentType: row['incident_type'],
-          severityLevel: Number(row['severity_level']),
-          bodyArea: row['body_area'] || null,
-          location: row['location'] || null,
-          cause: row['cause'],
-          actionTaken: row['action_taken'] || null,
+          concernType: row['concern_type'],
+          riskLevel: row['risk_level'],
+          notes: row['notes'] || null,
+          customFields: customFieldsFor(row),
         }));
 
     return this.http

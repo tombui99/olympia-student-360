@@ -19,24 +19,37 @@ public static class StudentClassificationService
         "Disruptive in class"
     ];
 
-    private static readonly HashSet<string> ConcerningBehaviourTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
+    public static readonly string[] ConcerningBehaviourTypes =
+    [
         "Late to class",
         "Homework not submitted",
-        "Disruptive in class"
-    };
+        "Disruptive in class",
+        "Đi học muộn",
+        "Chưa nộp bài tập",
+        "Thiếu bài tập về nhà",
+        "Gây mất trật tự trong lớp"
+    ];
 
     private static readonly HashSet<string> CommendationBehaviourTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "Commendation",
         "Excellent participation",
-        "Helped a classmate"
+        "Helped a classmate",
+        "Khen thưởng",
+        "Tham gia tích cực",
+        "Hỗ trợ bạn học",
+        "Nỗ lực nổi bật"
     };
 
     public static RiskClassification ClassifyRisk(StudentProfile student)
     {
         var concernCount = student.Behaviours.Count(IsConcerningBehaviour);
-        var highRiskThreshold = IsGradeNine(student.GradeLevel) ? 2 : 3;
+        return ClassifyRisk(student.GradeLevel, concernCount);
+    }
+
+    public static RiskClassification ClassifyRisk(string? gradeLevel, int concernCount)
+    {
+        var highRiskThreshold = IsGradeNine(gradeLevel) ? 2 : 3;
 
         var level = concernCount >= highRiskThreshold
             ? "High"
@@ -72,7 +85,7 @@ public static class StudentClassificationService
         IsCommendationBehaviourType(behaviour.BehaviourType);
 
     public static bool IsConcerningBehaviourType(string behaviourType) =>
-        ConcerningBehaviourTypes.Contains(behaviourType);
+        ConcerningBehaviourTypes.Contains(behaviourType, StringComparer.OrdinalIgnoreCase);
 
     public static bool IsCommendationBehaviourType(string behaviourType) =>
         CommendationBehaviourTypes.Contains(behaviourType);

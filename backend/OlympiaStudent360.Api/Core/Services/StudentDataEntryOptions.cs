@@ -12,22 +12,27 @@ public static class StudentDataEntryOptions
         "Planned", "In Progress", "Completed", "On Hold"
     ];
 
-    public static readonly IReadOnlyList<string> HealthIncidentTypes =
+    public static bool IsCompletedProjectStatus(string? status) =>
+        string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "Hoàn thành", StringComparison.OrdinalIgnoreCase);
+
+    public static readonly IReadOnlyList<string> MentalHealthConcernTypes =
     [
-        "Injury", "Illness", "First aid", "Other health concern"
+        "Anxiety", "Stress", "Mood", "Behavioural", "Social/Family", "Academic pressure", "Other"
     ];
 
-    public static readonly IReadOnlyList<int> HealthSeverityLevels = [1, 2, 3];
-
-    public static readonly IReadOnlyList<string> HealthBodyAreas =
+    public static readonly IReadOnlyList<string> MentalHealthRiskLevels =
     [
-        "Head", "Face", "Eye", "Arm", "Hand", "Finger", "Torso", "Hip",
-        "Leg", "Knee", "Ankle", "Foot", "Other"
+        "Low", "Medium", "High"
     ];
 
-    public static readonly IReadOnlyList<string> HealthLocations =
+    public static readonly IReadOnlyList<string> BusTripDirections =
     [
-        "Classroom", "Hallway", "Playground", "Football field", "Basketball court",
-        "Gymnasium", "Staircase", "Dining hall", "Other"
+        "To school", "From school"
+    ];
+
+    public static readonly IReadOnlyList<string> BusViolationTypes =
+    [
+        "Late", "No seatbelt"
     ];
 }

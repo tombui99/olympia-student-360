@@ -15,6 +15,15 @@ export interface DashboardGrade {
   atRisk: number;
 }
 
+export interface DashboardAttentionStudent {
+  id: number;
+  studentCode: string;
+  fullName: string;
+  gradeLevel: string | null;
+  homeroom: string | null;
+  riskLevel: 'High' | 'Medium' | 'None';
+}
+
 export interface DashboardOverview {
   periodYear: string;
   periodTerm: string;
@@ -29,6 +38,7 @@ export interface DashboardOverview {
   activeProjects: number;
   behaviourTrend: DashboardTrendPoint[];
   gradeDistribution: DashboardGrade[];
+  topAtRisk: DashboardAttentionStudent[];
 }
 
 @Injectable({ providedIn: 'root' })

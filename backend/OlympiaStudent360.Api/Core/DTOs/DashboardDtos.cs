@@ -27,6 +27,17 @@ public class DashboardOverviewDto
     public int ActiveProjects { get; set; }
     public List<DashboardTrendPointDto> BehaviourTrend { get; set; } = [];
     public List<DashboardGradeDto> GradeDistribution { get; set; } = [];
+    public List<DashboardAttentionStudentDto> TopAtRisk { get; set; } = [];
+}
+
+public class DashboardAttentionStudentDto
+{
+    public int Id { get; set; }
+    public string StudentCode { get; set; } = default!;
+    public string FullName { get; set; } = default!;
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+    public string RiskLevel { get; set; } = default!;
 }
 
 public class DashboardTrendPointDto
@@ -92,6 +103,7 @@ public class DashboardMetricDto
     public decimal? Trend { get; set; }
     public decimal? BaselineValue { get; set; }
     public decimal? KpiTarget { get; set; }
+    public bool SupportsDrilldown { get; set; } = true;
     public List<DashboardMetricPointDto> Series { get; set; } = [];
 }
 
@@ -99,4 +111,100 @@ public class DashboardMetricPointDto
 {
     public DateTime PeriodStart { get; set; }
     public decimal Value { get; set; }
+}
+
+public class MetricDrilldownDto
+{
+    public string MetricId { get; set; } = default!;
+    public string Label { get; set; } = default!;
+    public string Unit { get; set; } = "";
+    /// <summary>"count" for a per-student total, "average" for a per-student mean.</summary>
+    public string Aggregation { get; set; } = "count";
+    public decimal? AggregateValue { get; set; }
+    public List<MetricDrilldownRowDto> Students { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+}
+
+public class MetricDrilldownRowDto
+{
+    public int StudentId { get; set; }
+    public string StudentCode { get; set; } = default!;
+    public string FullName { get; set; } = default!;
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+    public decimal Value { get; set; }
+    public int RecordCount { get; set; }
+    public List<DrilldownRecordDto> Records { get; set; } = [];
+}
+
+public class DrilldownRecordDto
+{
+    public DateTime? Date { get; set; }
+    public decimal? Value { get; set; }
+    public Dictionary<string, string?> Fields { get; set; } = [];
+}
+
+// ---- Canvas data explorer: build charts directly from raw Canvas fields. ----
+
+public class CanvasExploreOptionsDto
+{
+    public List<CanvasExploreDatasetDto> Datasets { get; set; } = [];
+}
+
+public class CanvasExploreDatasetDto
+{
+    public string Key { get; set; } = default!;
+    public string Label { get; set; } = default!;
+    public List<CanvasExploreFieldDto> Dimensions { get; set; } = [];
+    public List<CanvasExploreFieldDto> Measures { get; set; } = [];
+}
+
+public class CanvasExploreFieldDto
+{
+    public string Key { get; set; } = default!;
+    public string Label { get; set; } = default!;
+    public string Unit { get; set; } = "";
+}
+
+public class CanvasExploreResultDto
+{
+    public string Dataset { get; set; } = default!;
+    public string Dimension { get; set; } = default!;
+    public string Measure { get; set; } = default!;
+    public string Unit { get; set; } = "";
+    /// <summary>"count", "average" or "sum" — how the measure was aggregated.</summary>
+    public string Aggregation { get; set; } = "count";
+    public List<CanvasExploreRowDto> Rows { get; set; } = [];
+}
+
+public class CanvasExploreRowDto
+{
+    public string Key { get; set; } = default!;
+    public decimal Value { get; set; }
+}
+
+public class CanvasExploreDrilldownDto
+{
+    public string Dataset { get; set; } = default!;
+    public string GroupKey { get; set; } = default!;
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+    public List<CanvasExploreDrilldownRowDto> Records { get; set; } = [];
+}
+
+public class CanvasExploreDrilldownRowDto
+{
+    public int? StudentId { get; set; }
+    public string? StudentCode { get; set; }
+    public string? FullName { get; set; }
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+    public DateTime? Date { get; set; }
+    public decimal? Value { get; set; }
+    public Dictionary<string, string?> Fields { get; set; } = [];
 }

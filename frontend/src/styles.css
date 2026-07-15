@@ -41,4 +41,27 @@ input {
   @page {
     margin: 16mm;
   }
+
+  /* Workspace dashboard snapshot: print the charts in normal flow so long
+     dashboards paginate, and reveal the print-only snapshot header. */
+  .snapshot-only {
+    display: block !important;
+  }
+
+  .snapshot-surface {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  /* Avoid splitting a chart card across two pages where possible. */
+  .snapshot-surface article {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+/* Snapshot header is only shown when printing. */
+.snapshot-only {
+  display: none;
 }

@@ -25,6 +25,7 @@ public class ImportsController : ControllerBase
     public async Task<ActionResult<ImportHistoryDto>> ImportBehaviours([FromBody] ExcelBehaviourImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+        var customFields = await ModuleFields("student-behaviours");
         var errors = new List<string>();
         var behaviours = new List<StudentBehaviour>();
         var recordedByName = await CurrentUserDisplayName();
@@ -44,6 +45,9 @@ public class ImportsController : ControllerBase
                 continue;
             }
 
+            var (customErrors, customJson) = ImportCustomFieldService.Build(customFields, row.CustomFields, $"Row {rowNumber}: ");
+            errors.AddRange(customErrors);
+
             var behaviourType = StudentClassificationService.SupportedBehaviourTypes.First(type =>
                 string.Equals(type, row.BehaviourType, StringComparison.OrdinalIgnoreCase));
             behaviours.Add(new StudentBehaviour
@@ -54,7 +58,8 @@ public class ImportsController : ControllerBase
                 Notes = string.IsNullOrWhiteSpace(row.Notes) ? null : row.Notes.Trim(),
                 RecordedByName = recordedByName,
                 AcademicYear = Clean(row.AcademicYear), Term = Clean(row.Term),
-                MeasurementCycle = Clean(row.MeasurementCycle), Program = Clean(row.Program), Subject = Clean(row.Subject)
+                MeasurementCycle = Clean(row.MeasurementCycle), Program = Clean(row.Program), Subject = Clean(row.Subject),
+                CustomFieldsJson = customJson
             });
         }
 
@@ -64,6 +69,7 @@ public class ImportsController : ControllerBase
         }
 
         var history = await CreateExcelHistory("student-behaviours", model.FileName, behaviours.Count);
+        foreach (var behaviour in behaviours) behaviour.ImportHistory = history;
         _context.StudentBehaviours.AddRange(behaviours);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
@@ -74,6 +80,7 @@ public class ImportsController : ControllerBase
     public async Task<ActionResult<ImportHistoryDto>> ImportProjects([FromBody] ExcelProjectImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+        var customFields = await ModuleFields("student-projects");
         var errors = new List<string>();
         var projects = new List<StudentProject>();
 
@@ -96,6 +103,9 @@ public class ImportsController : ControllerBase
                 continue;
             }
 
+            var (customErrors, customJson) = ImportCustomFieldService.Build(customFields, row.CustomFields, $"Row {rowNumber}: ");
+            errors.AddRange(customErrors);
+
             projects.Add(new StudentProject
             {
                 StudentProfileId = student!.Id,
@@ -105,7 +115,8 @@ public class ImportsController : ControllerBase
                 TeacherNotes = string.IsNullOrWhiteSpace(row.TeacherNotes) ? null : row.TeacherNotes.Trim(),
                 AcademicYear = Clean(row.AcademicYear), Term = Clean(row.Term),
                 MeasurementCycle = Clean(row.MeasurementCycle), Program = Clean(row.Program),
-                ActivityDate = row.ActivityDate.HasValue ? DateTime.SpecifyKind(row.ActivityDate.Value, DateTimeKind.Utc) : null
+                ActivityDate = row.ActivityDate.HasValue ? DateTime.SpecifyKind(row.ActivityDate.Value, DateTimeKind.Utc) : null,
+                CustomFieldsJson = customJson
             });
         }
 
@@ -115,24 +126,26 @@ public class ImportsController : ControllerBase
         }
 
         var history = await CreateExcelHistory("student-projects", model.FileName, projects.Count);
+        foreach (var project in projects) project.ImportHistory = history;
         _context.StudentProjects.AddRange(projects);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
         return Created($"/api/import-history/{history.Id}", ToDto(history));
     }
 
-    [HttpPost("student-health-incidents")]
+    [HttpPost("student-mental-health")]
     [Authorize(Roles = "Admin,Principal,Teacher")]
-    public async Task<ActionResult<ImportHistoryDto>> ImportHealthIncidents(
-        [FromBody] ExcelHealthIncidentImportDto model)
+    public async Task<ActionResult<ImportHistoryDto>> ImportMentalHealth(
+        [FromBody] ExcelMentalHealthImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
         var academicYears = await _context.AcademicPeriods.AsNoTracking()
             .Select(period => period.AcademicYear)
             .Distinct()
             .ToHashSetAsync(StringComparer.OrdinalIgnoreCase);
+        var customFields = await ModuleFields("student-mental-health");
         var errors = new List<string>();
-        var incidents = new List<StudentHealthIncident>();
+        var records = new List<StudentMentalHealthRecord>();
         var recordedByName = await CurrentUserDisplayName();
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
@@ -145,44 +158,33 @@ public class ImportsController : ControllerBase
                 continue;
             }
 
-            var incidentType = Canonical(StudentDataEntryOptions.HealthIncidentTypes, row.IncidentType);
-            var bodyArea = string.IsNullOrWhiteSpace(row.BodyArea)
-                ? null
-                : Canonical(StudentDataEntryOptions.HealthBodyAreas, row.BodyArea);
-            var location = string.IsNullOrWhiteSpace(row.Location)
-                ? null
-                : Canonical(StudentDataEntryOptions.HealthLocations, row.Location);
+            var concernType = Canonical(StudentDataEntryOptions.MentalHealthConcernTypes, row.ConcernType);
+            var riskLevel = Canonical(StudentDataEntryOptions.MentalHealthRiskLevels, row.RiskLevel);
             if (!academicYears.Contains(row.AcademicYear.Trim()))
                 errors.Add($"Row {rowNumber}: academic_year is not configured.");
-            if (incidentType == null)
-                errors.Add($"Row {rowNumber}: incident_type is not supported.");
-            if (!StudentDataEntryOptions.HealthSeverityLevels.Contains(row.SeverityLevel))
-                errors.Add($"Row {rowNumber}: severity_level must be 1, 2, or 3.");
-            if (!string.IsNullOrWhiteSpace(row.BodyArea) && bodyArea == null)
-                errors.Add($"Row {rowNumber}: body_area is not supported.");
-            if (!string.IsNullOrWhiteSpace(row.Location) && location == null)
-                errors.Add($"Row {rowNumber}: location is not supported.");
-            if (incidentType == null || bodyArea == null && !string.IsNullOrWhiteSpace(row.BodyArea) ||
-                location == null && !string.IsNullOrWhiteSpace(row.Location) ||
-                !academicYears.Contains(row.AcademicYear.Trim()) ||
-                !StudentDataEntryOptions.HealthSeverityLevels.Contains(row.SeverityLevel))
+            if (concernType == null)
+                errors.Add($"Row {rowNumber}: concern_type is not supported.");
+            if (riskLevel == null)
+                errors.Add($"Row {rowNumber}: risk_level must be Low, Medium, or High.");
+            if (concernType == null || riskLevel == null || !academicYears.Contains(row.AcademicYear.Trim()))
             {
                 continue;
             }
 
-            incidents.Add(new StudentHealthIncident
+            var (customErrors, customJson) = ImportCustomFieldService.Build(customFields, row.CustomFields, $"Row {rowNumber}: ");
+            errors.AddRange(customErrors);
+
+            records.Add(new StudentMentalHealthRecord
             {
                 StudentProfileId = student!.Id,
-                IncidentDate = DateTime.SpecifyKind(row.IncidentDate!.Value, DateTimeKind.Utc),
+                RecordDate = DateTime.SpecifyKind(row.RecordDate!.Value, DateTimeKind.Utc),
                 AcademicYear = row.AcademicYear.Trim(),
-                IncidentType = incidentType,
-                SeverityLevel = row.SeverityLevel,
-                BodyArea = bodyArea,
-                Location = location,
-                Cause = row.Cause.Trim(),
-                ActionTaken = Clean(row.ActionTaken),
+                ConcernType = concernType,
+                RiskLevel = riskLevel,
+                Notes = Clean(row.Notes),
                 RecordedByUserId = userId,
-                RecordedByName = recordedByName
+                RecordedByName = recordedByName,
+                CustomFieldsJson = customJson
             });
         }
 
@@ -191,12 +193,77 @@ public class ImportsController : ControllerBase
             return BadRequest(new { Message = "No rows were imported. Correct every error and try again.", Errors = errors });
         }
 
-        var history = await CreateExcelHistory("student-health-incidents", model.FileName, incidents.Count);
-        _context.StudentHealthIncidents.AddRange(incidents);
+        var history = await CreateExcelHistory("student-mental-health", model.FileName, records.Count);
+        foreach (var record in records) record.ImportHistory = history;
+        _context.StudentMentalHealthRecords.AddRange(records);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
         return Created($"/api/import-history/{history.Id}", ToDto(history));
     }
+
+    [HttpPost("student-bus-attendance")]
+    public async Task<ActionResult<ImportHistoryDto>> ImportBusAttendance(
+        [FromBody] ExcelBusAttendanceImportDto model)
+    {
+        var students = await VisibleStudents().ToDictionaryAsync(
+            student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+        var customFields = await ModuleFields("student-bus-attendance");
+        var errors = new List<string>();
+        var records = new List<StudentBusAttendanceRecord>();
+        var recordedByName = await CurrentUserDisplayName();
+
+        for (var index = 0; index < model.Rows.Count; index++)
+        {
+            var row = model.Rows[index];
+            var rowNumber = index + 2;
+            if (!TryGetStudent(students, row.StudentId, row.StudentName, rowNumber, errors, out var student))
+            {
+                continue;
+            }
+
+            var direction = Canonical(StudentDataEntryOptions.BusTripDirections, row.TripDirection);
+            var violation = Canonical(StudentDataEntryOptions.BusViolationTypes, row.ViolationType);
+            if (direction == null) errors.Add($"Row {rowNumber}: trip_direction must be To school or From school.");
+            if (violation == null) errors.Add($"Row {rowNumber}: violation_type must be Late or No seatbelt.");
+            if (direction == null || violation == null) continue;
+
+            var (customErrors, customJson) = ImportCustomFieldService.Build(
+                customFields, row.CustomFields, $"Row {rowNumber}: ");
+            errors.AddRange(customErrors);
+
+            records.Add(new StudentBusAttendanceRecord
+            {
+                StudentProfileId = student!.Id,
+                AttendanceDate = DateTime.SpecifyKind(row.AttendanceDate!.Value, DateTimeKind.Utc),
+                TripDirection = direction,
+                ViolationType = violation,
+                BusCode = Clean(row.BusCode),
+                RouteName = Clean(row.RouteName),
+                Notes = Clean(row.Notes),
+                RecordedByName = recordedByName,
+                AcademicYear = Clean(row.AcademicYear),
+                Term = Clean(row.Term),
+                CustomFieldsJson = customJson
+            });
+        }
+
+        if (errors.Count > 0)
+        {
+            return BadRequest(new { Message = "No rows were imported. Correct every error and try again.", Errors = errors });
+        }
+
+        var history = await CreateExcelHistory("student-bus-attendance", model.FileName, records.Count);
+        foreach (var record in records) record.ImportHistory = history;
+        _context.StudentBusAttendanceRecords.AddRange(records);
+        _context.ImportHistories.Add(history);
+        await _context.SaveChangesAsync();
+        return Created($"/api/import-history/{history.Id}", ToDto(history));
+    }
+
+    private async Task<List<ImportModuleField>> ModuleFields(string moduleId) =>
+        await _context.ImportModuleFields.AsNoTracking()
+            .Where(f => f.ModuleId == moduleId)
+            .OrderBy(f => f.SortOrder).ToListAsync();
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -255,7 +322,6 @@ public class ImportsController : ControllerBase
         return new ImportHistory
         {
             ModuleId = moduleId,
-            Source = "Excel",
             FileName = fileName.Trim(),
             Status = "Valid",
             ValidRows = rowCount,
@@ -270,7 +336,6 @@ public class ImportsController : ControllerBase
     {
         Id = history.Id,
         ModuleId = history.ModuleId,
-        Source = history.Source,
         FileName = history.FileName,
         ImportedAt = history.CreatedAt,
         ImportedBy = history.ImportedByUsername,

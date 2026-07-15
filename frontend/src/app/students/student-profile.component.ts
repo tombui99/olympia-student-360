@@ -1,5 +1,6 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
@@ -9,7 +10,7 @@ import { riskBadgeClass } from './risk.util';
 
 @Component({
   selector: 'app-student-profile',
-  imports: [NgClass, NgxEchartsDirective, RouterLink],
+  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -74,6 +75,28 @@ import { riskBadgeClass } from './risk.util';
             </div>
           </dl>
         </div>
+
+        @if (yearOptions().length > 1) {
+          <div class="flex flex-wrap items-center gap-3 rounded-lg border border-[#ebe6ef] bg-white px-5 py-4 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-[#32124f]">{{ languageService.t('studentProfile.year.title') }}</p>
+              <p class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.year.hint') }}</p>
+            </div>
+            <label class="ml-auto flex items-center gap-2 text-sm text-[#34243d]">
+              <span class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.year.label') }}</span>
+              <select
+                class="rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none"
+                [ngModel]="selectedYear()"
+                (ngModelChange)="onYearChange($event)"
+              >
+                <option value="">{{ languageService.t('studentProfile.year.all') }}</option>
+                @for (option of yearOptions(); track option.value) {
+                  <option [value]="option.value">{{ option.label }}</option>
+                }
+              </select>
+            </label>
+          </div>
+        }
 
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="border-b border-[#ebe6ef] p-6">
@@ -171,8 +194,9 @@ import { riskBadgeClass } from './risk.util';
         <div>
           <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.trendTitle') }}</h3>
-            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.trendHint') }}</p>
+            <p class="mt-1 text-sm text-[#6f6877]">{{ trendHint() }}</p>
             <div echarts class="mt-4 h-64 w-full" [options]="trendOptions()" role="img"></div>
+            <p class="mt-2 text-xs text-[#9a91a3]">{{ languageService.t('studentProfile.trendSource') }}</p>
           </article>
         </div>
 
@@ -198,6 +222,15 @@ import { riskBadgeClass } from './risk.util';
                       <td class="px-6 py-3 font-semibold text-[#32124f]">{{ behaviour.behaviourType }}</td>
                       <td class="px-6 py-3 text-[#6f6877]">
                         {{ behaviour.notes || '-' }}
+                        @if (customFieldEntries(behaviour).length) {
+                          <span class="mt-1 flex flex-wrap gap-1.5">
+                            @for (entry of customFieldEntries(behaviour); track entry.label) {
+                              <span class="rounded-full bg-[#f3eff6] px-2 py-0.5 text-[11px] text-[#5b287d]">
+                                <span class="font-semibold">{{ entry.label }}:</span> {{ entry.value }}
+                              </span>
+                            }
+                          </span>
+                        }
                         @if (behaviour.recordedByName) {
                           <span class="mt-0.5 block text-xs text-[#9a91a3]">
                             {{ languageService.t('studentProfile.recordedBy') }} {{ behaviour.recordedByName }}
@@ -242,6 +275,15 @@ import { riskBadgeClass } from './risk.util';
                   @if (project.teacherNotes) {
                     <p class="mt-3 text-sm text-[#6f6877]">{{ project.teacherNotes }}</p>
                   }
+                  @if (customFieldEntries(project).length) {
+                    <div class="mt-3 flex flex-wrap gap-1.5">
+                      @for (entry of customFieldEntries(project); track entry.label) {
+                        <span class="rounded-full bg-[#f3eff6] px-2 py-0.5 text-[11px] text-[#5b287d]">
+                          <span class="font-semibold">{{ entry.label }}:</span> {{ entry.value }}
+                        </span>
+                      }
+                    </div>
+                  }
                 </div>
               } @empty {
                 <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center text-sm text-[#7c7284]">
@@ -253,48 +295,276 @@ import { riskBadgeClass } from './risk.util';
         </div>
 
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+          <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebe6ef] p-6">
+            <div>
+              <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.bus.title') }}</h3>
+              <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.bus.hint') }}</p>
+            </div>
+            <span class="rounded-full bg-[#fff8e1] px-3 py-1 text-xs font-semibold text-[#8a6811]">
+              {{ languageService.t('studentProfile.bus.source') }}
+            </span>
+          </div>
+          <div class="max-h-[360px] overflow-auto">
+            <table class="w-full min-w-[1000px] text-left">
+              <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
+                <tr>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.bus.date') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.bus.direction') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.bus.issue') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.bus.busCode') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.bus.route') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.bus.notes') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.bus.recordedBy') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#ebe6ef]">
+                @for (record of profile.busAttendanceRecords; track record.id) {
+                  <tr class="text-sm align-top">
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">
+                      {{ formatDate(record.attendanceDate) }}
+                      @if (record.academicYear) {
+                        <span class="mt-0.5 block text-xs text-[#9a91a3]">{{ record.academicYear }}</span>
+                      }
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 font-semibold text-[#32124f]">{{ busDirectionLabel(record.tripDirection) }}</td>
+                    <td class="px-4 py-3">
+                      <span class="rounded-full px-2.5 py-0.5 text-xs font-semibold" [ngClass]="busViolationClass(record.violationType)">
+                        {{ busViolationLabel(record.violationType) }}
+                      </span>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">{{ record.busCode || '—' }}</td>
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">{{ record.routeName || '—' }}</td>
+                    <td class="min-w-72 px-4 py-3 text-[#6f6877]">
+                      {{ record.notes || '—' }}
+                      @if (customFieldEntries(record).length) {
+                        <div class="mt-2 flex flex-wrap gap-1.5">
+                          @for (entry of customFieldEntries(record); track entry.label) {
+                            <span class="rounded-full bg-[#f3eff6] px-2 py-0.5 text-[11px] text-[#5b287d]">
+                              <span class="font-semibold">{{ entry.label }}:</span> {{ entry.value }}
+                            </span>
+                          }
+                        </div>
+                      }
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">{{ record.recordedByName || '—' }}</td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td class="px-4 py-8 text-center text-sm text-[#7c7284]" colspan="7">{{ languageService.t('studentProfile.bus.empty') }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="border-b border-[#ebe6ef] p-6">
-            <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.health.title') }}</h3>
-            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.health.hint') }}</p>
+            <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.mental.title') }}</h3>
+            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.mental.hint') }}</p>
           </div>
-          <div class="grid gap-4 p-5 lg:grid-cols-2">
-            @for (incident of profile.healthIncidents; track incident.id) {
-              <article class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-5">
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p class="font-semibold text-[#32124f]">{{ healthOptionLabel('type', incident.incidentType) }}</p>
-                    <p class="mt-1 text-xs text-[#7c7284]">{{ formatDate(incident.incidentDate) }} · {{ incident.academicYear }}</p>
-                  </div>
-                  <span class="rounded-full px-3 py-1 text-xs font-semibold" [ngClass]="severityClass(incident.severityLevel)">
-                    {{ languageService.t('studentProfile.health.severity') }} {{ incident.severityLevel }} — {{ languageService.t('imports.manual.severity.' + incident.severityLevel) }}
-                  </span>
+          <div class="max-h-[360px] overflow-auto">
+            <table class="w-full min-w-[900px] text-left">
+              <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
+                <tr>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.mental.recordDate') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.mental.concernType') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.mental.riskLevel') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.mental.notes') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.mental.recordedBy') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#ebe6ef]">
+                @for (record of profile.mentalHealthRecords; track record.id) {
+                  <tr class="text-sm align-top">
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">
+                      {{ formatDate(record.recordDate) }}
+                      <span class="mt-0.5 block text-xs text-[#9a91a3]">{{ record.academicYear }}</span>
+                    </td>
+                    <td class="px-4 py-3 font-semibold text-[#32124f]">{{ mentalConcernLabel(record.concernType) }}</td>
+                    <td class="px-4 py-3">
+                      <span class="rounded-full px-2.5 py-0.5 text-xs font-semibold" [ngClass]="riskClass(record.riskLevel)">
+                        {{ mentalRiskLabel(record.riskLevel) }}
+                      </span>
+                    </td>
+                    <td class="min-w-72 px-4 py-3 text-[#6f6877]">
+                      {{ record.notes || '—' }}
+                      @if (customFieldEntries(record).length) {
+                        <div class="mt-2 flex flex-wrap gap-1.5">
+                          @for (entry of customFieldEntries(record); track entry.label) {
+                            <span class="rounded-full bg-[#f3eff6] px-2 py-0.5 text-[11px] text-[#5b287d]">
+                              <span class="font-semibold">{{ entry.label }}:</span> {{ entry.value }}
+                            </span>
+                          }
+                        </div>
+                      }
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">{{ record.recordedByName || '—' }}</td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td class="px-4 py-8 text-center text-sm text-[#7c7284]" colspan="5">{{ languageService.t('studentProfile.mental.empty') }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+          <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebe6ef] p-6">
+            <div>
+              <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.healthVisits.title') }}</h3>
+              <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.healthVisits.hint') }}</p>
+            </div>
+            <span class="rounded-full bg-[#eef2fb] px-3 py-1 text-xs font-semibold text-[#4464ad]">
+              {{ languageService.t('studentProfile.healthVisits.source') }}
+            </span>
+          </div>
+          <div class="max-h-[360px] overflow-auto">
+            <table class="w-full min-w-[820px] text-left">
+              <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
+                <tr>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.examTime') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.symptoms') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.diagnosis') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.classification') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.treatment') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.medication') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.examinedBy') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#ebe6ef]">
+                @for (visit of profile.healthVisits; track visit.id) {
+                  <tr class="text-sm align-top">
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">{{ formatDateTime(visit.examTime) }}</td>
+                    <td class="px-4 py-3 text-[#32124f]">{{ visit.symptoms || '—' }}</td>
+                    <td class="px-4 py-3 text-[#6f6877]">{{ visit.diagnosis || '—' }}</td>
+                    <td class="px-4 py-3">
+                      <span class="rounded-full px-2.5 py-0.5 text-xs font-semibold" [ngClass]="classificationClass(visit.classification)">{{ visit.classification || '—' }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-[#6f6877]">{{ visit.treatment || '—' }}</td>
+                    <td class="px-4 py-3 text-[#6f6877]">{{ visit.medication || '—' }}</td>
+                    <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">{{ visit.examinedBy || '—' }}</td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td class="px-4 py-8 text-center text-sm text-[#7c7284]" colspan="7">{{ languageService.t('studentProfile.healthVisits.empty') }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+          <div class="border-b border-[#ebe6ef] p-6">
+            <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.canvas.title') }}</h3>
+            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.canvas.hint') }}</p>
+          </div>
+
+          @if (profile.canvas.hasData) {
+            @if (profile.canvas.journey.length > 1) {
+              <div class="border-b border-[#ebe6ef] p-6">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#32124f]">
+                    {{ languageService.t('studentProfile.canvas.journeyTitle') }}
+                  </h4>
+                  <p class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.journeyHint') }}</p>
                 </div>
-                <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.health.bodyArea') }}</dt>
-                    <dd class="mt-1 font-medium text-[#32124f]">{{ incident.bodyArea ? healthOptionLabel('bodyArea', incident.bodyArea) : '—' }}</dd>
-                  </div>
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.health.location') }}</dt>
-                    <dd class="mt-1 font-medium text-[#32124f]">{{ incident.location ? healthOptionLabel('location', incident.location) : '—' }}</dd>
-                  </div>
-                </dl>
-                <div class="mt-4 border-t border-[#e5dee9] pt-4 text-sm">
-                  <p><span class="font-semibold text-[#32124f]">{{ languageService.t('studentProfile.health.cause') }}:</span> <span class="text-[#6f6877]">{{ incident.cause }}</span></p>
-                  @if (incident.actionTaken) {
-                    <p class="mt-2"><span class="font-semibold text-[#32124f]">{{ languageService.t('studentProfile.health.actionTaken') }}:</span> <span class="text-[#6f6877]">{{ incident.actionTaken }}</span></p>
-                  }
-                  @if (incident.recordedByName) {
-                    <p class="mt-2 text-xs text-[#9a91a3]">{{ languageService.t('studentProfile.recordedBy') }} {{ incident.recordedByName }}</p>
-                  }
-                </div>
-              </article>
-            } @empty {
-              <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center text-sm text-[#7c7284] lg:col-span-2">
-                {{ languageService.t('studentProfile.health.empty') }}
-              </p>
+                <div echarts class="mt-4 h-64 w-full" [options]="canvasJourneyOptions()" role="img"></div>
+              </div>
             }
-          </div>
+            <p class="px-6 pt-5 text-xs uppercase tracking-[0.12em] text-[#8a6811]">
+              {{ languageService.t('studentProfile.canvas.currentYear') }}
+              <span class="font-semibold">{{ profile.canvas.academicYear || '—' }}</span>
+            </p>
+            <div class="grid gap-4 px-6 pb-6 pt-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgCourseGrade') }}</p>
+                <p class="mt-2 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageCourseGrade ?? '—' }}{{ profile.canvas.averageCourseGrade !== null ? '%' : '' }}</p>
+              </div>
+              <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgAssignmentScore') }}</p>
+                <p class="mt-2 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageAssignmentScore ?? '—' }}{{ profile.canvas.averageAssignmentScore !== null ? '%' : '' }}</p>
+              </div>
+              <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.assignmentsGraded') }}</p>
+                <p class="mt-2 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.assignmentsGraded }}<span class="text-base font-medium text-[#7c7284]"> / {{ profile.canvas.assignmentsSubmitted }}</span></p>
+                <p class="mt-1 text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.gradedHint') }}</p>
+              </div>
+              <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.attention') }}</p>
+                <p class="mt-2 text-2xl font-semibold text-[#32124f]">
+                  <span [ngClass]="profile.canvas.missingAssignments ? 'text-[#a9485d]' : 'text-[#32124f]'">{{ profile.canvas.missingAssignments }}</span>
+                  <span class="text-sm font-medium text-[#7c7284]"> {{ languageService.t('studentProfile.canvas.missing') }} · </span>
+                  <span [ngClass]="profile.canvas.lateSubmissions ? 'text-[#8a6811]' : 'text-[#32124f]'">{{ profile.canvas.lateSubmissions }}</span>
+                  <span class="text-sm font-medium text-[#7c7284]"> {{ languageService.t('studentProfile.canvas.late') }}</span>
+                </p>
+                <p class="mt-1 text-xs text-[#7c7284]">{{ profile.canvas.coursesEnrolled }} {{ languageService.t('studentProfile.canvas.coursesEnrolled') }}</p>
+              </div>
+            </div>
+
+            <div class="grid gap-5 border-t border-[#ebe6ef] p-6 xl:grid-cols-2">
+              <div>
+                <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.courseGrades') }}</h4>
+                <div class="mt-3 h-[380px] overflow-auto rounded-md border border-[#ebe6ef]">
+                  <table class="w-full text-left">
+                    <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284]">
+                      <tr>
+                        <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.course') }}</th>
+                        <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.term') }}</th>
+                        <th class="px-4 py-3 text-right font-semibold">{{ languageService.t('studentProfile.canvas.grade') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[#ebe6ef]">
+                      @for (course of profile.canvas.courses; track $index) {
+                        <tr class="text-sm">
+                          <td class="px-4 py-3 font-semibold text-[#32124f]">{{ course.subject || course.courseName }}</td>
+                          <td class="px-4 py-3 text-[#6f6877]">{{ course.gradingPeriodTitle || course.term || '—' }}</td>
+                          <td class="px-4 py-3 text-right font-semibold text-[#32124f]">{{ course.finalScore ?? course.currentScore ?? '—' }}{{ (course.finalScore ?? course.currentScore) !== null ? '%' : '' }}</td>
+                        </tr>
+                      } @empty {
+                        <tr>
+                          <td class="px-4 py-8 text-center text-sm text-[#7c7284]" colspan="3">{{ languageService.t('studentProfile.canvas.noCourses') }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.recentSubmissions') }}</h4>
+                <div class="mt-3 h-[380px] space-y-2 overflow-y-auto rounded-md border border-[#ebe6ef] p-2">
+                  @for (submission of profile.canvas.recentSubmissions; track $index) {
+                    <div class="rounded-md border border-[#ebe6ef] p-3">
+                      <div class="flex flex-wrap items-start justify-between gap-2">
+                        <div class="min-w-0">
+                          <p class="truncate text-sm font-semibold text-[#32124f]">{{ submission.assignmentTitle }}</p>
+                          <p class="mt-0.5 truncate text-xs text-[#7c7284]">{{ submission.subject || submission.courseName || '—' }} · {{ submission.dueAt ? formatDate(submission.dueAt) : '—' }}</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          @if (submission.missing && !submission.excused) {
+                            <span class="rounded-full bg-[#a9485d]/15 px-2.5 py-1 text-xs font-semibold text-[#a9485d]">{{ languageService.t('studentProfile.canvas.badge.missing') }}</span>
+                          } @else if (submission.late) {
+                            <span class="rounded-full bg-[#f3c246]/25 px-2.5 py-1 text-xs font-semibold text-[#8a6811]">{{ languageService.t('studentProfile.canvas.badge.late') }}</span>
+                          } @else if (submission.excused) {
+                            <span class="rounded-full bg-[#f1edf4] px-2.5 py-1 text-xs font-semibold text-[#5b287d]">{{ languageService.t('studentProfile.canvas.badge.excused') }}</span>
+                          }
+                          <span class="whitespace-nowrap text-sm font-semibold text-[#32124f]">{{ submission.score ?? '—' }}<span class="text-xs font-medium text-[#7c7284]">/{{ submission.pointsPossible ?? '—' }}</span></span>
+                        </div>
+                      </div>
+                    </div>
+                  } @empty {
+                    <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-6 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noSubmissions') }}</p>
+                  }
+                </div>
+              </div>
+            </div>
+          } @else {
+            <p class="p-8 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.empty') }}</p>
+          }
         </section>
       }
     </section>
@@ -314,32 +584,19 @@ export class StudentProfileComponent implements OnInit {
     const profile = this.student();
     const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US';
     const monthFormat = new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric' });
-
-    const months: { key: string; label: string }[] = [];
-    const counts = new Map<string, number>();
-    const now = new Date();
-    for (let offset = 5; offset >= 0; offset--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-      const key = `${date.getFullYear()}-${date.getMonth()}`;
-      months.push({ key, label: monthFormat.format(date) });
-      counts.set(key, 0);
-    }
-
-    for (const behaviour of profile?.behaviours ?? []) {
-      const date = new Date(behaviour.incidentDate);
-      const key = `${date.getFullYear()}-${date.getMonth()}`;
-      if (counts.has(key)) {
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-      }
-    }
+    const points = profile?.behaviourTrend ?? [];
+    const labels = points.map((point) => monthFormat.format(new Date(point.year, point.month - 1, 1)));
 
     return {
-      grid: { left: 40, right: 16, top: 24, bottom: 32 },
-      tooltip: { trigger: 'axis' },
+      grid: { left: 40, right: 16, top: 24, bottom: points.length > 6 ? 56 : 32 },
+      tooltip: {
+        trigger: 'axis',
+        valueFormatter: (value: number) => `${value} ${this.languageService.t('studentProfile.trendRecords')}`,
+      },
       xAxis: {
         type: 'category',
-        data: months.map((month) => month.label),
-        axisLabel: { color: '#6f6877' },
+        data: labels,
+        axisLabel: { color: '#6f6877', interval: 0, rotate: points.length > 6 ? 35 : 0 },
         axisLine: { lineStyle: { color: '#d8d0df' } },
       },
       yAxis: {
@@ -350,13 +607,96 @@ export class StudentProfileComponent implements OnInit {
       },
       series: [
         {
+          name: this.languageService.t('studentProfile.trendSeries'),
           type: 'bar',
-          data: months.map((month) => counts.get(month.key) ?? 0),
+          data: points.map((point) => point.total),
           itemStyle: { color: '#f3c246', borderRadius: [6, 6, 0, 0] },
           barMaxWidth: 42,
         },
       ],
     };
+  });
+
+  readonly trendHint = computed(() => {
+    const profile = this.student();
+    const count = (profile?.behaviourTrend ?? []).reduce((total, point) => total + point.total, 0);
+    const key = this.selectedYear() ? 'studentProfile.trendHintYear' : 'studentProfile.trendHintRecent';
+    return this.languageService.t(key)
+      .replace('{year}', this.selectedYear())
+      .replace('{count}', String(count));
+  });
+
+  readonly canvasJourneyOptions = computed<EChartsCoreOption>(() => {
+    const journey = this.student()?.canvas.journey ?? [];
+    return {
+      color: ['#32124f'],
+      grid: { left: 44, right: 16, top: 28, bottom: 56, containLabel: true },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: { dataIndex: number; value: number | null }[]) => {
+          const p = params[0];
+          const point = journey[p.dataIndex];
+          const grade = point?.averageGrade ?? p.value;
+          const year = point ? ` · ${point.academicYear}` : '';
+          return `${point?.label ?? ''}${year}<br/><b>${grade === null || grade === undefined ? '—' : grade + '%'}</b>`;
+        },
+      },
+      xAxis: {
+        type: 'category',
+        data: journey.map((point) => point.label),
+        axisLabel: { color: '#6f6877', interval: 0, rotate: journey.length > 6 ? 35 : 0 },
+        axisLine: { lineStyle: { color: '#d8d0df' } },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        max: 100,
+        axisLabel: { color: '#6f6877', formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#f1edf4' } },
+      },
+      series: [
+        {
+          type: 'line',
+          smooth: true,
+          symbolSize: 9,
+          data: journey.map((point) => point.averageGrade ?? null),
+          lineStyle: { width: 3 },
+          areaStyle: { opacity: 0.08 },
+          markLine: {
+            symbol: 'none',
+            silent: true,
+            lineStyle: { color: '#b38116', type: 'dashed' },
+            data: [{ yAxis: 50 }],
+          },
+        },
+      ],
+    };
+  });
+
+  private studentId = 0;
+  readonly selectedYear = signal<string>('');
+  private readonly knownYears = signal<string[]>([]);
+
+  /** Distinct academic years represented anywhere on the student profile, labelled by grade when known. */
+  readonly yearOptions = computed<{ value: string; label: string }[]>(() => {
+    const profile = this.student();
+    const journey = profile?.canvas.journey ?? [];
+    const seen = new Map<string, string | null | undefined>(this.knownYears().map((year) => [year, null]));
+    for (const point of journey) {
+      if (!seen.has(point.academicYear)) seen.set(point.academicYear, point.gradeLevel);
+    }
+    for (const item of [...(profile?.behaviours ?? []), ...(profile?.projects ?? []), ...(profile?.busAttendanceRecords ?? [])]) {
+      if (item.academicYear && !seen.has(item.academicYear)) seen.set(item.academicYear, null);
+    }
+    for (const item of profile?.mentalHealthRecords ?? []) {
+      if (item.academicYear && !seen.has(item.academicYear)) seen.set(item.academicYear, null);
+    }
+    return Array.from(seen.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([year, grade]) => ({
+        value: year,
+        label: grade ? `${this.languageService.t('studentProfile.year.grade')} ${grade} · ${year}` : year,
+      }));
   });
 
   ngOnInit(): void {
@@ -366,9 +706,19 @@ export class StudentProfileComponent implements OnInit {
       this.router.navigate(['/students']);
       return;
     }
+    this.studentId = id;
+    this.loadStudent();
+  }
 
-    this.studentsService.get(id).subscribe({
+  onYearChange(year: string): void {
+    this.selectedYear.set(year);
+    this.loadStudent();
+  }
+
+  private loadStudent(): void {
+    this.studentsService.get(this.studentId, this.selectedYear() || undefined).subscribe({
       next: (profile) => {
+        this.rememberAcademicYears(profile);
         this.student.set(profile);
         this.loading.set(false);
       },
@@ -383,12 +733,41 @@ export class StudentProfileComponent implements OnInit {
     });
   }
 
+  private rememberAcademicYears(profile: StudentProfileDetail): void {
+    const years = new Set(this.knownYears());
+    for (const point of profile.canvas.journey) years.add(point.academicYear);
+    for (const item of [...profile.behaviours, ...profile.projects, ...profile.busAttendanceRecords]) {
+      if (item.academicYear) years.add(item.academicYear);
+    }
+    for (const item of profile.mentalHealthRecords) years.add(item.academicYear);
+    this.knownYears.set(Array.from(years).sort());
+  }
+
   formatDate(value: string): string {
     const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US';
     return new Intl.DateTimeFormat(locale, {
       dateStyle: 'medium',
       timeZone: 'Asia/Ho_Chi_Minh',
     }).format(new Date(value));
+  }
+
+  formatDateTime(value: string): string {
+    const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US';
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'Asia/Ho_Chi_Minh',
+    }).format(new Date(value));
+  }
+
+  /** Admin-defined custom field values on a record, with humanised labels. */
+  customFieldEntries(record: { customFields?: Record<string, string> }): { label: string; value: string }[] {
+    return Object.entries(record.customFields ?? {})
+      .filter(([, value]) => value !== '' && value !== null && value !== undefined)
+      .map(([key, value]) => ({
+        label: key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        value,
+      }));
   }
 
   sectorLabel(value?: string | null): string {
@@ -423,25 +802,64 @@ export class StudentProfileComponent implements OnInit {
 
   statusClass(status: string): string {
     const normalized = status.trim().toLocaleLowerCase();
-    if (normalized === 'completed') {
+    if (normalized === 'completed' || normalized === 'hoàn thành') {
       return 'bg-green-50 text-green-700';
     }
-    if (normalized === 'in progress' || normalized === 'ongoing') {
+    if (normalized === 'in progress' || normalized === 'ongoing' || normalized === 'đang thực hiện') {
       return 'bg-[#fff8e1] text-[#7a5b12]';
     }
     return 'bg-[#f1edf4] text-[#5b287d]';
   }
 
-  healthOptionLabel(kind: 'type' | 'bodyArea' | 'location', value: string): string {
-    const slug = value.toLowerCase().replace(/\s+/g, '-');
-    const key = `imports.healthOptions.${kind}.${slug}`;
+  mentalConcernLabel(value: string): string {
+    const slug = value.toLowerCase().replace(/[\s/]+/g, '-');
+    const key = `imports.mentalHealthOptions.concern.${slug}`;
     const translated = this.languageService.t(key);
     return translated === key ? value : translated;
   }
 
-  severityClass(level: number): string {
-    if (level === 3) return 'bg-red-50 text-red-700';
-    if (level === 2) return 'bg-[#fff3cd] text-[#795b0b]';
+  mentalRiskLabel(value: string): string {
+    const key = `imports.mentalHealthOptions.risk.${value.toLowerCase()}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? value : translated;
+  }
+
+  busDirectionLabel(value: string): string {
+    return this.busOptionLabel('direction', value);
+  }
+
+  busViolationLabel(value: string): string {
+    return this.busOptionLabel('violation', value);
+  }
+
+  busViolationClass(value: string): string {
+    return value.toLowerCase() === 'no seatbelt'
+      ? 'bg-red-50 text-red-700'
+      : 'bg-[#fff8e1] text-[#8a6811]';
+  }
+
+  private busOptionLabel(kind: 'direction' | 'violation', value: string): string {
+    const slug = value.toLowerCase().replace(/[\s/]+/g, '-');
+    const key = `imports.busOptions.${kind}.${slug}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? value : translated;
+  }
+
+  riskClass(level: string): string {
+    switch ((level || '').toLowerCase()) {
+      case 'high':
+        return 'bg-red-50 text-red-700';
+      case 'medium':
+        return 'bg-[#fff3cd] text-[#795b0b]';
+      default:
+        return 'bg-green-50 text-green-700';
+    }
+  }
+
+  classificationClass(value?: string | null): string {
+    const text = (value || '').toLowerCase();
+    if (text.includes('nghiêm trọng') || text.includes('serious')) return 'bg-red-50 text-red-700';
+    if (text.includes('theo dõi') || text.includes('follow')) return 'bg-[#fff3cd] text-[#795b0b]';
     return 'bg-green-50 text-green-700';
   }
 

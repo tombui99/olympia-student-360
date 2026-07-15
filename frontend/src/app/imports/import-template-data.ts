@@ -32,7 +32,6 @@ export type ImportRecord = {
   id: number;
   moduleId: string;
   moduleTitleKey: string;
-  source: 'Manual' | 'Excel';
   fileName: string;
   importedAt: string;
   importedBy: string;
@@ -67,17 +66,29 @@ export const importModules: ImportModule[] = [
     requiredHeaders: ['student_id', 'student_name', 'project_name', 'subject', 'status'],
   },
   {
-    id: 'student-health-incidents',
-    category: 'health-wellbeing',
-    titleKey: 'imports.modules.health.title',
-    descriptionKey: 'imports.modules.health.description',
+    id: 'student-bus-attendance',
+    category: 'student-development',
+    titleKey: 'imports.modules.busAttendance.title',
+    descriptionKey: 'imports.modules.busAttendance.description',
     headers: [
-      'student_id', 'student_name', 'incident_date', 'academic_year', 'incident_type',
-      'severity_level', 'body_area', 'location', 'cause', 'action_taken',
+      'student_id', 'student_name', 'attendance_date', 'trip_direction', 'violation_type',
+      'bus_code', 'route_name', 'notes',
     ],
     requiredHeaders: [
-      'student_id', 'student_name', 'incident_date', 'academic_year', 'incident_type',
-      'severity_level', 'cause',
+      'student_id', 'student_name', 'attendance_date', 'trip_direction', 'violation_type',
+    ],
+  },
+  {
+    id: 'student-mental-health',
+    category: 'health-wellbeing',
+    titleKey: 'imports.modules.mentalHealth.title',
+    descriptionKey: 'imports.modules.mentalHealth.description',
+    headers: [
+      'student_id', 'student_name', 'record_date', 'academic_year', 'concern_type',
+      'risk_level', 'notes',
+    ],
+    requiredHeaders: [
+      'student_id', 'student_name', 'record_date', 'academic_year', 'concern_type', 'risk_level',
     ],
   },
 ];

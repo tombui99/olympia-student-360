@@ -1,8 +1,9 @@
-import { Component, EventEmitter, HostListener, inject, Input, Output, signal } from '@angular/core';
+import { Component, EventEmitter, HostListener, inject, Input, OnInit, Output, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { LanguageService } from '../core/language/language.service';
 import { ImportHistoryService } from './import-history.service';
 import { ImportModule, ValidationResult, importModules } from './import-template-data';
+import { ImportModuleField, ImportModuleFieldsService } from './import-module-fields.service';
 
 type ParsedImportFile = {
   result: ValidationResult;
@@ -65,7 +66,7 @@ type ParsedImportFile = {
             {{ languageService.t('imports.requiredColumns') }}
           </p>
           <div class="mt-3 flex flex-wrap gap-2">
-            @for (header of module()!.headers; track header) {
+            @for (header of effectiveHeaders(); track header) {
               <span class="rounded bg-white px-3 py-1 text-xs font-semibold text-[#6f6877]">{{ header }}</span>
             }
           </div>
@@ -120,16 +121,25 @@ type ParsedImportFile = {
     </aside>
   `,
 })
-export class ExcelImportSheetComponent {
+export class ExcelImportSheetComponent implements OnInit {
   @Input({ required: true }) moduleId!: string;
   @Output() readonly close = new EventEmitter<void>();
   @Output() readonly imported = new EventEmitter<string>();
 
   private readonly importHistoryService = inject(ImportHistoryService);
+  private readonly fieldsService = inject(ImportModuleFieldsService);
   readonly languageService = inject(LanguageService);
   readonly selectedFileName = signal<string | null>(null);
   readonly validationResult = signal<ValidationResult | null>(null);
   readonly importing = signal(false);
+  readonly customFields = signal<ImportModuleField[]>([]);
+
+  ngOnInit(): void {
+    this.fieldsService.list(this.moduleId).subscribe({
+      next: (fields) => this.customFields.set(fields),
+      error: () => {},
+    });
+  }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
@@ -140,13 +150,22 @@ export class ExcelImportSheetComponent {
     return importModules.find((candidate) => candidate.id === this.moduleId);
   }
 
+  /** Standard module headers plus admin-defined custom field keys. */
+  effectiveHeaders(): string[] {
+    return [...(this.module()?.headers ?? []), ...this.customFields().map((f) => f.fieldKey)];
+  }
+
+  private customFieldKeys(): string[] {
+    return this.customFields().map((f) => f.fieldKey);
+  }
+
   downloadTemplate(): void {
     const module = this.module();
     if (!module) {
       return;
     }
 
-    const content = module.headers.map((cell) => this.escapeCell(cell)).join('\t');
+    const content = this.effectiveHeaders().map((cell) => this.escapeCell(cell)).join('\t');
     const blob = new Blob([content], { type: 'application/vnd.ms-excel;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -173,6 +192,7 @@ export class ExcelImportSheetComponent {
         return;
       }
       this.importFile(file.name, parsed.rows);
+      return;
     };
     reader.onerror = () => this.validationResult.set({
       status: 'Rejected',
@@ -185,7 +205,7 @@ export class ExcelImportSheetComponent {
 
   private importFile(fileName: string, rows: Record<string, string>[]): void {
     this.importing.set(true);
-    this.importHistoryService.importExcel(this.moduleId, fileName, rows).subscribe({
+    this.importHistoryService.importExcel(this.moduleId, fileName, rows, this.customFieldKeys()).subscribe({
       next: () => {
         this.validationResult.set({ status: 'Valid', errors: [], validRows: rows.length, invalidRows: 0 });
         this.imported.emit(this.moduleId);
@@ -212,28 +232,41 @@ export class ExcelImportSheetComponent {
       .map((row) => row.trim())
       .filter(Boolean)
       .map((row) => row.split(row.includes('\t') ? '\t' : ',').map((cell) => cell.trim()));
+    const headers = this.effectiveHeaders();
     const headerRow = rows[0] ?? [];
-    if (headerRow.join('|') !== module.headers.join('|')) {
+    if (headerRow.join('|') !== headers.join('|')) {
       return this.rejected(this.languageService.t('imports.errors.templateMismatch'), Math.max(rows.length - 1, 0));
     }
 
+    // Required columns = standard required headers + any required custom fields.
+    const requiredHeaders = [
+      ...module.requiredHeaders,
+      ...this.customFields().filter((f) => f.required).map((f) => f.fieldKey),
+    ];
     const errors: string[] = [];
-    const requiredIndexes = module.requiredHeaders.map((header) => module.headers.indexOf(header));
-    const dateIndex = module.headers.findIndex((header) => header.endsWith('_date'));
+    const requiredIndexes = requiredHeaders.map((header) => headers.indexOf(header));
+    const dateIndexes = headers
+      .map((header, index) => ({ header, index }))
+      .filter(({ header, index }) =>
+        header.endsWith('_date') ||
+        this.customFields().some((f) => f.fieldKey === header && f.fieldType === 'date' && index >= 0))
+      .map(({ index }) => index);
     rows.slice(1).forEach((row, index) => {
       const rowNumber = index + 2;
       requiredIndexes.forEach((requiredIndex) => {
         if (!row[requiredIndex]) {
           errors.push(this.languageService.t('imports.errors.requiredMissing')
             .replace('{row}', String(rowNumber))
-            .replace('{column}', module.headers[requiredIndex]));
+            .replace('{column}', headers[requiredIndex]));
         }
       });
-      if (dateIndex >= 0 && row[dateIndex] && !/^\d{4}-\d{2}-\d{2}$/.test(row[dateIndex])) {
-        errors.push(this.languageService.t('imports.errors.invalidDate')
-          .replace('{row}', String(rowNumber))
-          .replace('{column}', module.headers[dateIndex]));
-      }
+      dateIndexes.forEach((dateIndex) => {
+        if (dateIndex >= 0 && row[dateIndex] && !/^\d{4}-\d{2}-\d{2}$/.test(row[dateIndex])) {
+          errors.push(this.languageService.t('imports.errors.invalidDate')
+            .replace('{row}', String(rowNumber))
+            .replace('{column}', headers[dateIndex]));
+        }
+      });
     });
 
     if (rows.length <= 1) {
@@ -244,7 +277,7 @@ export class ExcelImportSheetComponent {
     }
 
     const importRows = rows.slice(1).map((row) =>
-      Object.fromEntries(module.headers.map((header, index) => [header, row[index] ?? ''])),
+      Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])),
     );
     return { result: { status: 'Valid', errors: [], validRows: importRows.length, invalidRows: 0 }, rows: importRows };
   }

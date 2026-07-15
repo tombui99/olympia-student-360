@@ -11,10 +11,12 @@ import {
 import { ManualEntrySheetComponent } from './manual-entry-sheet.component';
 import { ImportHistoryService } from './import-history.service';
 import { ExcelImportSheetComponent } from './excel-import-sheet.component';
+import { FieldDesignerSheetComponent } from './field-designer-sheet.component';
+import { ImportHistoryDetailSheetComponent } from './import-history-detail-sheet.component';
 
 @Component({
   selector: 'app-manual-excel-import',
-  imports: [NgFor, NgIf, ManualEntrySheetComponent, ExcelImportSheetComponent],
+  imports: [NgFor, NgIf, ManualEntrySheetComponent, ExcelImportSheetComponent, FieldDesignerSheetComponent, ImportHistoryDetailSheetComponent],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-end justify-between gap-4">
@@ -67,6 +69,18 @@ import { ExcelImportSheetComponent } from './excel-import-sheet.component';
                 </div>
               </div>
               <p class="mt-3 line-clamp-2 text-sm leading-5 text-[#6f6877]">{{ languageService.t(module.descriptionKey) }}</p>
+              <button
+                *ngIf="canDesign()"
+                class="mt-3 inline-flex items-center gap-1.5 self-start text-xs font-semibold text-[#7a5b12] transition hover:text-[#32124f]"
+                type="button"
+                (click)="openDesigner(module.id)"
+              >
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                {{ languageService.t('imports.designer.customize') }}
+              </button>
               <div class="mt-auto grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-4">
                 <button
                   class="rounded-md border border-[#d8d0df] px-3 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
@@ -100,29 +114,29 @@ import { ExcelImportSheetComponent } from './excel-import-sheet.component';
         </div>
 
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[920px] text-left">
+          <table class="w-full min-w-[780px] text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284]">
               <tr>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('imports.fileName') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('imports.module') }}</th>
-                <th class="px-6 py-4 font-semibold">{{ languageService.t('imports.source') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('imports.importedBy') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('imports.importedAt') }}</th>
+                <th class="px-6 py-4 text-right font-semibold">{{ languageService.t('imports.historyDetail.actions') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-[#ebe6ef]">
               <tr *ngFor="let record of visibleRecords()" class="text-sm">
                 <td class="px-6 py-4 font-semibold text-[#32124f]">
-                  {{ record.source === 'Manual' ? languageService.t('imports.manual.entryLabel') : record.fileName }}
+                  {{ record.fileName || languageService.t('imports.manual.entryLabel') }}
                 </td>
                 <td class="px-6 py-4 text-[#6f6877]">{{ languageService.t(record.moduleTitleKey) }}</td>
-                <td class="px-6 py-4">
-                  <span class="rounded-full bg-[#f3eff6] px-3 py-1 text-xs font-semibold text-[#5b287d]">
-                    {{ languageService.t('imports.source.' + record.source) }}
-                  </span>
-                </td>
                 <td class="px-6 py-4 text-[#6f6877]">{{ record.importedByName }}</td>
                 <td class="px-6 py-4 text-[#6f6877]">{{ formatDate(record.importedAt) }}</td>
+                <td class="px-6 py-4 text-right">
+                  <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:border-[#9d7caf] hover:bg-[#f8f4fa]" type="button" (click)="historyDetailId.set(record.id)">
+                    {{ languageService.t('imports.historyDetail.view') }}
+                  </button>
+                </td>
               </tr>
               <tr *ngIf="historyLoading()">
                 <td class="px-6 py-8 text-center text-sm text-[#7c7284]" colspan="5">
@@ -142,6 +156,27 @@ import { ExcelImportSheetComponent } from './excel-import-sheet.component';
             </tbody>
           </table>
         </div>
+        <div *ngIf="!historyLoading() && historyTotalCount() > 0" class="flex flex-wrap items-center justify-between gap-3 border-t border-[#ebe6ef] px-5 py-4">
+          <div class="flex items-center gap-2 text-xs text-[#6f6877]">
+            <span>{{ historyPageLabel() }}</span>
+            <label class="ml-2 flex items-center gap-2">
+              {{ languageService.t('pagination.perPage') }}
+              <select class="rounded-md border border-[#d8d0df] bg-white px-2 py-1.5 text-xs outline-none focus:border-[#6d3a91]" [value]="historyPageSize()" (change)="changeHistoryPageSize($event)">
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+          </div>
+          <div class="flex gap-2">
+            <button class="rounded-md border border-[#d8d0df] px-4 py-2 text-xs font-semibold text-[#32124f] transition hover:bg-[#f7f3fa] disabled:cursor-not-allowed disabled:opacity-40" type="button" [disabled]="historyPage() <= 1" (click)="previousHistoryPage()">
+              {{ languageService.t('pagination.previous') }}
+            </button>
+            <button class="rounded-md border border-[#d8d0df] px-4 py-2 text-xs font-semibold text-[#32124f] transition hover:bg-[#f7f3fa] disabled:cursor-not-allowed disabled:opacity-40" type="button" [disabled]="historyPage() >= historyTotalPages()" (click)="nextHistoryPage()">
+              {{ languageService.t('pagination.next') }}
+            </button>
+          </div>
+        </div>
       </section>
 
       @if (manualModuleId()) {
@@ -158,6 +193,21 @@ import { ExcelImportSheetComponent } from './excel-import-sheet.component';
           (imported)="excelImportSaved($event)"
         />
       }
+      @if (designerModuleId(); as moduleId) {
+        <app-field-designer-sheet
+          [moduleId]="moduleId"
+          [moduleTitleKey]="moduleTitleKeyFor(moduleId)"
+          (close)="designerModuleId.set(null)"
+        />
+      }
+      @if (historyDetailId(); as historyId) {
+        <app-import-history-detail-sheet
+          [historyId]="historyId"
+          (close)="historyDetailId.set(null)"
+          (changed)="loadHistory()"
+          (deleted)="historyDeleted()"
+        />
+      }
     </section>
   `,
 })
@@ -167,10 +217,16 @@ export class ManualExcelImportComponent implements OnInit {
   records = signal<ImportRecord[]>([]);
   manualModuleId = signal<string | null>(null);
   excelModuleId = signal<string | null>(null);
+  designerModuleId = signal<string | null>(null);
+  historyDetailId = signal<number | null>(null);
   savedModuleTitleKey = signal<string | null>(null);
   savedAction = signal<'Manual' | 'Excel'>('Manual');
   historyLoading = signal(true);
   historyError = signal<string | null>(null);
+  historyPage = signal(1);
+  historyPageSize = signal(20);
+  historyTotalCount = signal(0);
+  historyTotalPages = signal(0);
 
   readonly visibleRecords = this.records.asReadonly();
 
@@ -181,7 +237,7 @@ export class ManualExcelImportComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
-    this.loadHistory();
+    this.loadHistory(1);
   }
 
   historyHint(): string {
@@ -203,6 +259,19 @@ export class ManualExcelImportComponent implements OnInit {
     return this.modules.filter((module) => module.category === categoryId);
   }
 
+  canDesign(): boolean {
+    const role = this.authService.getUserRole();
+    return role === 'Admin' || role === 'Principal';
+  }
+
+  openDesigner(moduleId: string): void {
+    this.designerModuleId.set(moduleId);
+  }
+
+  moduleTitleKeyFor(moduleId: string): string {
+    return this.modules.find((module) => module.id === moduleId)?.titleKey ?? '';
+  }
+
   openManualEntry(moduleId: string): void {
     this.excelModuleId.set(null);
     this.manualModuleId.set(moduleId);
@@ -217,7 +286,7 @@ export class ManualExcelImportComponent implements OnInit {
     this.savedModuleTitleKey.set(module?.titleKey ?? null);
     this.savedAction.set('Manual');
     this.closeManualEntry();
-    this.loadHistory();
+    this.loadHistory(1);
   }
 
   openExcelImport(moduleId: string): void {
@@ -234,15 +303,23 @@ export class ManualExcelImportComponent implements OnInit {
     this.savedModuleTitleKey.set(module?.titleKey ?? null);
     this.savedAction.set('Excel');
     this.closeExcelImport();
-    this.loadHistory();
+    this.loadHistory(1);
   }
 
-  private loadHistory(): void {
+  historyDeleted(): void {
+    this.historyDetailId.set(null);
+    this.loadHistory(this.historyPage());
+  }
+
+  loadHistory(page = this.historyPage()): void {
     this.historyLoading.set(true);
     this.historyError.set(null);
-    this.importHistoryService.list().subscribe({
-      next: (records) => {
-        this.records.set(records);
+    this.importHistoryService.list(page, this.historyPageSize()).subscribe({
+      next: (response) => {
+        this.records.set(response.items);
+        this.historyPage.set(response.page);
+        this.historyTotalCount.set(response.totalCount);
+        this.historyTotalPages.set(response.totalPages);
         this.historyLoading.set(false);
       },
       error: () => {
@@ -250,6 +327,26 @@ export class ManualExcelImportComponent implements OnInit {
         this.historyLoading.set(false);
       },
     });
+  }
+
+  previousHistoryPage(): void {
+    if (this.historyPage() > 1) this.loadHistory(this.historyPage() - 1);
+  }
+
+  nextHistoryPage(): void {
+    if (this.historyPage() < this.historyTotalPages()) this.loadHistory(this.historyPage() + 1);
+  }
+
+  changeHistoryPageSize(event: Event): void {
+    this.historyPageSize.set(Number((event.target as HTMLSelectElement).value));
+    this.loadHistory(1);
+  }
+
+  historyPageLabel(): string {
+    return this.languageService.t('pagination.pageOf')
+      .replace('{page}', String(this.historyPage()))
+      .replace('{pages}', String(this.historyTotalPages()))
+      .replace('{total}', String(this.historyTotalCount()));
   }
 
 }

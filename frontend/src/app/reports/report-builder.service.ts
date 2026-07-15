@@ -15,7 +15,45 @@ export interface MetricVariable {
   trend: number | null;
   baselineValue: number | null;
   kpiTarget: number | null;
+  supportsDrilldown?: boolean;
   series: { periodStart: string; value: number }[];
+}
+
+export interface MetricDrilldownRow {
+  studentId: number;
+  studentCode: string;
+  fullName: string;
+  gradeLevel?: string | null;
+  homeroom?: string | null;
+  value: number;
+  recordCount: number;
+  records: DrilldownRecord[];
+}
+
+export interface DrilldownRecord {
+  date?: string | null;
+  value?: number | null;
+  fields: Record<string, string | null>;
+}
+
+export interface MetricDrilldown {
+  metricId: string;
+  label: string;
+  unit: string;
+  aggregation: 'count' | 'average';
+  aggregateValue: number | null;
+  students: MetricDrilldownRow[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+/** Ad-hoc query spec for a Canvas data-explorer chart. */
+export interface ExplorerSpec {
+  dataset: string;
+  dimension: string;
+  measure: string;
 }
 
 export interface CustomChart {
@@ -27,6 +65,57 @@ export interface CustomChart {
   showBaseline?: boolean;
   /** Optional KPI target reference line on bar/line charts. */
   kpiTarget?: number | null;
+  /** When set, this chart is built from raw Canvas fields instead of metric variables. */
+  explorer?: ExplorerSpec;
+}
+
+export interface CanvasExploreField {
+  key: string;
+  label: string;
+  unit: string;
+}
+
+export interface CanvasExploreDataset {
+  key: string;
+  label: string;
+  dimensions: CanvasExploreField[];
+  measures: CanvasExploreField[];
+}
+
+export interface CanvasExploreOptions {
+  datasets: CanvasExploreDataset[];
+}
+
+export interface CanvasExploreRow {
+  key: string;
+  value: number;
+}
+
+export interface CanvasExploreResult {
+  dataset: string;
+  dimension: string;
+  measure: string;
+  unit: string;
+  aggregation: string;
+  rows: CanvasExploreRow[];
+}
+
+export interface CanvasExploreDrilldownRow extends DrilldownRecord {
+  studentId?: number | null;
+  studentCode?: string | null;
+  fullName?: string | null;
+  gradeLevel?: string | null;
+  homeroom?: string | null;
+}
+
+export interface CanvasExploreDrilldown {
+  dataset: string;
+  groupKey: string;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  records: CanvasExploreDrilldownRow[];
 }
 
 export interface CustomReport {
@@ -76,6 +165,26 @@ export class ReportBuilderService {
         return metrics;
       }),
       catchError(() => of([])),
+    );
+  }
+
+  loadMetricDrilldown(params: Record<string, string>): Observable<MetricDrilldown> {
+    return this.http.get<MetricDrilldown>(`${this.basePath}/api/dashboard/metric-drilldown`, { params });
+  }
+
+  loadExploreOptions(): Observable<CanvasExploreOptions> {
+    return this.http.get<CanvasExploreOptions>(`${this.basePath}/api/dashboard/canvas-explore/options`).pipe(
+      catchError(() => of({ datasets: [] } as CanvasExploreOptions)),
+    );
+  }
+
+  loadExplore(params: Record<string, string>): Observable<CanvasExploreResult> {
+    return this.http.get<CanvasExploreResult>(`${this.basePath}/api/dashboard/canvas-explore`, { params });
+  }
+
+  loadExploreDrilldown(params: Record<string, string>): Observable<CanvasExploreDrilldown> {
+    return this.http.get<CanvasExploreDrilldown>(
+      `${this.basePath}/api/dashboard/canvas-explore/drilldown`, { params },
     );
   }
 

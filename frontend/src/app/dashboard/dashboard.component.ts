@@ -4,10 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
+import { catchError, forkJoin, of } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
-import { AtRiskStudent, StudentsService } from '../students/students.service';
 import { riskBadgeClass, riskDotClass } from '../students/risk.util';
-import { DashboardOverview, DashboardOverviewService } from './dashboard-overview.service';
+import { DashboardAttentionStudent, DashboardOverview, DashboardOverviewService } from './dashboard-overview.service';
 import { defaultFilterSet, WorkspaceFiltersService, WorkspaceFilterSet } from '../workspace/workspace-filters.service';
 
 interface RiskRow {
@@ -36,24 +36,33 @@ interface RiskRow {
               {{ languageService.t('dashboard.period.label') }}
             </p>
             <div class="mt-1 flex flex-wrap items-center gap-2">
-              <select
-                class="rounded-md border border-[#e3d3a0] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#32124f] outline-none focus:border-[#b38116]"
-                [(ngModel)]="selectedYear"
-                (ngModelChange)="onPeriodChange()"
-              >
-                <option value="">—</option>
-                <option *ngFor="let year of years()" [value]="year">{{ formatYear(year) }}</option>
-              </select>
-              <select
-                class="rounded-md border border-[#e3d3a0] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#32124f] outline-none focus:border-[#b38116]"
-                [(ngModel)]="selectedTerm"
-                (ngModelChange)="onPeriodChange()"
-              >
-                <option value="all">{{ languageService.t('dashboard.period.term.all') }}</option>
-                <option *ngFor="let term of terms()" [value]="term">
-                  {{ languageService.t('dashboard.period.term.' + term) }}
-                </option>
-              </select>
+              <label class="grid gap-0.5">
+                <span class="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a6811]">
+                  {{ languageService.t('dashboard.period.year') }}
+                </span>
+                <select
+                  class="rounded-md border border-[#e3d3a0] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#32124f] outline-none focus:border-[#b38116]"
+                  [(ngModel)]="selectedYear"
+                  (ngModelChange)="onPeriodChange()"
+                >
+                  <option *ngFor="let year of years()" [value]="year">{{ formatYear(year) }}</option>
+                </select>
+              </label>
+              <label class="grid gap-0.5">
+                <span class="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a6811]">
+                  {{ languageService.t('dashboard.period.term') }}
+                </span>
+                <select
+                  class="rounded-md border border-[#e3d3a0] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#32124f] outline-none focus:border-[#b38116]"
+                  [(ngModel)]="selectedTerm"
+                  (ngModelChange)="onPeriodChange()"
+                >
+                  <option value="all">{{ languageService.t('dashboard.period.term.all') }}</option>
+                  <option *ngFor="let term of terms()" [value]="term">
+                    {{ languageService.t('dashboard.period.term.' + term) }}
+                  </option>
+                </select>
+              </label>
             </div>
           </div>
         </div>
@@ -199,12 +208,11 @@ interface RiskRow {
 })
 export class DashboardComponent implements OnInit {
   private readonly overviewService = inject(DashboardOverviewService);
-  private readonly studentsService = inject(StudentsService);
   private readonly workspaceFilters = inject(WorkspaceFiltersService);
   readonly languageService = inject(LanguageService);
 
   readonly overview = signal<DashboardOverview | null>(null);
-  readonly topAtRisk = signal<AtRiskStudent[]>([]);
+  readonly topAtRisk = signal<DashboardAttentionStudent[]>([]);
   readonly atRiskLoading = signal(true);
 
   readonly years = signal<string[]>([]);
@@ -212,6 +220,7 @@ export class DashboardComponent implements OnInit {
   private currentFilters: WorkspaceFilterSet = defaultFilterSet();
   selectedYear = '';
   selectedTerm = 'all';
+  private overviewRequestId = 0;
 
   readonly periodLabel = computed(() => {
     const data = this.overview();
@@ -269,26 +278,15 @@ export class DashboardComponent implements OnInit {
   });
 
   ngOnInit() {
-    this.workspaceFilters.options().subscribe((options) => {
-      this.years.set(options.academicYears);
-      this.terms.set(options.terms.filter((term) => term !== 'all'));
-    });
-    this.workspaceFilters.load().subscribe({
-      next: (filters) => {
-        this.currentFilters = filters;
-        this.selectedYear = filters.year;
-        this.selectedTerm = filters.semester || 'all';
+    forkJoin({
+      options: this.workspaceFilters.options(),
+      filters: this.workspaceFilters.load().pipe(catchError(() => of(defaultFilterSet()))),
+    }).subscribe({
+      next: ({ options, filters }) => this.initializePeriod(options.academicYears, options.terms, filters),
+      error: () => {
+        this.currentFilters = defaultFilterSet();
         this.loadOverview();
       },
-      error: () => this.loadOverview(),
-    });
-
-    this.studentsService.atRisk(1, 5).subscribe({
-      next: (response) => {
-        this.topAtRisk.set(response.items);
-        this.atRiskLoading.set(false);
-      },
-      error: () => this.atRiskLoading.set(false),
     });
   }
 
@@ -299,15 +297,46 @@ export class DashboardComponent implements OnInit {
   }
 
   private loadOverview(): void {
+    const requestId = ++this.overviewRequestId;
+    this.atRiskLoading.set(true);
     this.overviewService.overview(this.selectedYear || undefined, this.selectedTerm).subscribe({
       next: (data) => {
+        if (requestId !== this.overviewRequestId) {
+          return;
+        }
         this.overview.set(data);
+        this.topAtRisk.set(data.topAtRisk);
+        this.atRiskLoading.set(false);
         // Reflect the period the server actually resolved (e.g. on first load).
+        if (!this.years().includes(data.periodYear)) {
+          this.years.update((years) => [data.periodYear, ...years]);
+        }
         this.selectedYear = data.periodYear;
         this.selectedTerm = data.periodTerm;
       },
-      error: () => undefined,
+      error: () => {
+        if (requestId === this.overviewRequestId) {
+          this.atRiskLoading.set(false);
+        }
+      },
     });
+  }
+
+  private initializePeriod(years: string[], terms: string[], filters: WorkspaceFilterSet): void {
+    this.years.set(years);
+    const availableTerms: string[] = terms.filter((term) => term === 'hk1' || term === 'hk2');
+    this.terms.set(availableTerms);
+
+    this.selectedYear = years.includes(filters.year) ? filters.year : years[0] ?? '';
+    this.selectedTerm = filters.semester === 'all' || availableTerms.includes(filters.semester)
+      ? filters.semester
+      : 'all';
+    this.currentFilters = {
+      ...filters,
+      year: this.selectedYear,
+      semester: this.selectedTerm,
+    };
+    this.loadOverview();
   }
 
   formatYear(year: string): string {

@@ -22,17 +22,100 @@ public class StudentsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<StudentListItemDto>>> GetStudents()
+    public async Task<ActionResult<StudentsPageDto>> GetStudents(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] string? grade = null,
+        [FromQuery] bool atRiskOnly = false)
     {
-        var students = await LoadVisibleWithActivity();
-
-        var result = students
-            .OrderBy(student => student.FullName)
-            .ThenBy(student => student.StudentCode)
-            .Select(ToListItem)
+        (page, pageSize) = NormalizePaging(page, pageSize);
+        var visible = VisibleStudents();
+        var availableGrades = (await visible
+            .Where(student => student.GradeLevel != null && student.GradeLevel != "")
+            .Select(student => student.GradeLevel!)
+            .Distinct()
+            .ToListAsync())
+            .OrderBy(value => int.TryParse(value, out var number) ? number : int.MaxValue)
+            .ThenBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return Ok(result);
+        var query = visible;
+        var term = search?.Trim();
+        if (!string.IsNullOrWhiteSpace(term))
+        {
+            term = term[..Math.Min(term.Length, 100)];
+            var pattern = $"%{EscapeLikePattern(term)}%";
+            query = query.Where(student =>
+                EF.Functions.Like(student.FullName, pattern, "!") ||
+                EF.Functions.Like(student.StudentCode, pattern, "!") ||
+                student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!") ||
+                student.Teacher != null && EF.Functions.Like(student.Teacher.FullName, pattern, "!"));
+        }
+        if (!string.IsNullOrWhiteSpace(grade))
+        {
+            query = query.Where(student => student.GradeLevel == grade.Trim());
+        }
+
+        var rows = query.Select(student => new
+        {
+            student.Id,
+            student.StudentCode,
+            student.FullName,
+            student.GradeLevel,
+            student.Homeroom,
+            student.Campus,
+            student.EducationLevel,
+            student.Program,
+            TeacherName = student.Teacher == null ? null : student.Teacher.FullName,
+            BehaviourCount = student.Behaviours.Count,
+            ProjectCount = student.Projects.Count,
+            MentalHealthCount = student.MentalHealthRecords.Count,
+            ConcernCount = student.Behaviours.Count(behaviour =>
+                behaviour.BehaviourType == "Late to class" ||
+                behaviour.BehaviourType == "Homework not submitted" ||
+                behaviour.BehaviourType == "Disruptive in class" ||
+                behaviour.BehaviourType == "Đi học muộn" ||
+                behaviour.BehaviourType == "Chưa nộp bài tập" ||
+                behaviour.BehaviourType == "Thiếu bài tập về nhà" ||
+                behaviour.BehaviourType == "Gây mất trật tự trong lớp")
+        });
+        if (atRiskOnly)
+        {
+            rows = rows.Where(student => student.ConcernCount > 0);
+        }
+
+        var totalCount = await rows.CountAsync();
+        var totalPages = TotalPages(totalCount, pageSize);
+        page = Math.Min(page, Math.Max(1, totalPages));
+        var pageRows = await rows
+            .OrderBy(student => student.FullName)
+            .ThenBy(student => student.StudentCode)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return Ok(new StudentsPageDto
+        {
+            Items = pageRows.Select(student =>
+            {
+                var risk = StudentClassificationService.ClassifyRisk(student.GradeLevel, student.ConcernCount);
+                return new StudentListItemDto
+                {
+                    Id = student.Id, StudentCode = student.StudentCode, FullName = student.FullName,
+                    GradeLevel = student.GradeLevel, Homeroom = student.Homeroom,
+                    Campus = student.Campus, EducationLevel = student.EducationLevel, Program = student.Program,
+                    TeacherName = student.TeacherName, BehaviourCount = student.BehaviourCount,
+                    ProjectCount = student.ProjectCount, MentalHealthCount = student.MentalHealthCount,
+                    RiskLevel = risk.Level, RiskFlagCount = risk.Flags.Count
+                };
+            }).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = totalPages,
+            AvailableGrades = availableGrades
+        });
     }
 
     [HttpGet("at-risk")]
@@ -65,7 +148,7 @@ public class StudentsController : ControllerBase
                     TeacherName = entry.Student.Teacher?.FullName,
                     BehaviourCount = entry.Student.Behaviours.Count,
                     ProjectCount = entry.Student.Projects.Count,
-                    HealthIncidentCount = entry.Student.HealthIncidents.Count,
+                    MentalHealthCount = entry.Student.MentalHealthRecords.Count,
                     RiskLevel = entry.Risk.Level,
                     RiskFlagCount = entry.Risk.Flags.Count,
                     Flags = entry.Risk.Flags
@@ -148,9 +231,40 @@ public class StudentsController : ControllerBase
             .Distinct()
             .OrderByDescending(year => year)
             .ToListAsync();
+        return Ok(new ManualEntryOptionsDto
+        {
+            BehaviourTypes = StudentClassificationService.SupportedBehaviourTypes,
+            ProjectSubjects = StudentDataEntryOptions.ProjectSubjects,
+            ProjectStatuses = StudentDataEntryOptions.ProjectStatuses,
+            AcademicYears = academicYears,
+            MentalHealthConcernTypes = StudentDataEntryOptions.MentalHealthConcernTypes,
+            MentalHealthRiskLevels = StudentDataEntryOptions.MentalHealthRiskLevels,
+            BusTripDirections = StudentDataEntryOptions.BusTripDirections,
+            BusViolationTypes = StudentDataEntryOptions.BusViolationTypes
+        });
+    }
+
+    [HttpGet("manual-entry-students")]
+    public async Task<ActionResult<List<ManualEntryStudentDto>>> SearchManualEntryStudents(
+        [FromQuery] string? query)
+    {
+        const int resultLimit = 20;
+        var term = query?.Trim();
+        if (string.IsNullOrWhiteSpace(term) || term.Length < 2)
+        {
+            return Ok(new List<ManualEntryStudentDto>());
+        }
+
+        term = term[..Math.Min(term.Length, 100)];
+        var pattern = $"%{EscapeLikePattern(term)}%";
         var students = await VisibleStudents()
+            .Where(student =>
+                EF.Functions.Like(student.StudentCode, pattern, "!") ||
+                EF.Functions.Like(student.FullName, pattern, "!") ||
+                student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!"))
             .OrderBy(student => student.FullName)
             .ThenBy(student => student.StudentCode)
+            .Take(resultLimit)
             .Select(student => new ManualEntryStudentDto
             {
                 Id = student.Id,
@@ -161,18 +275,7 @@ public class StudentsController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(new ManualEntryOptionsDto
-        {
-            Students = students,
-            BehaviourTypes = StudentClassificationService.SupportedBehaviourTypes,
-            ProjectSubjects = StudentDataEntryOptions.ProjectSubjects,
-            ProjectStatuses = StudentDataEntryOptions.ProjectStatuses,
-            AcademicYears = academicYears,
-            HealthIncidentTypes = StudentDataEntryOptions.HealthIncidentTypes,
-            HealthSeverityLevels = StudentDataEntryOptions.HealthSeverityLevels,
-            HealthBodyAreas = StudentDataEntryOptions.HealthBodyAreas,
-            HealthLocations = StudentDataEntryOptions.HealthLocations
-        });
+        return Ok(students);
     }
 
     [HttpPost("{studentId:int}/behaviours")]
@@ -191,6 +294,12 @@ public class StudentsController : ControllerBase
             return BadRequest(new { Message = "The selected behaviour type is invalid." });
         }
 
+        var (customError, customJson) = await BuildCustomFields("student-behaviours", model.CustomFields);
+        if (customError != null)
+        {
+            return customError;
+        }
+
         var recordedByName = await CurrentUserDisplayName();
         var behaviour = new StudentBehaviour
         {
@@ -201,11 +310,14 @@ public class StudentsController : ControllerBase
             Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim(),
             RecordedByName = recordedByName,
             AcademicYear = Clean(model.AcademicYear), Term = Clean(model.Term),
-            MeasurementCycle = Clean(model.MeasurementCycle), Program = Clean(model.Program), Subject = Clean(model.Subject)
+            MeasurementCycle = Clean(model.MeasurementCycle), Program = Clean(model.Program), Subject = Clean(model.Subject),
+            CustomFieldsJson = customJson
         };
 
+        var history = CreateManualImportHistory("student-behaviours", recordedByName);
+        behaviour.ImportHistory = history;
         _context.StudentBehaviours.Add(behaviour);
-        _context.ImportHistories.Add(CreateManualImportHistory("student-behaviours", recordedByName));
+        _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
 
         return Created($"/api/students/{student.Id}", new StudentBehaviourDto
@@ -240,6 +352,12 @@ public class StudentsController : ControllerBase
             return BadRequest(new { Message = "The selected project subject or status is invalid." });
         }
 
+        var (customError, customJson) = await BuildCustomFields("student-projects", model.CustomFields);
+        if (customError != null)
+        {
+            return customError;
+        }
+
         var project = new StudentProject
         {
             StudentProfileId = student.Id,
@@ -249,11 +367,14 @@ public class StudentsController : ControllerBase
             TeacherNotes = string.IsNullOrWhiteSpace(model.TeacherNotes) ? null : model.TeacherNotes.Trim(),
             AcademicYear = Clean(model.AcademicYear), Term = Clean(model.Term),
             MeasurementCycle = Clean(model.MeasurementCycle), Program = Clean(model.Program),
-            ActivityDate = model.ActivityDate.HasValue ? DateTime.SpecifyKind(model.ActivityDate.Value, DateTimeKind.Utc) : null
+            ActivityDate = model.ActivityDate.HasValue ? DateTime.SpecifyKind(model.ActivityDate.Value, DateTimeKind.Utc) : null,
+            CustomFieldsJson = customJson
         };
 
+        var history = CreateManualImportHistory("student-projects", await CurrentUserDisplayName());
+        project.ImportHistory = history;
         _context.StudentProjects.Add(project);
-        _context.ImportHistories.Add(CreateManualImportHistory("student-projects", await CurrentUserDisplayName()));
+        _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
 
         return Created($"/api/students/{student.Id}", new StudentProjectDto
@@ -269,11 +390,11 @@ public class StudentsController : ControllerBase
         });
     }
 
-    [HttpPost("{studentId:int}/health-incidents")]
+    [HttpPost("{studentId:int}/mental-health")]
     [Authorize(Roles = "Admin,Principal,Teacher")]
-    public async Task<ActionResult<StudentHealthIncidentDto>> CreateHealthIncident(
+    public async Task<ActionResult<StudentMentalHealthRecordDto>> CreateMentalHealth(
         int studentId,
-        [FromBody] CreateStudentHealthIncidentDto model)
+        [FromBody] CreateStudentMentalHealthRecordDto model)
     {
         var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
         if (student == null)
@@ -287,40 +408,97 @@ public class StudentsController : ControllerBase
             return BadRequest(new { Message = "The selected academic year is not configured." });
         }
 
-        var incidentType = Canonical(StudentDataEntryOptions.HealthIncidentTypes, model.IncidentType);
-        var bodyArea = string.IsNullOrWhiteSpace(model.BodyArea)
-            ? null
-            : Canonical(StudentDataEntryOptions.HealthBodyAreas, model.BodyArea);
-        var location = string.IsNullOrWhiteSpace(model.Location)
-            ? null
-            : Canonical(StudentDataEntryOptions.HealthLocations, model.Location);
-        if (incidentType == null || (model.BodyArea != null && bodyArea == null) ||
-            (model.Location != null && location == null) ||
-            !StudentDataEntryOptions.HealthSeverityLevels.Contains(model.SeverityLevel))
+        var concernType = Canonical(StudentDataEntryOptions.MentalHealthConcernTypes, model.ConcernType);
+        var riskLevel = Canonical(StudentDataEntryOptions.MentalHealthRiskLevels, model.RiskLevel);
+        if (concernType == null || riskLevel == null)
         {
-            return BadRequest(new { Message = "The selected health incident options are invalid." });
+            return BadRequest(new { Message = "The selected mental health options are invalid." });
+        }
+
+        var (customError, customJson) = await BuildCustomFields("student-mental-health", model.CustomFields);
+        if (customError != null)
+        {
+            return customError;
         }
 
         var recordedByName = await CurrentUserDisplayName();
-        var incident = new StudentHealthIncident
+        var record = new StudentMentalHealthRecord
         {
             StudentProfileId = student.Id,
-            IncidentDate = DateTime.SpecifyKind(model.IncidentDate!.Value, DateTimeKind.Utc),
+            RecordDate = DateTime.SpecifyKind(model.RecordDate!.Value, DateTimeKind.Utc),
             AcademicYear = model.AcademicYear.Trim(),
-            IncidentType = incidentType,
-            SeverityLevel = model.SeverityLevel,
-            BodyArea = bodyArea,
-            Location = location,
-            Cause = model.Cause.Trim(),
-            ActionTaken = Clean(model.ActionTaken),
+            ConcernType = concernType,
+            RiskLevel = riskLevel,
+            Notes = Clean(model.Notes),
             RecordedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
-            RecordedByName = recordedByName
+            RecordedByName = recordedByName,
+            CustomFieldsJson = customJson
         };
 
-        _context.StudentHealthIncidents.Add(incident);
-        _context.ImportHistories.Add(CreateManualImportHistory("student-health-incidents", recordedByName));
+        var history = CreateManualImportHistory("student-mental-health", recordedByName);
+        record.ImportHistory = history;
+        _context.StudentMentalHealthRecords.Add(record);
+        _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
-        return Created($"/api/students/{student.Id}", ToHealthIncidentDto(incident));
+        return Created($"/api/students/{student.Id}", ToMentalHealthDto(record));
+    }
+
+    [HttpPost("{studentId:int}/bus-attendance")]
+    public async Task<ActionResult<StudentBusAttendanceRecordDto>> CreateBusAttendance(
+        int studentId,
+        [FromBody] CreateStudentBusAttendanceRecordDto model)
+    {
+        var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
+        if (student == null)
+        {
+            return BadRequest(new { Message = "The selected student ID is invalid or is not assigned to you." });
+        }
+
+        var direction = Canonical(StudentDataEntryOptions.BusTripDirections, model.TripDirection);
+        var violation = Canonical(StudentDataEntryOptions.BusViolationTypes, model.ViolationType);
+        if (direction == null || violation == null)
+        {
+            return BadRequest(new { Message = "The selected bus trip direction or violation type is invalid." });
+        }
+
+        var (customError, customJson) = await BuildCustomFields("student-bus-attendance", model.CustomFields);
+        if (customError != null) return customError;
+
+        var recordedByName = await CurrentUserDisplayName();
+        var record = new StudentBusAttendanceRecord
+        {
+            StudentProfileId = student.Id,
+            AttendanceDate = DateTime.SpecifyKind(model.AttendanceDate!.Value, DateTimeKind.Utc),
+            TripDirection = direction,
+            ViolationType = violation,
+            BusCode = Clean(model.BusCode),
+            RouteName = Clean(model.RouteName),
+            Notes = Clean(model.Notes),
+            RecordedByName = recordedByName,
+            AcademicYear = Clean(model.AcademicYear),
+            Term = Clean(model.Term),
+            CustomFieldsJson = customJson
+        };
+
+        var history = CreateManualImportHistory("student-bus-attendance", recordedByName);
+        record.ImportHistory = history;
+        _context.StudentBusAttendanceRecords.Add(record);
+        _context.ImportHistories.Add(history);
+        await _context.SaveChangesAsync();
+        return Created($"/api/students/{student.Id}", new StudentBusAttendanceRecordDto
+        {
+            Id = record.Id,
+            AttendanceDate = record.AttendanceDate,
+            TripDirection = record.TripDirection,
+            ViolationType = record.ViolationType,
+            BusCode = record.BusCode,
+            RouteName = record.RouteName,
+            Notes = record.Notes,
+            RecordedByName = record.RecordedByName,
+            AcademicYear = record.AcademicYear,
+            Term = record.Term,
+            CustomFields = ImportCustomFieldService.Parse(record.CustomFieldsJson)
+        });
     }
 
     [HttpGet("cohorts")]
@@ -356,15 +534,18 @@ public class StudentsController : ControllerBase
         int ProjectCount);
 
     [HttpGet("{id:int}")]
-    public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(int id)
+    public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(int id, [FromQuery] string? academicYear)
     {
+        var hasYearFilter = !string.IsNullOrWhiteSpace(academicYear) && academicYear != "all";
         var student = await VisibleStudents()
             .AsSplitQuery()
             .Include(candidate => candidate.Teacher)
             .Include(candidate => candidate.Behaviours)
             .Include(candidate => candidate.Projects)
             .Include(candidate => candidate.Parents)
-            .Include(candidate => candidate.HealthIncidents)
+            .Include(candidate => candidate.MentalHealthRecords)
+            .Include(candidate => candidate.BusAttendanceRecords)
+            .Include(candidate => candidate.SISHealthVisits)
             .FirstOrDefaultAsync(candidate => candidate.Id == id);
 
         if (student == null)
@@ -374,7 +555,18 @@ public class StudentsController : ControllerBase
 
         var now = DateTime.UtcNow;
         var last30Days = now.AddDays(-30);
+        // Risk always reflects the student's full record, not the selected year.
         var risk = StudentClassificationService.ClassifyRisk(student);
+
+        // Behaviours and projects re-scope to the selected school year (records carry an
+        // academic year; older ones fall back to their date within the Aug–Jul range).
+        var behaviourItems = FilterByAcademicYear(student.Behaviours, hasYearFilter, academicYear,
+            behaviour => behaviour.AcademicYear, behaviour => behaviour.IncidentDate);
+        var projectItems = FilterByAcademicYear(student.Projects, hasYearFilter, academicYear,
+            project => project.AcademicYear, project => project.ActivityDate ?? project.CreatedAt);
+        var busAttendanceItems = FilterByAcademicYear(
+            student.BusAttendanceRecords, hasYearFilter, academicYear,
+            record => record.AcademicYear, record => record.AttendanceDate);
 
         var detail = new StudentProfileDetailDto
         {
@@ -391,13 +583,14 @@ public class StudentsController : ControllerBase
             Flags = risk.Flags,
             Summary = new StudentSummaryDto
             {
-                TotalBehaviours = student.Behaviours.Count,
-                BehavioursLast30Days = student.Behaviours.Count(behaviour => behaviour.IncidentDate >= last30Days),
-                TotalProjects = student.Projects.Count,
-                ActiveProjects = student.Projects.Count(project =>
-                    !string.Equals(project.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+                TotalBehaviours = behaviourItems.Count,
+                BehavioursLast30Days = behaviourItems.Count(behaviour => behaviour.IncidentDate >= last30Days),
+                TotalProjects = projectItems.Count,
+                ActiveProjects = projectItems.Count(project =>
+                    !StudentDataEntryOptions.IsCompletedProjectStatus(project.Status))
             },
-            Behaviours = student.Behaviours
+            BehaviourTrend = BuildStudentBehaviourTrend(behaviourItems, hasYearFilter ? academicYear : null, now),
+            Behaviours = behaviourItems
                 .OrderByDescending(behaviour => behaviour.IncidentDate)
                 .Select(behaviour => new StudentBehaviourDto
                 {
@@ -407,10 +600,11 @@ public class StudentsController : ControllerBase
                     Notes = behaviour.Notes,
                     RecordedByName = behaviour.RecordedByName,
                     AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
-                    MeasurementCycle = behaviour.MeasurementCycle, Program = behaviour.Program, Subject = behaviour.Subject
+                    MeasurementCycle = behaviour.MeasurementCycle, Program = behaviour.Program, Subject = behaviour.Subject,
+                    CustomFields = ImportCustomFieldService.Parse(behaviour.CustomFieldsJson)
                 })
                 .ToList(),
-            Projects = student.Projects
+            Projects = projectItems
                 .OrderByDescending(project => project.CreatedAt)
                 .Select(project => new StudentProjectDto
                 {
@@ -421,7 +615,8 @@ public class StudentsController : ControllerBase
                     TeacherNotes = project.TeacherNotes,
                     CreatedAt = project.CreatedAt,
                     AcademicYear = project.AcademicYear, Term = project.Term,
-                    MeasurementCycle = project.MeasurementCycle, Program = project.Program, ActivityDate = project.ActivityDate
+                    MeasurementCycle = project.MeasurementCycle, Program = project.Program, ActivityDate = project.ActivityDate,
+                    CustomFields = ImportCustomFieldService.Parse(project.CustomFieldsJson)
                 })
                 .ToList(),
             Parents = student.Parents
@@ -439,13 +634,216 @@ public class StudentsController : ControllerBase
                     EmploymentSector = parent.EmploymentSector
                 })
                 .ToList(),
-            HealthIncidents = student.HealthIncidents
-                .OrderByDescending(incident => incident.IncidentDate)
-                .Select(ToHealthIncidentDto)
-                .ToList()
+            MentalHealthRecords = student.MentalHealthRecords
+                .Where(record => !hasYearFilter || record.AcademicYear == academicYear)
+                .OrderByDescending(record => record.RecordDate)
+                .Select(ToMentalHealthDto)
+                .ToList(),
+            BusAttendanceRecords = busAttendanceItems
+                .OrderByDescending(record => record.AttendanceDate)
+                .Select(ToBusAttendanceDto)
+                .ToList(),
+            HealthVisits = FilterByAcademicYear(student.SISHealthVisits, hasYearFilter, academicYear,
+                    _ => null, visit => visit.ExamTime)
+                .OrderByDescending(visit => visit.ExamTime)
+                .Select(ToSISHealthVisitDto)
+                .ToList(),
+            Canvas = await BuildCanvasSummary(student.Id, student.GradeLevel,
+                hasYearFilter ? academicYear : null)
         };
 
         return Ok(detail);
+    }
+
+    private static List<StudentBehaviourTrendPointDto> BuildStudentBehaviourTrend(
+        IReadOnlyCollection<StudentBehaviour> behaviours,
+        string? academicYear,
+        DateTime now)
+    {
+        DateTime start;
+        var monthCount = 6;
+        if (!string.IsNullOrWhiteSpace(academicYear)
+            && int.TryParse(academicYear.Split('-')[0], out var schoolYearStart))
+        {
+            start = new DateTime(schoolYearStart, 8, 1);
+            monthCount = 12;
+        }
+        else
+        {
+            start = new DateTime(now.Year, now.Month, 1).AddMonths(-5);
+        }
+
+        var totals = behaviours
+            .GroupBy(behaviour => new { behaviour.IncidentDate.Year, behaviour.IncidentDate.Month })
+            .ToDictionary(group => (group.Key.Year, group.Key.Month), group => group.Count());
+
+        return Enumerable.Range(0, monthCount)
+            .Select(offset => start.AddMonths(offset))
+            .Select(month => new StudentBehaviourTrendPointDto
+            {
+                Year = month.Year,
+                Month = month.Month,
+                Total = totals.GetValueOrDefault((month.Year, month.Month))
+            })
+            .ToList();
+    }
+
+    private async Task<StudentCanvasDto> BuildCanvasSummary(
+        int studentProfileId, string? currentGradeLevel, string? focusYear = null)
+    {
+        var courseScores = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.StudentProfileId == studentProfileId && score.CourseScore)
+            .Select(score => new
+            {
+                score.CourseName, score.Subject, score.Term, score.GradingPeriodTitle,
+                score.CurrentScore, score.FinalScore, score.AcademicYear
+            })
+            .ToListAsync();
+
+        var submissions = await _context.CanvasSubmissions.AsNoTracking()
+            .Where(submission => submission.StudentProfileId == studentProfileId)
+            .Select(submission => new
+            {
+                submission.WorkflowState, submission.Score, submission.PointsPossible,
+                submission.Late, submission.Missing, submission.Excused,
+                submission.DueAt, submission.SubmittedAt,
+                submission.Subject, submission.CanvasAssignmentId, submission.AcademicYear
+            })
+            .ToListAsync();
+
+        if (courseScores.Count == 0 && submissions.Count == 0)
+        {
+            return new StudentCanvasDto { HasData = false };
+        }
+
+        // Headline tiles/courses reflect one focus year (the selected year, or the latest on
+        // record by default); the journey below always spans every year.
+        var latestYear = courseScores.Select(item => item.AcademicYear)
+            .Concat(submissions.Select(item => item.AcademicYear))
+            .Where(year => year != null)
+            .OrderByDescending(year => year)
+            .FirstOrDefault();
+        var yearOnRecord = focusYear != null
+            && (courseScores.Any(item => item.AcademicYear == focusYear)
+                || submissions.Any(item => item.AcademicYear == focusYear));
+        var year = yearOnRecord ? focusYear : latestYear;
+
+        var latestScores = courseScores.Where(item => item.AcademicYear == year).ToList();
+        var latestSubmissions = submissions.Where(item => item.AcademicYear == year).ToList();
+
+        var enrolledCourses = latestScores.Select(item => item.CourseName).Distinct().Count();
+        var graded = latestSubmissions
+            .Where(item => string.Equals(item.WorkflowState, "graded", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var scoredPercentages = graded
+            .Where(item => item.Score != null && item.PointsPossible is > 0)
+            .Select(item => item.Score!.Value / item.PointsPossible!.Value * 100)
+            .ToList();
+        var finalScores = latestScores.Where(item => item.FinalScore != null)
+            .Select(item => item.FinalScore!.Value).ToList();
+
+        // Grade trajectory: average final grade per academic year + term, in chronological order.
+        // Derive the grade level the student was in each year, assuming one grade per year with
+        // their current grade anchored to the latest year — so the journey reads as a
+        // primary-through-high-school arc (Grade 1 … Grade 12).
+        int StartYear(string yr) => int.TryParse(yr.Split('-')[0], out var value) ? value : 0;
+        var hasGrade = int.TryParse(currentGradeLevel, out var currentGrade);
+        var latestStartYear = courseScores
+            .Where(item => item.AcademicYear != null)
+            .Select(item => StartYear(item.AcademicYear!))
+            .DefaultIfEmpty(0)
+            .Max();
+
+        var journey = courseScores
+            .Where(item => item.FinalScore != null && item.AcademicYear != null)
+            .GroupBy(item => new { item.AcademicYear, item.Term })
+            .Select(group =>
+            {
+                string? gradeThatYear = null;
+                if (hasGrade)
+                {
+                    var derived = currentGrade - (latestStartYear - StartYear(group.Key.AcademicYear!));
+                    if (derived is >= 1 and <= 12)
+                    {
+                        gradeThatYear = derived.ToString();
+                    }
+                }
+                var label = gradeThatYear != null
+                    ? $"G{gradeThatYear} {TermShort(group.Key.Term)}".Trim()
+                    : $"{group.Key.AcademicYear} {TermShort(group.Key.Term)}".Trim();
+                return new StudentCanvasJourneyPointDto
+                {
+                    AcademicYear = group.Key.AcademicYear!,
+                    Term = group.Key.Term,
+                    GradeLevel = gradeThatYear,
+                    Label = label,
+                    AverageGrade = Math.Round((decimal)group.Average(item => item.FinalScore!.Value), 1),
+                    CourseCount = group.Select(item => item.CourseName).Distinct().Count()
+                };
+            })
+            .OrderBy(point => point.AcademicYear)
+            .ThenBy(point => point.Term)
+            .ToList();
+
+        // Join titles/course names for the recent-submissions list.
+        var assignmentIds = submissions.Select(item => item.CanvasAssignmentId).Distinct().ToList();
+        var assignments = await _context.CanvasAssignments.AsNoTracking()
+            .Where(assignment => assignmentIds.Contains(assignment.CanvasAssignmentId))
+            .Select(assignment => new { assignment.CanvasAssignmentId, assignment.Title, assignment.CanvasCourseId })
+            .ToListAsync();
+        var courseIds = assignments.Select(item => item.CanvasCourseId).Distinct().ToList();
+        var courseNames = await _context.CanvasCourses.AsNoTracking()
+            .Where(course => courseIds.Contains(course.CanvasCourseId))
+            .ToDictionaryAsync(course => course.CanvasCourseId, course => course.Name);
+        var assignmentLookup = assignments.ToDictionary(item => item.CanvasAssignmentId);
+
+        return new StudentCanvasDto
+        {
+            HasData = true,
+            AcademicYear = year,
+            CoursesEnrolled = enrolledCourses,
+            AverageCourseGrade = finalScores.Count == 0
+                ? null : Math.Round((decimal)finalScores.Average(), 1),
+            AverageAssignmentScore = scoredPercentages.Count == 0
+                ? null : Math.Round((decimal)scoredPercentages.Average(), 1),
+            AssignmentsSubmitted = latestSubmissions.Count(item => item.SubmittedAt != null),
+            AssignmentsGraded = graded.Count,
+            MissingAssignments = latestSubmissions.Count(item => item.Missing && !item.Excused),
+            LateSubmissions = latestSubmissions.Count(item => item.Late),
+            Journey = journey,
+            Courses = latestScores
+                .OrderBy(item => item.Subject).ThenBy(item => item.Term)
+                .Select(item => new StudentCanvasCourseDto
+                {
+                    CourseName = item.CourseName ?? "—",
+                    Subject = item.Subject,
+                    Term = item.Term,
+                    GradingPeriodTitle = item.GradingPeriodTitle,
+                    CurrentScore = item.CurrentScore == null ? null : Math.Round((decimal)item.CurrentScore.Value, 1),
+                    FinalScore = item.FinalScore == null ? null : Math.Round((decimal)item.FinalScore.Value, 1)
+                })
+                .ToList(),
+            RecentSubmissions = submissions
+                .OrderByDescending(item => item.DueAt ?? item.SubmittedAt ?? DateTime.MinValue)
+                .Take(15)
+                .Select(item => new StudentCanvasSubmissionDto
+                {
+                    AssignmentTitle = assignmentLookup.TryGetValue(item.CanvasAssignmentId, out var assignment)
+                        ? assignment.Title : "—",
+                    CourseName = assignmentLookup.TryGetValue(item.CanvasAssignmentId, out var course)
+                        && courseNames.TryGetValue(course.CanvasCourseId, out var name) ? name : null,
+                    Subject = item.Subject,
+                    WorkflowState = item.WorkflowState,
+                    Score = item.Score == null ? null : Math.Round((decimal)item.Score.Value, 1),
+                    PointsPossible = item.PointsPossible == null ? null : Math.Round((decimal)item.PointsPossible.Value, 1),
+                    DueAt = item.DueAt,
+                    SubmittedAt = item.SubmittedAt,
+                    Late = item.Late,
+                    Missing = item.Missing,
+                    Excused = item.Excused
+                })
+                .ToList()
+        };
     }
 
     private static StudentListItemDto ToListItem(StudentProfile student)
@@ -464,7 +862,7 @@ public class StudentsController : ControllerBase
             TeacherName = student.Teacher?.FullName,
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
-            HealthIncidentCount = student.HealthIncidents.Count,
+            MentalHealthCount = student.MentalHealthRecords.Count,
             RiskLevel = risk.Level,
             RiskFlagCount = risk.Flags.Count
         };
@@ -472,21 +870,100 @@ public class StudentsController : ControllerBase
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    private static string EscapeLikePattern(string value) =>
+        value.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
+
+    /// <summary>Validate and serialise admin-defined custom fields for a manual entry.</summary>
+    private async Task<(ActionResult? Error, string? Json)> BuildCustomFields(
+        string moduleId, Dictionary<string, string?>? values)
+    {
+        var fields = await _context.ImportModuleFields.AsNoTracking()
+            .Where(f => f.ModuleId == moduleId)
+            .OrderBy(f => f.SortOrder).ToListAsync();
+        if (fields.Count == 0)
+        {
+            return (null, null);
+        }
+        var (errors, json) = ImportCustomFieldService.Build(fields, values);
+        if (errors.Count > 0)
+        {
+            return (BadRequest(new { Message = string.Join(" ", errors), Errors = errors }), null);
+        }
+        return (null, json);
+    }
+
     private static string? Canonical(IReadOnlyList<string> options, string value) =>
         options.FirstOrDefault(option => string.Equals(option, value, StringComparison.OrdinalIgnoreCase));
 
-    private static StudentHealthIncidentDto ToHealthIncidentDto(StudentHealthIncident incident) => new()
+    private static List<T> FilterByAcademicYear<T>(
+        IEnumerable<T> items, bool apply, string? academicYear,
+        Func<T, string?> yearSelector, Func<T, DateTime> dateSelector)
     {
-        Id = incident.Id,
-        IncidentDate = incident.IncidentDate,
-        AcademicYear = incident.AcademicYear,
-        IncidentType = incident.IncidentType,
-        SeverityLevel = incident.SeverityLevel,
-        BodyArea = incident.BodyArea,
-        Location = incident.Location,
-        Cause = incident.Cause,
-        ActionTaken = incident.ActionTaken,
-        RecordedByName = incident.RecordedByName
+        if (!apply || string.IsNullOrWhiteSpace(academicYear))
+        {
+            return items.ToList();
+        }
+        var (start, end) = AcademicYearRange(academicYear);
+        return items.Where(item => yearSelector(item) == academicYear
+            || (yearSelector(item) == null && dateSelector(item) >= start && dateSelector(item) < end))
+            .ToList();
+    }
+
+    // School year runs August–July.
+    private static (DateTime Start, DateTime End) AcademicYearRange(string academicYear)
+    {
+        var startYear = int.TryParse(academicYear.Split('-')[0], out var value) ? value : DateTime.UtcNow.Year;
+        return (new DateTime(startYear, 8, 1), new DateTime(startYear + 1, 8, 1));
+    }
+
+    private static string TermShort(string? term) => term switch
+    {
+        "hk1" => "S1",
+        "hk2" => "S2",
+        null or "" => "",
+        _ => term!
+    };
+
+    private static StudentMentalHealthRecordDto ToMentalHealthDto(StudentMentalHealthRecord record) => new()
+    {
+        Id = record.Id,
+        RecordDate = record.RecordDate,
+        AcademicYear = record.AcademicYear,
+        ConcernType = record.ConcernType,
+        RiskLevel = record.RiskLevel,
+        Notes = record.Notes,
+        RecordedByName = record.RecordedByName,
+        CustomFields = ImportCustomFieldService.Parse(record.CustomFieldsJson)
+    };
+
+    private static SISHealthVisitDto ToSISHealthVisitDto(SISHealthVisit visit) => new()
+    {
+        Id = visit.Id,
+        ExamTime = visit.ExamTime,
+        FullName = visit.FullName,
+        Gender = visit.Gender,
+        ClassName = visit.ClassName,
+        Symptoms = visit.Symptoms,
+        Diagnosis = visit.Diagnosis,
+        Classification = visit.Classification,
+        Treatment = visit.Treatment,
+        Medication = visit.Medication,
+        ExaminedBy = visit.ExaminedBy
+    };
+
+    private static StudentBusAttendanceRecordDto ToBusAttendanceDto(StudentBusAttendanceRecord record) => new()
+    {
+        Id = record.Id,
+        AttendanceDate = record.AttendanceDate,
+        TripDirection = record.TripDirection,
+        ViolationType = record.ViolationType,
+        BusCode = record.BusCode,
+        RouteName = record.RouteName,
+        Notes = record.Notes,
+        RecordedByName = record.RecordedByName,
+        AcademicYear = record.AcademicYear,
+        Term = record.Term,
+        CustomFields = ImportCustomFieldService.Parse(record.CustomFieldsJson)
     };
 
     private static List<CohortStatsDto> BuildCohorts(
@@ -522,7 +999,7 @@ public class StudentsController : ControllerBase
             .Include(student => student.Teacher)
             .Include(student => student.Behaviours)
             .Include(student => student.Projects)
-            .Include(student => student.HealthIncidents)
+            .Include(student => student.MentalHealthRecords)
             .ToListAsync();
     }
 
@@ -557,8 +1034,14 @@ public class StudentsController : ControllerBase
         return new ImportHistory
         {
             ModuleId = moduleId,
-            Source = "Manual",
-            FileName = "Manual entry",
+            FileName = moduleId switch
+            {
+                "student-behaviours" => "Hành vi học sinh",
+                "student-projects" => "Dự án học sinh",
+                "student-mental-health" => "Tâm lý học sinh",
+                "student-bus-attendance" => "Điểm danh xe bus",
+                _ => moduleId
+            },
             Status = "Valid",
             ValidRows = 1,
             InvalidRows = 0,

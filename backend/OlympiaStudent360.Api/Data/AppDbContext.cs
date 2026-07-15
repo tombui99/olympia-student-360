@@ -14,13 +14,21 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<StudentParent> StudentParents { get; set; }
-    public DbSet<StudentHealthIncident> StudentHealthIncidents { get; set; }
+    public DbSet<StudentMentalHealthRecord> StudentMentalHealthRecords { get; set; }
+    public DbSet<SISHealthVisit> SISHealthVisits { get; set; }
+    public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
     public DbSet<ImportHistory> ImportHistories { get; set; }
+    public DbSet<ImportModuleField> ImportModuleFields { get; set; }
     public DbSet<CustomReport> CustomReports { get; set; }
     public DbSet<AcademicPeriod> AcademicPeriods { get; set; }
     public DbSet<DashboardMetric> DashboardMetrics { get; set; }
     public DbSet<DashboardMetricObservation> DashboardMetricObservations { get; set; }
     public DbSet<DashboardPreference> DashboardPreferences { get; set; }
+    public DbSet<CanvasCourse> CanvasCourses { get; set; }
+    public DbSet<CanvasAssignment> CanvasAssignments { get; set; }
+    public DbSet<CanvasEnrollment> CanvasEnrollments { get; set; }
+    public DbSet<CanvasCourseScore> CanvasCourseScores { get; set; }
+    public DbSet<CanvasSubmission> CanvasSubmissions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -75,9 +83,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             behaviour.Property(b => b.Subject).HasMaxLength(100);
             behaviour.HasIndex(b => b.StudentProfileId);
             behaviour.HasIndex(b => b.IncidentDate);
+            behaviour.HasIndex(b => b.ImportHistoryId);
             behaviour.HasOne(b => b.Student)
                 .WithMany(s => s.Behaviours)
                 .HasForeignKey(b => b.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            behaviour.HasOne(b => b.ImportHistory)
+                .WithMany(h => h.Behaviours)
+                .HasForeignKey(b => b.ImportHistoryId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -92,9 +105,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             project.Property(p => p.MeasurementCycle).HasMaxLength(50);
             project.Property(p => p.Program).HasMaxLength(100);
             project.HasIndex(p => p.StudentProfileId);
+            project.HasIndex(p => p.ImportHistoryId);
             project.HasOne(p => p.Student)
                 .WithMany(s => s.Projects)
                 .HasForeignKey(p => p.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            project.HasOne(p => p.ImportHistory)
+                .WithMany(h => h.Projects)
+                .HasForeignKey(p => p.ImportHistoryId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -114,29 +132,75 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<StudentHealthIncident>(incident =>
+        modelBuilder.Entity<StudentMentalHealthRecord>(record =>
         {
-            incident.Property(i => i.AcademicYear).HasMaxLength(20);
-            incident.Property(i => i.IncidentType).HasMaxLength(100);
-            incident.Property(i => i.BodyArea).HasMaxLength(100);
-            incident.Property(i => i.Location).HasMaxLength(150);
-            incident.Property(i => i.Cause).HasMaxLength(1000);
-            incident.Property(i => i.ActionTaken).HasMaxLength(1000);
-            incident.Property(i => i.RecordedByUserId).HasMaxLength(450);
-            incident.Property(i => i.RecordedByName).HasMaxLength(255);
-            incident.HasIndex(i => i.StudentProfileId);
-            incident.HasIndex(i => i.IncidentDate);
-            incident.HasIndex(i => new { i.AcademicYear, i.SeverityLevel });
-            incident.HasOne(i => i.Student)
-                .WithMany(s => s.HealthIncidents)
-                .HasForeignKey(i => i.StudentProfileId)
+            record.Property(r => r.AcademicYear).HasMaxLength(20);
+            record.Property(r => r.ConcernType).HasMaxLength(100);
+            record.Property(r => r.RiskLevel).HasMaxLength(20);
+            record.Property(r => r.Notes).HasMaxLength(1000);
+            record.Property(r => r.RecordedByUserId).HasMaxLength(450);
+            record.Property(r => r.RecordedByName).HasMaxLength(255);
+            record.HasIndex(r => r.StudentProfileId);
+            record.HasIndex(r => r.ImportHistoryId);
+            record.HasIndex(r => r.RecordDate);
+            record.HasIndex(r => new { r.AcademicYear, r.RiskLevel });
+            record.HasOne(r => r.Student)
+                .WithMany(s => s.MentalHealthRecords)
+                .HasForeignKey(r => r.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            record.HasOne(r => r.ImportHistory)
+                .WithMany(h => h.MentalHealthRecords)
+                .HasForeignKey(r => r.ImportHistoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SISHealthVisit>(visit =>
+        {
+            visit.ToTable("SISHealthVisits");
+            visit.Property(v => v.FullName).HasMaxLength(255);
+            visit.Property(v => v.Gender).HasMaxLength(20);
+            visit.Property(v => v.ClassName).HasMaxLength(50);
+            visit.Property(v => v.Symptoms).HasMaxLength(1000);
+            visit.Property(v => v.Diagnosis).HasMaxLength(1000);
+            visit.Property(v => v.Classification).HasMaxLength(100);
+            visit.Property(v => v.Treatment).HasMaxLength(1000);
+            visit.Property(v => v.Medication).HasMaxLength(500);
+            visit.Property(v => v.ExaminedBy).HasMaxLength(255);
+            visit.HasIndex(v => v.StudentProfileId);
+            visit.HasIndex(v => v.ExamTime);
+            visit.HasOne(v => v.Student)
+                .WithMany(s => s.SISHealthVisits)
+                .HasForeignKey(v => v.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<StudentBusAttendanceRecord>(record =>
+        {
+            record.Property(r => r.TripDirection).HasMaxLength(30);
+            record.Property(r => r.ViolationType).HasMaxLength(30);
+            record.Property(r => r.BusCode).HasMaxLength(100);
+            record.Property(r => r.RouteName).HasMaxLength(255);
+            record.Property(r => r.Notes).HasMaxLength(1000);
+            record.Property(r => r.RecordedByName).HasMaxLength(255);
+            record.Property(r => r.AcademicYear).HasMaxLength(20);
+            record.Property(r => r.Term).HasMaxLength(50);
+            record.HasIndex(r => r.StudentProfileId);
+            record.HasIndex(r => r.ImportHistoryId);
+            record.HasIndex(r => r.AttendanceDate);
+            record.HasIndex(r => new { r.ViolationType, r.TripDirection, r.AttendanceDate });
+            record.HasOne(r => r.Student)
+                .WithMany(s => s.BusAttendanceRecords)
+                .HasForeignKey(r => r.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            record.HasOne(r => r.ImportHistory)
+                .WithMany(h => h.BusAttendanceRecords)
+                .HasForeignKey(r => r.ImportHistoryId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ImportHistory>(history =>
         {
             history.Property(item => item.ModuleId).HasMaxLength(100);
-            history.Property(item => item.Source).HasMaxLength(20);
             history.Property(item => item.FileName).HasMaxLength(255);
             history.Property(item => item.Status).HasMaxLength(20);
             history.Property(item => item.ImportedByUserId).HasMaxLength(450);
@@ -145,6 +209,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             history.HasIndex(item => item.ImportedByUserId);
             history.HasIndex(item => item.CreatedAt);
             history.HasIndex(item => new { item.ModuleId, item.CreatedAt });
+        });
+
+        modelBuilder.Entity<ImportModuleField>(field =>
+        {
+            field.Property(f => f.ModuleId).HasMaxLength(100);
+            field.Property(f => f.FieldKey).HasMaxLength(100);
+            field.Property(f => f.Label).HasMaxLength(150);
+            field.Property(f => f.FieldType).HasMaxLength(20);
+            field.HasIndex(f => new { f.ModuleId, f.FieldKey }).IsUnique();
+            field.HasIndex(f => f.ModuleId);
         });
 
         modelBuilder.Entity<CustomReport>()
@@ -219,6 +293,92 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             preference.Property(p => p.Program).HasMaxLength(100);
             preference.Property(p => p.Subject).HasMaxLength(100);
             preference.HasIndex(p => p.UserId).IsUnique();
+        });
+
+        modelBuilder.Entity<CanvasCourse>(course =>
+        {
+            course.Property(c => c.SisSourceId).HasMaxLength(255);
+            course.Property(c => c.Name).HasMaxLength(255);
+            course.Property(c => c.CourseCode).HasMaxLength(100);
+            course.Property(c => c.WorkflowState).HasMaxLength(50);
+            course.Property(c => c.TermName).HasMaxLength(100);
+            course.Property(c => c.Subject).HasMaxLength(100);
+            course.Property(c => c.AcademicYear).HasMaxLength(20);
+            course.Property(c => c.Term).HasMaxLength(50);
+            course.HasIndex(c => c.CanvasCourseId).IsUnique();
+            course.HasIndex(c => c.EnrollmentTermId);
+        });
+
+        modelBuilder.Entity<CanvasAssignment>(assignment =>
+        {
+            assignment.Property(a => a.Title).HasMaxLength(500);
+            assignment.Property(a => a.WorkflowState).HasMaxLength(50);
+            assignment.Property(a => a.AssignmentGroupName).HasMaxLength(255);
+            assignment.Property(a => a.GradingType).HasMaxLength(50);
+            assignment.HasIndex(a => a.CanvasAssignmentId).IsUnique();
+            assignment.HasIndex(a => a.CanvasCourseId);
+            assignment.HasOne(a => a.Course).WithMany(c => c.Assignments)
+                .HasForeignKey(a => a.CanvasCourseId)
+                .HasPrincipalKey(c => c.CanvasCourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CanvasEnrollment>(enrollment =>
+        {
+            enrollment.Property(e => e.Type).HasMaxLength(50);
+            enrollment.Property(e => e.WorkflowState).HasMaxLength(50);
+            enrollment.Property(e => e.SisUserId).HasMaxLength(100);
+            enrollment.HasIndex(e => e.CanvasEnrollmentId).IsUnique();
+            enrollment.HasIndex(e => e.CanvasUserId);
+            enrollment.HasIndex(e => e.StudentProfileId);
+            enrollment.HasOne(e => e.Course).WithMany(c => c.Enrollments)
+                .HasForeignKey(e => e.CanvasCourseId)
+                .HasPrincipalKey(c => c.CanvasCourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+            enrollment.HasOne(e => e.Student).WithMany()
+                .HasForeignKey(e => e.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CanvasCourseScore>(score =>
+        {
+            score.Property(s => s.GradingPeriodTitle).HasMaxLength(100);
+            score.Property(s => s.CourseName).HasMaxLength(255);
+            score.Property(s => s.Subject).HasMaxLength(100);
+            score.Property(s => s.AcademicYear).HasMaxLength(20);
+            score.Property(s => s.Term).HasMaxLength(50);
+            score.HasIndex(s => s.CanvasScoreId).IsUnique();
+            score.HasIndex(s => s.StudentProfileId);
+            score.HasIndex(s => new { s.AcademicYear, s.Term });
+            score.HasOne(s => s.Enrollment).WithMany(e => e.Scores)
+                .HasForeignKey(s => s.CanvasEnrollmentId)
+                .HasPrincipalKey(e => e.CanvasEnrollmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            score.HasOne(s => s.Student).WithMany()
+                .HasForeignKey(s => s.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CanvasSubmission>(submission =>
+        {
+            submission.Property(s => s.Grade).HasMaxLength(50);
+            submission.Property(s => s.WorkflowState).HasMaxLength(50);
+            submission.Property(s => s.SubmissionType).HasMaxLength(50);
+            submission.Property(s => s.SisUserId).HasMaxLength(100);
+            submission.Property(s => s.Subject).HasMaxLength(100);
+            submission.Property(s => s.AcademicYear).HasMaxLength(20);
+            submission.Property(s => s.Term).HasMaxLength(50);
+            submission.HasIndex(s => s.CanvasSubmissionId).IsUnique();
+            submission.HasIndex(s => s.CanvasAssignmentId);
+            submission.HasIndex(s => s.StudentProfileId);
+            submission.HasIndex(s => new { s.AcademicYear, s.Term });
+            submission.HasOne(s => s.Assignment).WithMany(a => a.Submissions)
+                .HasForeignKey(s => s.CanvasAssignmentId)
+                .HasPrincipalKey(a => a.CanvasAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            submission.HasOne(s => s.Student).WithMany()
+                .HasForeignKey(s => s.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
     }

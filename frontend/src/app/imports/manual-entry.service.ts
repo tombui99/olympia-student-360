@@ -11,21 +11,21 @@ export interface ManualEntryStudent {
 }
 
 export interface ManualEntryOptions {
-  students: ManualEntryStudent[];
   behaviourTypes: string[];
   projectSubjects: string[];
   projectStatuses: string[];
   academicYears: string[];
-  healthIncidentTypes: string[];
-  healthSeverityLevels: number[];
-  healthBodyAreas: string[];
-  healthLocations: string[];
+  mentalHealthConcernTypes: string[];
+  mentalHealthRiskLevels: string[];
+  busTripDirections: string[];
+  busViolationTypes: string[];
 }
 
 export interface CreateBehaviourRequest {
   incidentDate: string;
   behaviourType: string;
   notes?: string | null;
+  customFields?: Record<string, string>;
 }
 
 export interface CreateProjectRequest {
@@ -33,17 +33,26 @@ export interface CreateProjectRequest {
   subject: string;
   status: string;
   teacherNotes?: string | null;
+  customFields?: Record<string, string>;
 }
 
-export interface CreateHealthIncidentRequest {
-  incidentDate: string;
+export interface CreateMentalHealthRequest {
+  recordDate: string;
   academicYear: string;
-  incidentType: string;
-  severityLevel: number;
-  bodyArea?: string | null;
-  location?: string | null;
-  cause: string;
-  actionTaken?: string | null;
+  concernType: string;
+  riskLevel: string;
+  notes?: string | null;
+  customFields?: Record<string, string>;
+}
+
+export interface CreateBusAttendanceRequest {
+  attendanceDate: string;
+  tripDirection: string;
+  violationType: string;
+  busCode?: string | null;
+  routeName?: string | null;
+  notes?: string | null;
+  customFields?: Record<string, string>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -55,6 +64,12 @@ export class ManualEntryService {
     return this.http.get<ManualEntryOptions>(`${this.basePath}/api/students/manual-entry-options`);
   }
 
+  searchStudents(query: string) {
+    return this.http.get<ManualEntryStudent[]>(`${this.basePath}/api/students/manual-entry-students`, {
+      params: { query },
+    });
+  }
+
   createBehaviour(studentId: number, request: CreateBehaviourRequest) {
     return this.http.post(`${this.basePath}/api/students/${studentId}/behaviours`, request);
   }
@@ -63,7 +78,11 @@ export class ManualEntryService {
     return this.http.post(`${this.basePath}/api/students/${studentId}/projects`, request);
   }
 
-  createHealthIncident(studentId: number, request: CreateHealthIncidentRequest) {
-    return this.http.post(`${this.basePath}/api/students/${studentId}/health-incidents`, request);
+  createMentalHealth(studentId: number, request: CreateMentalHealthRequest) {
+    return this.http.post(`${this.basePath}/api/students/${studentId}/mental-health`, request);
+  }
+
+  createBusAttendance(studentId: number, request: CreateBusAttendanceRequest) {
+    return this.http.post(`${this.basePath}/api/students/${studentId}/bus-attendance`, request);
   }
 }

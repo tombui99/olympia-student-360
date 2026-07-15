@@ -7,14 +7,20 @@ import { NgxEchartsDirective } from 'ngx-echarts';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 import {
+  CanvasExploreField,
+  CanvasExploreDrilldown,
+  CanvasExploreDrilldownRow,
+  CanvasExploreOptions,
+  CanvasExploreResult,
   ChartKind,
   CustomChart,
   CustomReport,
+  MetricDrilldown,
+  MetricDrilldownRow,
   MetricVariable,
   ReportBuilderService,
   SystemUser,
 } from '../reports/report-builder.service';
-import { StudentListItem, StudentsService } from '../students/students.service';
 import {
   defaultFilterSet,
   emptyFilterOptions,
@@ -39,6 +45,11 @@ interface ChartDraft {
   metrics: string[];
   showBaseline: boolean;
   kpiTarget: number | null;
+  /** 'metric' = simplified metric variables; 'explorer' = raw Canvas fields. */
+  source: 'metric' | 'explorer';
+  dataset: string;
+  dimension: string;
+  measure: string;
 }
 
 interface MetricGroup {
@@ -51,7 +62,7 @@ interface MetricGroup {
   imports: [FormsModule, NgFor, NgIf, NgxEchartsDirective, RouterLink],
   template: `
     <section class="space-y-7">
-      <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="no-print flex flex-wrap items-start justify-between gap-4">
         <div>
           <a
             routerLink="/workspace"
@@ -71,27 +82,86 @@ interface MetricGroup {
             <p class="mt-2 max-w-3xl text-[#6f6877]">{{ report.description }}</p>
           </ng-container>
         </div>
-        <div class="flex flex-wrap gap-2" *ngIf="selectedReport() && isSelectedOwner()">
-          <button
-            class="rounded-md border border-[#d8d0df] px-4 py-3 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
-            type="button"
-            (click)="startEditWorkspace()"
-          >
-            {{ languageService.t('workspace.manageWorkspace') }}
-          </button>
-          <button
-            class="rounded-md bg-[#32124f] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#4a1b73]"
-            type="button"
-            (click)="startCreateChart()"
-          >
-            {{ languageService.t('workspace.addChart') }}
-          </button>
+        <div class="flex flex-wrap items-center gap-2" *ngIf="selectedReport()">
+          <div class="relative">
+            <button
+              class="inline-flex items-center gap-2 rounded-md border border-[#d8d0df] px-4 py-3 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+              type="button"
+              (click)="toggleSnapshotMenu()"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 9V2h12v7" />
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                <path d="M6 14h12v8H6z" />
+              </svg>
+              {{ languageService.t('workspace.snapshot.button') }}
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            <button
+              *ngIf="snapshotMenuOpen()"
+              class="fixed inset-0 z-20 cursor-default"
+              type="button"
+              tabindex="-1"
+              aria-hidden="true"
+              (click)="closeSnapshotMenu()"
+            ></button>
+            <div
+              *ngIf="snapshotMenuOpen()"
+              class="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-md border border-[#e4dde8] bg-white py-1 shadow-[0_18px_50px_rgba(36,24,47,0.22)]"
+            >
+              <button
+                class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-medium text-[#32124f] transition hover:bg-[#fff8e1]"
+                type="button"
+                (click)="takeSnapshot()"
+              >
+                <svg class="h-4 w-4 text-[#7c7284]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 9V2h12v7" />
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                  <path d="M6 14h12v8H6z" />
+                </svg>
+                {{ languageService.t('workspace.snapshot.print') }}
+              </button>
+              <button
+                class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-medium text-[#32124f] transition hover:bg-[#fff8e1]"
+                type="button"
+                (click)="takeSnapshot()"
+              >
+                <svg class="h-4 w-4 text-[#7c7284]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <path d="M7 10l5 5 5-5" />
+                  <path d="M12 15V3" />
+                </svg>
+                {{ languageService.t('workspace.snapshot.download') }}
+              </button>
+              <p class="border-t border-[#efeaf3] px-4 pt-2 pb-1 text-xs leading-4 text-[#9a91a3]">
+                {{ languageService.t('workspace.snapshot.hint') }}
+              </p>
+            </div>
+          </div>
+          <ng-container *ngIf="isSelectedOwner()">
+            <button
+              class="rounded-md border border-[#d8d0df] px-4 py-3 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+              type="button"
+              (click)="startEditWorkspace()"
+            >
+              {{ languageService.t('workspace.manageWorkspace') }}
+            </button>
+            <button
+              class="rounded-md bg-[#32124f] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#4a1b73]"
+              type="button"
+              (click)="startCreateChart()"
+            >
+              {{ languageService.t('workspace.addChart') }}
+            </button>
+          </ng-container>
         </div>
       </div>
 
       <section
         *ngIf="selectedReport()"
-        class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
+        class="no-print rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
       >
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -112,7 +182,7 @@ interface MetricGroup {
             <legend class="px-1 text-xs font-bold uppercase tracking-[0.12em] text-[#8a6811]">
               {{ languageService.t('workspace.filters.time') }}
             </legend>
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-2 gap-2">
               <label class="filter-field">
                 <span class="filter-label">{{ languageService.t('workspace.filters.fields.year') }}</span>
                 <select class="filter-select" [ngModel]="filters().year" (ngModelChange)="setFilter('year', $event)">
@@ -126,15 +196,6 @@ interface MetricGroup {
                   <option value="">{{ languageService.t('workspace.filters.all') }}</option>
                   <option *ngFor="let semester of options().terms" [value]="semester">
                     {{ languageService.t('workspace.filters.semester.' + semester) }}
-                  </option>
-                </select>
-              </label>
-              <label class="filter-field">
-                <span class="filter-label">{{ languageService.t('workspace.filters.fields.cycle') }}</span>
-                <select class="filter-select" [ngModel]="filters().cycle" (ngModelChange)="setFilter('cycle', $event)">
-                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
-                  <option *ngFor="let cycle of options().measurementCycles" [value]="cycle">
-                    {{ languageService.t('workspace.filters.cycle.' + cycle) }}
                   </option>
                 </select>
               </label>
@@ -214,8 +275,39 @@ interface MetricGroup {
 
       <section
         *ngIf="selectedReport() as report; else missingWorkspace"
-        class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
+        class="snapshot-surface rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
       >
+        <header class="snapshot-only mb-6 border-b border-[#ebe6ef] pb-5">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-[0.18em] text-[#8a6811]">
+                {{ languageService.t('app.school') }} · {{ languageService.t('workspace.snapshot.heading') }}
+              </p>
+              <h1 class="mt-2 text-2xl font-semibold text-[#32124f]">{{ report.title }}</h1>
+              <p *ngIf="report.description" class="mt-1 max-w-3xl text-sm text-[#6f6877]">{{ report.description }}</p>
+            </div>
+            <p class="whitespace-nowrap text-xs text-[#7c7284]">
+              {{ languageService.t('workspace.snapshot.generatedOn') }} {{ snapshotTimestamp() }}
+            </p>
+          </div>
+          <div class="mt-4">
+            <p class="text-xs font-bold uppercase tracking-[0.12em] text-[#8a6811]">
+              {{ languageService.t('workspace.snapshot.filtersTitle') }}
+            </p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <span
+                *ngFor="let item of appliedFilters()"
+                class="inline-flex items-center gap-1.5 rounded-full border border-[#e4dde8] bg-[#faf9f6] px-3 py-1 text-xs text-[#32124f]"
+              >
+                <span class="font-semibold text-[#7c7284]">{{ item.label }}:</span> {{ item.value }}
+              </span>
+              <span *ngIf="!appliedFilters().length" class="text-xs text-[#7c7284]">
+                {{ languageService.t('workspace.snapshot.noFilters') }}
+              </span>
+            </div>
+          </div>
+        </header>
+
         <div class="grid gap-5 lg:grid-cols-2">
           <article
             *ngFor="let chart of orderedCharts(report)"
@@ -229,7 +321,7 @@ interface MetricGroup {
                   {{ languageService.t('workspace.chartType.' + chart.kind) }}
                 </p>
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="no-print flex items-center gap-1.5">
                 <button
                   class="grid h-8 w-8 place-items-center rounded-md border border-[#d8d0df] text-xs font-bold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
                   type="button"
@@ -262,6 +354,23 @@ interface MetricGroup {
             <div
               class="mt-5 min-h-72 rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-4"
             >
+              <ng-container *ngIf="chart.explorer">
+                <div
+                  echarts
+                  class="h-72 w-full"
+                  [options]="chartOptions(chart)"
+                  role="img"
+                  [attr.aria-label]="chart.title"
+                  (chartClick)="onChartPointClick(chart, $event)"
+                  (chartDataZoom)="onChartDataZoom(chart.id, $event)"
+                ></div>
+                <p *ngIf="!explorerHasRows(chart)" class="mt-3 text-center text-xs text-[#9a91a3]">
+                  {{ languageService.t('workspace.explorer.noData') }}
+                </p>
+                <p class="mt-3 text-xs font-medium text-[#5f5368]">{{ explorerCaption(chart) }}</p>
+              </ng-container>
+
+              <ng-container *ngIf="!chart.explorer">
               <ng-container *ngIf="chart.metrics.length; else emptyChart">
                 <div *ngIf="chart.kind === 'card'" class="grid gap-3 sm:grid-cols-2">
                   <button
@@ -273,7 +382,7 @@ interface MetricGroup {
                   >
                     <p class="text-sm text-[#6f6877]">{{ metricLabel(metric.id) }}</p>
                     <p class="mt-2 text-3xl font-semibold text-[#32124f]">
-                      {{ metric.value ?? '—' }}{{ metric.value !== null ? metric.unit : '' }}
+                      {{ cardValue(metric) }}
                     </p>
                     <p *ngIf="metric.trend !== null" class="mt-2 text-sm font-medium text-[#8a6811]">{{ metric.trend }}</p>
                   </button>
@@ -287,6 +396,7 @@ interface MetricGroup {
                   role="img"
                   [attr.aria-label]="chart.title"
                   (chartClick)="onChartPointClick(chart, $event)"
+                  (chartDataZoom)="onChartDataZoom(chart.id, $event)"
                 ></div>
 
                 <p
@@ -321,6 +431,7 @@ interface MetricGroup {
                   </div>
                 </div>
               </ng-template>
+              </ng-container>
             </div>
           </article>
         </div>
@@ -343,7 +454,7 @@ interface MetricGroup {
 
       <div
         *ngIf="sheetMounted()"
-        class="fixed inset-0 z-40"
+        class="no-print fixed inset-0 z-40"
         [class.pointer-events-none]="!sheetOpen()"
       >
         <button
@@ -521,6 +632,25 @@ interface MetricGroup {
                     required
                   />
                 </label>
+
+                <label class="block">
+                  <span class="text-sm font-medium text-[#34243d]">{{
+                    languageService.t('workspace.chartSource')
+                  }}</span>
+                  <select
+                    class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-3 outline-none"
+                    name="chartSource"
+                    [(ngModel)]="chartDraft.source"
+                    (ngModelChange)="onChartSourceChange()"
+                  >
+                    <option value="metric">{{ languageService.t('workspace.chartSource.metric') }}</option>
+                    <option value="explorer">{{ languageService.t('workspace.chartSource.explorer') }}</option>
+                  </select>
+                  <p class="mt-2 text-xs leading-5 text-[#7c7284]">
+                    {{ languageService.t('workspace.chartSource.' + chartDraft.source + 'Hint') }}
+                  </p>
+                </label>
+
                 <label class="block">
                   <span class="text-sm font-medium text-[#34243d]">{{
                     languageService.t('workspace.chartTypeLabel')
@@ -537,10 +667,10 @@ interface MetricGroup {
                     <option value="pie">
                       {{ languageService.t('workspace.chartType.pie') }}
                     </option>
-                    <option value="scatter">
+                    <option *ngIf="chartDraft.source === 'metric'" value="scatter">
                       {{ languageService.t('workspace.chartType.scatter') }}
                     </option>
-                    <option value="card">
+                    <option *ngIf="chartDraft.source === 'metric'" value="card">
                       {{ languageService.t('workspace.chartType.card') }}
                     </option>
                   </select>
@@ -553,7 +683,54 @@ interface MetricGroup {
                 </label>
 
                 <div
-                  *ngIf="chartDraft.kind === 'bar' || chartDraft.kind === 'line'"
+                  *ngIf="chartDraft.source === 'explorer'"
+                  class="space-y-4 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4"
+                >
+                  <p class="text-sm font-medium text-[#32124f]">
+                    {{ languageService.t('workspace.explorer.builderTitle') }}
+                  </p>
+                  <p class="text-xs text-[#7c7284]">{{ languageService.t('workspace.explorer.builderHint') }}</p>
+                  <label class="block text-sm text-[#34243d]">
+                    {{ languageService.t('workspace.explorer.dataset') }}
+                    <select
+                      class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none"
+                      name="explorerDataset"
+                      [(ngModel)]="chartDraft.dataset"
+                      (ngModelChange)="onDatasetChange()"
+                    >
+                      <option *ngFor="let dataset of exploreOptions().datasets" [value]="dataset.key">
+                        {{ exploreDatasetLabel(dataset.key) }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="block text-sm text-[#34243d]">
+                    {{ languageService.t('workspace.explorer.dimension') }}
+                    <select
+                      class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none"
+                      name="explorerDimension"
+                      [(ngModel)]="chartDraft.dimension"
+                    >
+                      <option *ngFor="let field of datasetDimensions()" [value]="field.key">
+                        {{ exploreFieldLabel(field.key, field.label) }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="block text-sm text-[#34243d]">
+                    {{ languageService.t('workspace.explorer.measure') }}
+                    <select
+                      class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none"
+                      name="explorerMeasure"
+                      [(ngModel)]="chartDraft.measure"
+                    >
+                      <option *ngFor="let field of datasetMeasures()" [value]="field.key">
+                        {{ exploreFieldLabel(field.key, field.label) }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+
+                <div
+                  *ngIf="chartDraft.source === 'metric' && (chartDraft.kind === 'bar' || chartDraft.kind === 'line')"
                   class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4"
                 >
                   <p class="text-sm font-medium text-[#32124f]">
@@ -581,7 +758,7 @@ interface MetricGroup {
                     />
                   </label>
                 </div>
-                <div>
+                <div *ngIf="chartDraft.source === 'metric'">
                   <p class="text-sm font-medium text-[#34243d]">
                     {{ languageService.t('workspace.metricVariables') }}
                   </p>
@@ -640,8 +817,9 @@ interface MetricGroup {
                     {{ languageService.t('workspace.cancel') }}
                   </button>
                   <button
-                    class="rounded-md bg-[#32124f] px-5 py-3 text-sm font-semibold text-white"
+                    class="rounded-md bg-[#32124f] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                     type="submit"
+                    [disabled]="!chartDraft.title.trim() || !isChartDraftValid()"
                   >
                     {{ languageService.t('workspace.save') }}
                   </button>
@@ -654,7 +832,7 @@ interface MetricGroup {
 
       <div
         *ngIf="drilldownMounted()"
-        class="fixed inset-0 z-40"
+        class="no-print fixed inset-0 z-40"
         [class.pointer-events-none]="!drilldownOpen()"
       >
         <button
@@ -684,7 +862,13 @@ interface MetricGroup {
               <p class="mt-1 text-sm text-[#6f6877]">
                 <span *ngIf="drilldownPeriod()" class="font-semibold text-[#32124f]"
                   >{{ drilldownPeriod() }} · </span
-                >{{ languageService.t('workspace.drilldown.subtitle') }}
+                >{{
+                  languageService.t(
+                    drilldownUnavailable()
+                      ? 'workspace.drilldown.aggregateSubtitle'
+                      : 'workspace.drilldown.subtitle'
+                  )
+                }}
               </p>
             </div>
             <button
@@ -697,12 +881,6 @@ interface MetricGroup {
           </div>
 
           <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            <p
-              class="mb-4 rounded-md border border-[#efe7d3] bg-[#fff8e1] px-4 py-3 text-xs leading-5 text-[#7a5b12]"
-            >
-              {{ languageService.t('workspace.drilldown.dataNote') }}
-            </p>
-
             <p
               *ngIf="drilldownError()"
               class="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700"
@@ -717,11 +895,21 @@ interface MetricGroup {
               {{ languageService.t('workspace.drilldown.loading') }}
             </p>
 
-            <ul *ngIf="!drilldownLoading() && !drilldownError()" class="space-y-2">
+            <p
+              *ngIf="drilldownUnavailable()"
+              class="rounded-md border border-[#eadcae] bg-[#fff8e1] px-4 py-3 text-sm leading-6 text-[#74570c]"
+            >
+              {{ languageService.t('workspace.drilldown.aggregateOnly') }}
+            </p>
+
+            <ul
+              *ngIf="!explorerDrilldown() && !drilldownLoading() && !drilldownError() && !drilldownUnavailable()"
+              class="space-y-2"
+            >
               <li *ngFor="let student of drilldownStudents()">
                 <a
                   class="flex items-center gap-3 rounded-lg border border-[#ebe6ef] p-3 transition hover:border-[#d3c6db] hover:bg-[#fdfcff]"
-                  [routerLink]="['/students', student.id]"
+                  [routerLink]="['/students', student.studentId]"
                   (click)="closeDrilldown()"
                 >
                   <span
@@ -739,30 +927,34 @@ interface MetricGroup {
                       {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
                     </span>
                   </span>
-                  <span class="grid shrink-0 gap-1.5 text-[11px]">
-                    <span
-                      class="inline-flex min-w-28 items-center justify-between gap-2 rounded-full bg-[#f3c246]/25 px-2.5 py-1 font-semibold text-[#7a5b12]"
-                      [title]="languageService.t('workspace.drilldown.behaviours')"
-                    >
-                      <span>{{ languageService.t('workspace.drilldown.behaviours') }}</span>
-                      <strong class="text-xs">{{ student.behaviourCount }}</strong>
-                    </span>
-                    <span
-                      class="inline-flex min-w-28 items-center justify-between gap-2 rounded-full bg-[#f1edf4] px-2.5 py-1 font-semibold text-[#5b287d]"
-                      [title]="languageService.t('workspace.drilldown.projects')"
-                    >
-                      <span>{{ languageService.t('workspace.drilldown.projects') }}</span>
-                      <strong class="text-xs">{{ student.projectCount }}</strong>
-                    </span>
-                    <span
-                      class="inline-flex min-w-28 items-center justify-between gap-2 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700"
-                      [title]="languageService.t('workspace.drilldown.healthIncidents')"
-                    >
-                      <span>{{ languageService.t('workspace.drilldown.healthIncidents') }}</span>
-                      <strong class="text-xs">{{ student.healthIncidentCount }}</strong>
-                    </span>
+                  <span
+                    class="inline-flex shrink-0 items-center gap-2 rounded-full bg-[#f1edf4] px-3 py-1.5 text-sm font-bold text-[#5b287d]"
+                    [title]="drilldownMetricLabel()"
+                  >
+                    {{ formatDrilldownValue(student.value) }}
                   </span>
                 </a>
+                <div
+                  *ngIf="student.records.length"
+                  class="ml-4 border-l-2 border-[#ebe6ef] py-2 pl-4"
+                >
+                  <p class="mb-2 text-xs font-semibold text-[#6f6877]">
+                    {{ student.recordCount }} {{ languageService.t('workspace.drilldown.sourceRecords') }}
+                  </p>
+                  <div
+                    *ngFor="let record of student.records"
+                    class="mb-2 rounded-md bg-[#faf9f6] p-3 text-xs text-[#5f5368] last:mb-0"
+                  >
+                    <p *ngIf="record.date" class="mb-2 font-semibold text-[#32124f]">
+                      {{ formatRecordDate(record.date) }}
+                    </p>
+                    <div class="grid gap-x-3 gap-y-1 sm:grid-cols-2">
+                      <p *ngFor="let field of recordFields(record.fields)">
+                        <span class="font-semibold">{{ field.key }}:</span> {{ field.value }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </li>
               <li
                 *ngIf="!drilldownStudents().length"
@@ -771,6 +963,66 @@ interface MetricGroup {
                 {{ languageService.t('workspace.drilldown.empty') }}
               </li>
             </ul>
+
+            <ul
+              *ngIf="explorerDrilldown() && !drilldownLoading() && !drilldownError()"
+              class="space-y-3"
+            >
+              <li
+                *ngFor="let record of explorerDrilldownRecords()"
+                class="rounded-lg border border-[#ebe6ef] p-4"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <a
+                      *ngIf="record.studentId; else catalogueRecord"
+                      class="font-semibold text-[#32124f] hover:underline"
+                      [routerLink]="['/students', record.studentId]"
+                    >{{ record.fullName }}</a>
+                    <ng-template #catalogueRecord>
+                      <span class="font-semibold text-[#32124f]">{{ languageService.t('workspace.drilldown.sourceRecord') }}</span>
+                    </ng-template>
+                    <p *ngIf="record.studentCode" class="mt-0.5 text-xs text-[#7c7284]">
+                      {{ record.studentCode }} · {{ record.gradeLevel || '-' }} · {{ record.homeroom || '-' }}
+                    </p>
+                  </div>
+                  <span *ngIf="record.value !== null && record.value !== undefined" class="rounded-full bg-[#f1edf4] px-3 py-1 text-sm font-bold text-[#5b287d]">
+                    {{ record.value }}
+                  </span>
+                </div>
+                <p *ngIf="record.date" class="mt-3 text-xs font-semibold text-[#6f6877]">
+                  {{ formatRecordDate(record.date) }}
+                </p>
+                <div class="mt-2 grid gap-x-3 gap-y-1 text-xs text-[#5f5368] sm:grid-cols-2">
+                  <p *ngFor="let field of recordFields(record.fields)">
+                    <span class="font-semibold">{{ field.key }}:</span> {{ field.value }}
+                  </p>
+                </div>
+              </li>
+              <li *ngIf="!explorerDrilldownRecords().length" class="rounded-md border border-dashed border-[#d8d0df] p-8 text-center text-sm text-[#7c7284]">
+                {{ languageService.t('workspace.drilldown.empty') }}
+              </li>
+            </ul>
+          </div>
+          <div
+            *ngIf="!drilldownLoading() && !drilldownError() && !drilldownUnavailable() && drilldownTotalCount() > 0"
+            class="flex items-center justify-between gap-3 border-t border-[#ebe6ef] px-6 py-4"
+          >
+            <span class="text-xs text-[#6f6877]">{{ drilldownPageLabel() }}</span>
+            <div class="flex gap-2">
+              <button
+                class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] disabled:cursor-not-allowed disabled:opacity-40"
+                type="button"
+                [disabled]="drilldownPage() <= 1"
+                (click)="changeDrilldownPage(drilldownPage() - 1)"
+              >{{ languageService.t('pagination.previous') }}</button>
+              <button
+                class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] disabled:cursor-not-allowed disabled:opacity-40"
+                type="button"
+                [disabled]="drilldownPage() >= drilldownTotalPages()"
+                (click)="changeDrilldownPage(drilldownPage() + 1)"
+              >{{ languageService.t('pagination.next') }}</button>
+            </div>
           </div>
         </aside>
       </div>
@@ -886,7 +1138,6 @@ export class WorkspaceDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly reportBuilderService = inject(ReportBuilderService);
-  private readonly studentsService = inject(StudentsService);
   private readonly workspaceFilters = inject(WorkspaceFiltersService);
   readonly languageService = inject(LanguageService);
 
@@ -937,22 +1188,74 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly drilldownOpen = signal(false);
   readonly drilldownLoading = signal(false);
   readonly drilldownError = signal<string | null>(null);
+  readonly drilldownUnavailable = signal(false);
   readonly drilldownMetricId = signal<string | null>(null);
   readonly drilldownMetricLabel = signal<string>('');
   readonly drilldownPeriod = signal<string | null>(null);
-  private readonly drilldownStudentPool = signal<StudentListItem[]>([]);
+  private readonly drilldownData = signal<MetricDrilldown | null>(null);
+  private readonly explorerDrilldownData = signal<CanvasExploreDrilldown | null>(null);
+  readonly explorerDrilldown = signal(false);
+  private explorerDrilldownSpec: { dataset: string; dimension: string; measure: string; groupKey: string } | null = null;
+  private drilldownPeriodStart: string | null = null;
+  private drilldownRequestId = 0;
+  private readonly drilldownPageSize = 20;
+  private readonly chartZoomRanges = new Map<string, { start: number; end: number }>();
 
-  readonly drilldownStudents = computed(() => {
-    const students = [...this.drilldownStudentPool()];
-    const source = this.drilldownMetricSource(this.drilldownMetricId());
-    return students.sort((a, b) => {
-      const difference = source === 'StudentProjects'
-        ? b.projectCount - a.projectCount
-        : source === 'StudentHealthIncidents'
-          ? b.healthIncidentCount - a.healthIncidentCount
-          : b.behaviourCount - a.behaviourCount;
-      return difference || a.fullName.localeCompare(b.fullName);
-    });
+  readonly drilldownStudents = computed<MetricDrilldownRow[]>(
+    () => this.drilldownData()?.students ?? [],
+  );
+  readonly explorerDrilldownRecords = computed<CanvasExploreDrilldownRow[]>(
+    () => this.explorerDrilldownData()?.records ?? [],
+  );
+  readonly drilldownUnit = computed(() => this.drilldownData()?.unit ?? '');
+  readonly drilldownPage = computed(() =>
+    this.explorerDrilldown() ? this.explorerDrilldownData()?.page ?? 1 : this.drilldownData()?.page ?? 1);
+  readonly drilldownTotalPages = computed(() =>
+    this.explorerDrilldown() ? this.explorerDrilldownData()?.totalPages ?? 0 : this.drilldownData()?.totalPages ?? 0);
+  readonly drilldownTotalCount = computed(() =>
+    this.explorerDrilldown() ? this.explorerDrilldownData()?.totalCount ?? 0 : this.drilldownData()?.totalCount ?? 0);
+  readonly drilldownPageLabel = computed(() => this.languageService.t('pagination.pageOf')
+    .replace('{page}', String(this.drilldownPage()))
+    .replace('{pages}', String(this.drilldownTotalPages()))
+    .replace('{total}', String(this.drilldownTotalCount())));
+
+  readonly snapshotMenuOpen = signal(false);
+  readonly snapshotTimestamp = signal('');
+
+  readonly exploreOptions = signal<CanvasExploreOptions>({ datasets: [] });
+  /** Cached explore results keyed by chart id (explorer charts fetch on filter change). */
+  readonly exploreResults = signal<Record<string, CanvasExploreResult>>({});
+
+  /** Active filters, resolved to human-readable label/value pairs for the snapshot header. */
+  readonly appliedFilters = computed<{ label: string; value: string }[]>(() => {
+    const filters = this.filters();
+    const t = (key: string) => this.languageService.t(key);
+    const rows: { label: string; value: string }[] = [];
+    const push = (labelKey: string, value: string) => {
+      if (value) rows.push({ label: t(labelKey), value });
+    };
+
+    push('workspace.filters.fields.year', filters.year);
+    if (filters.semester) {
+      push('workspace.filters.fields.semester', t('workspace.filters.semester.' + filters.semester));
+    }
+    if (filters.cycle) {
+      push('workspace.filters.fields.cycle', t('workspace.filters.cycle.' + filters.cycle));
+    }
+    push('workspace.filters.fields.campus', filters.campus);
+    push('workspace.filters.fields.level', filters.level);
+    if (filters.grade) {
+      push('workspace.filters.fields.grade', `${t('workspace.filters.gradePrefix')} ${filters.grade}`);
+    }
+    push('workspace.filters.fields.homeroom', filters.homeroom);
+    if (filters.studentId) {
+      const student = this.studentOptions().find((item) => String(item.id) === String(filters.studentId));
+      push('workspace.filters.fields.student',
+        student ? `${student.fullName} (${student.studentCode})` : filters.studentId);
+    }
+    push('workspace.filters.fields.program', filters.program);
+    push('workspace.filters.fields.subject', filters.subject);
+    return rows;
   });
 
   private sheetUnmountTimer: number | null = null;
@@ -979,6 +1282,7 @@ export class WorkspaceDetailComponent implements OnInit {
     });
 
     this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
+    this.reportBuilderService.loadExploreOptions().subscribe((options) => this.exploreOptions.set(options));
     this.workspaceFilters.options().subscribe((options) => this.options.set(options));
 
     this.workspaceFilters.load().subscribe((filters) => {
@@ -987,7 +1291,6 @@ export class WorkspaceDetailComponent implements OnInit {
       if (workspaceId) this.chartOrder.set(this.workspaceFilters.loadChartOrder(workspaceId));
       this.loadMetrics();
     });
-    this.loadDrilldownStudents();
   }
 
   setFilter(key: keyof WorkspaceFilterSet, value: string): void {
@@ -1053,7 +1356,7 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   metricGroups(): MetricGroup[] {
-    const order = ['AdmissionsFinance', 'Safety', 'Compliance', 'Achievement'];
+    const order = ['Academics', 'AdmissionsFinance', 'Safety', 'Compliance', 'Achievement'];
     return order
       .map((category) => ({
         category,
@@ -1105,14 +1408,47 @@ export class WorkspaceDetailComponent implements OnInit {
     return metric.series.map((point) => point.value);
   }
 
+  private metricPeriods(metrics: MetricVariable[]): string[] {
+    return Array.from(new Set(metrics.flatMap((metric) => metric.series.map((point) => point.periodStart.slice(0, 7)))))
+      .map((month) => `${month}-01T00:00:00Z`)
+      .sort((left, right) => new Date(left).getTime() - new Date(right).getTime());
+  }
+
+  private metricPoint(metric: MetricVariable, periodStart: string) {
+    const month = periodStart.slice(0, 7);
+    return metric.series.find((point) => point.periodStart.slice(0, 7) === month);
+  }
+
   private loadMetrics(): void {
+    const params = this.filterParams();
+    this.reportBuilderService.loadMetricVariables(params).subscribe();
+    this.loadExplorerCharts();
+  }
+
+  private filterParams(): Record<string, string> {
     const filters = this.filters();
-    const params = Object.fromEntries(Object.entries({
+    return Object.fromEntries(Object.entries({
       year: filters.year, term: filters.semester, cycle: filters.cycle, campus: filters.campus,
       level: filters.level, grade: filters.grade, homeroom: filters.homeroom,
       studentId: filters.studentId, program: filters.program, subject: filters.subject,
-    }).filter(([, value]) => !!value));
-    this.reportBuilderService.loadMetricVariables(params).subscribe();
+    }).filter(([, value]) => !!value)) as Record<string, string>;
+  }
+
+  /** Fetch aggregated data for every explorer chart in the selected report. */
+  private loadExplorerCharts(): void {
+    const report = this.selectedReport();
+    if (!report) return;
+    const base = this.filterParams();
+    for (const chart of report.charts) {
+      if (!chart.explorer) continue;
+      const { dataset, dimension, measure } = chart.explorer;
+      this.reportBuilderService
+        .loadExplore({ ...base, dataset, dimension, measure })
+        .subscribe({
+          next: (result) => this.exploreResults.update((current) => ({ ...current, [chart.id]: result })),
+          error: () => {},
+        });
+    }
   }
 
   startEditWorkspace() {
@@ -1147,14 +1483,8 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   startCreateChart() {
-    this.chartDraft = {
-      id: null,
-      title: this.languageService.t('workspace.defaultNewChartTitle'),
-      kind: 'bar',
-      metrics: [],
-      showBaseline: false,
-      kpiTarget: null,
-    };
+    this.chartDraft = this.emptyChartDraft();
+    this.chartDraft.title = this.languageService.t('workspace.defaultNewChartTitle');
     this.openSheet('chart');
   }
 
@@ -1166,13 +1496,17 @@ export class WorkspaceDetailComponent implements OnInit {
       metrics: [...chart.metrics],
       showBaseline: chart.showBaseline ?? false,
       kpiTarget: chart.kpiTarget ?? null,
+      source: chart.explorer ? 'explorer' : 'metric',
+      dataset: chart.explorer?.dataset ?? '',
+      dimension: chart.explorer?.dimension ?? '',
+      measure: chart.explorer?.measure ?? '',
     };
     this.openSheet('chart');
   }
 
   saveChartDraft() {
     const report = this.selectedReport();
-    if (!report || !this.isSelectedOwner() || !this.chartDraft.title.trim()) {
+    if (!report || !this.isSelectedOwner() || !this.chartDraft.title.trim() || !this.isChartDraftValid()) {
       return;
     }
 
@@ -1182,35 +1516,80 @@ export class WorkspaceDetailComponent implements OnInit {
         ? null
         : Number(kpiTargetRaw);
 
+    const isExplorer = this.chartDraft.source === 'explorer';
+    const build = (id: string): CustomChart => ({
+      id,
+      title: this.chartDraft.title.trim(),
+      kind: this.chartDraft.kind,
+      metrics: isExplorer ? [] : [...this.chartDraft.metrics],
+      showBaseline: isExplorer ? false : this.chartDraft.showBaseline,
+      kpiTarget: isExplorer ? null : kpiTarget,
+      explorer: isExplorer
+        ? { dataset: this.chartDraft.dataset, dimension: this.chartDraft.dimension, measure: this.chartDraft.measure }
+        : undefined,
+    });
+
     if (this.chartDraft.id) {
-      report.charts = report.charts.map((chart) =>
-        chart.id === this.chartDraft.id
-          ? {
-              id: chart.id,
-              title: this.chartDraft.title.trim(),
-              kind: this.chartDraft.kind,
-              metrics: [...this.chartDraft.metrics],
-              showBaseline: this.chartDraft.showBaseline,
-              kpiTarget,
-            }
-          : chart,
-      );
+      const draftId = this.chartDraft.id;
+      report.charts = report.charts.map((chart) => (chart.id === draftId ? build(draftId) : chart));
     } else {
-      report.charts = [
-        ...report.charts,
-        {
-          id: crypto.randomUUID(),
-          title: this.chartDraft.title.trim(),
-          kind: this.chartDraft.kind,
-          metrics: [...this.chartDraft.metrics],
-          showBaseline: this.chartDraft.showBaseline,
-          kpiTarget,
-        },
-      ];
+      report.charts = [...report.charts, build(crypto.randomUUID())];
     }
 
     this.persistReport(report);
+    this.loadExplorerCharts();
     this.closeSheet();
+  }
+
+  // ---- Canvas data explorer (chart builder) ----
+
+  isChartDraftValid(): boolean {
+    return this.chartDraft.source === 'explorer'
+      ? !!(this.chartDraft.dataset && this.chartDraft.dimension && this.chartDraft.measure)
+      : this.chartDraft.metrics.length > 0;
+  }
+
+  onChartSourceChange(): void {
+    if (this.chartDraft.source === 'explorer') {
+      // Explorer charts render via ECharts; card/scatter aren't supported.
+      if (this.chartDraft.kind === 'card' || this.chartDraft.kind === 'scatter') {
+        this.chartDraft.kind = 'bar';
+      }
+      this.chartDraft.metrics = [];
+      const datasets = this.exploreOptions().datasets;
+      if (datasets.length && !this.chartDraft.dataset) {
+        this.chartDraft.dataset = datasets[0].key;
+        this.onDatasetChange();
+      }
+    }
+  }
+
+  onDatasetChange(): void {
+    const dataset = this.exploreOptions().datasets.find((item) => item.key === this.chartDraft.dataset);
+    this.chartDraft.dimension = dataset?.dimensions[0]?.key ?? '';
+    this.chartDraft.measure = dataset?.measures[0]?.key ?? '';
+  }
+
+  datasetDimensions(): CanvasExploreField[] {
+    return this.exploreOptions().datasets.find((item) => item.key === this.chartDraft.dataset)?.dimensions ?? [];
+  }
+
+  datasetMeasures(): CanvasExploreField[] {
+    return this.exploreOptions().datasets.find((item) => item.key === this.chartDraft.dataset)?.measures ?? [];
+  }
+
+  exploreDatasetLabel(key: string): string {
+    return this.tr(`workspace.explorer.dataset.${key}`,
+      this.exploreOptions().datasets.find((item) => item.key === key)?.label ?? key);
+  }
+
+  exploreFieldLabel(key: string, fallback: string): string {
+    return this.tr(`workspace.explorer.field.${key}`, fallback);
+  }
+
+  private tr(key: string, fallback: string): string {
+    const value = this.languageService.t(key);
+    return value === key ? fallback : value;
   }
 
   deleteChartDraft() {
@@ -1343,7 +1722,100 @@ export class WorkspaceDetailComponent implements OnInit {
       .filter((metric): metric is MetricVariable => !!metric);
   }
 
+  explorerResult(chart: CustomChart): CanvasExploreResult | null {
+    return this.exploreResults()[chart.id] ?? null;
+  }
+
+  explorerHasRows(chart: CustomChart): boolean {
+    return (this.explorerResult(chart)?.rows.length ?? 0) > 0;
+  }
+
+  explorerCaption(chart: CustomChart): string {
+    if (!chart.explorer) return '';
+    const dataset = this.exploreDatasetLabel(chart.explorer.dataset);
+    const measure = this.exploreFieldLabel(chart.explorer.measure, chart.explorer.measure);
+    const dimension = this.exploreFieldLabel(chart.explorer.dimension, chart.explorer.dimension);
+    return `${dataset} · ${measure} ${this.languageService.t('workspace.explorer.by')} ${dimension}`;
+  }
+
+  /** Format a dimension key for display (month keys "2025-11" become "Nov 2025"). */
+  private explorerKeyLabel(key: string): string {
+    const monthMatch = /^(\d{4})-(\d{2})$/.exec(key);
+    if (monthMatch) {
+      return this.periodDisplay(`${key}-01T00:00:00Z`);
+    }
+    return key;
+  }
+
+  private explorerChartOptions(chart: CustomChart): EChartsCoreOption {
+    const result = this.explorerResult(chart);
+    const colors = ['#32124f', '#b38116', '#31706f', '#7b4aa4', '#a9485d', '#4464ad'];
+    const rows = result?.rows ?? [];
+    const labels = rows.map((row) => this.explorerKeyLabel(row.key));
+    const values = rows.map((row) => row.value);
+    const unit = result?.unit ?? '';
+    const fmt = (value: string | number) => (unit === '%' ? `${value}%` : `${value}`);
+
+    if (chart.kind === 'pie') {
+      return {
+        color: colors,
+        tooltip: { trigger: 'item', valueFormatter: fmt },
+        legend: { bottom: 0, type: 'scroll', icon: 'circle', textStyle: { color: '#5f5368' } },
+        toolbox: { right: 8, feature: { restore: {}, saveAsImage: {} } },
+        series: [
+          {
+            name: chart.title,
+            type: 'pie',
+            radius: ['42%', '68%'],
+            center: ['50%', '43%'],
+            data: rows.map((row) => ({
+              name: this.explorerKeyLabel(row.key), value: row.value, groupKey: row.key,
+            })),
+          },
+        ],
+      };
+    }
+
+    const cartesianKind = chart.kind === 'line' ? 'line' : 'bar';
+    return {
+      color: colors,
+      tooltip: { trigger: 'axis', valueFormatter: fmt },
+      grid: { left: 8, right: 16, bottom: 8, top: 24, containLabel: true },
+      toolbox: {
+        right: 8,
+        feature: { dataZoom: { yAxisIndex: 'none' }, magicType: { type: ['line', 'bar'] }, restore: {}, saveAsImage: {} },
+      },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        axisLine: { lineStyle: { color: '#d8d0df' } },
+        axisLabel: { color: '#6f6877', interval: 0, rotate: labels.length > 6 ? 30 : 0 },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: { color: '#6f6877', formatter: fmt },
+        splitLine: { lineStyle: { color: '#ebe6ef' } },
+      },
+      dataZoom: [{ type: 'inside', ...this.chartZoomRange(chart.id) }],
+      series: [
+        {
+          name: chart.title,
+          type: cartesianKind,
+          cursor: 'pointer',
+          data: rows.map((row) => ({ value: row.value, groupKey: row.key })),
+          smooth: cartesianKind === 'line',
+          barMaxWidth: 34,
+          itemStyle: { color: '#32124f' },
+          areaStyle: cartesianKind === 'line' ? { opacity: 0.08 } : undefined,
+        },
+      ],
+    };
+  }
+
   chartOptions(chart: CustomChart): EChartsCoreOption {
+    if (chart.explorer) {
+      return this.explorerChartOptions(chart);
+    }
     const metrics = this.chartMetrics(chart);
     const colors = ['#32124f', '#b38116', '#31706f', '#7b4aa4', '#a9485d', '#4464ad'];
 
@@ -1396,10 +1868,14 @@ export class WorkspaceDetailComponent implements OnInit {
                 shadowColor: 'rgba(50, 18, 79, 0.24)',
               },
             },
-            data: metrics.map((metric) => ({
-              name: this.metricLabel(metric.id),
-              value: Math.max(0, this.scaledSeries(metric).at(-1) ?? 0),
-            })),
+            data: metrics.map((metric) => {
+              const point = metric.series.at(-1);
+              return {
+                name: this.metricLabel(metric.id),
+                value: Math.max(0, point?.value ?? 0),
+                periodStart: point?.periodStart,
+              };
+            }),
           },
         ],
       };
@@ -1453,20 +1929,24 @@ export class WorkspaceDetailComponent implements OnInit {
           axisLabel: { color: '#6f6877' },
           splitLine: { lineStyle: { color: '#ebe6ef' } },
         },
-        dataZoom: [{ type: 'inside' }],
+        dataZoom: [{ type: 'inside', ...this.chartZoomRange(chart.id) }],
         series: comparedMetrics.map((metric) => ({
           name: this.metricLabel(metric.id),
           type: 'scatter',
           symbolSize: 12,
-          data: this.scaledSeries(metric).map((value, index) => ({
-            name: metric.series[index]?.periodStart ?? '',
-            value: [
-              metrics.length > 1
-                ? ((xMetric ? this.scaledSeries(xMetric)[index] : undefined) ?? index + 1)
-                : index + 1,
-              value,
-            ],
-          })),
+          cursor: 'pointer',
+          data: metric.series
+            .map((point, index) => ({
+              name: this.periodDisplay(point.periodStart),
+              periodStart: point.periodStart,
+              value: [
+                metrics.length > 1
+                  ? (xMetric ? this.metricPoint(xMetric, point.periodStart)?.value ?? null : null)
+                  : index + 1,
+                point.value,
+              ],
+            }))
+            .filter((point) => point.value[0] !== null),
           emphasis: {
             focus: 'series',
             scale: 1.5,
@@ -1476,7 +1956,7 @@ export class WorkspaceDetailComponent implements OnInit {
     }
 
     const cartesianKind = chart.kind === 'line' ? 'line' : 'bar';
-    const scaled = metrics.map((metric) => this.scaledSeries(metric));
+    const periods = this.metricPeriods(metrics);
     const baseline = metrics[0]?.baselineValue ?? null;
 
     const referenceLines: object[] = [];
@@ -1503,7 +1983,7 @@ export class WorkspaceDetailComponent implements OnInit {
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: cartesianKind === 'bar' ? 'shadow' : 'cross' },
-        valueFormatter: (value: string | number) => `${value}`,
+        formatter: (params: unknown) => this.metricAxisTooltip(params),
       },
       legend: {
         bottom: 0,
@@ -1529,7 +2009,7 @@ export class WorkspaceDetailComponent implements OnInit {
       xAxis: {
         type: 'category',
         boundaryGap: cartesianKind === 'bar',
-        data: metrics[0]?.series.map((point) => this.periodDisplay(point.periodStart)) ?? [],
+        data: periods.map((period) => this.periodDisplay(period)),
         axisLine: { lineStyle: { color: '#d8d0df' } },
         axisLabel: { color: '#6f6877' },
       },
@@ -1541,15 +2021,21 @@ export class WorkspaceDetailComponent implements OnInit {
       dataZoom: [
         {
           type: 'inside',
+          ...this.chartZoomRange(chart.id),
         },
       ],
       series: metrics.map((metric, index) => ({
         name: this.metricLabel(metric.id),
         type: cartesianKind,
-        data: scaled[index],
+        cursor: 'pointer',
+        data: periods.map((periodStart) => ({
+          value: this.metricPoint(metric, periodStart)?.value ?? null,
+          periodStart,
+        })),
         smooth: cartesianKind === 'line',
         symbolSize: 8,
         barMaxWidth: 30,
+        barMinHeight: cartesianKind === 'bar' ? 6 : undefined,
         emphasis: { focus: 'series' },
         areaStyle: cartesianKind === 'line' ? { opacity: 0.08 } : undefined,
         markLine:
@@ -1564,6 +2050,40 @@ export class WorkspaceDetailComponent implements OnInit {
     return ['#32124f', '#b38116', '#31706f', '#7b4aa4'][index % 4];
   }
 
+  private metricAxisTooltip(params: unknown): string {
+    const points = (Array.isArray(params) ? params : [params]) as {
+      axisValueLabel?: string;
+      name?: string;
+      seriesName?: string;
+      marker?: string;
+      value?: unknown;
+    }[];
+    const visible = points.filter((point) => {
+      const value = Array.isArray(point.value) ? point.value.at(-1) : point.value;
+      return value !== null && value !== undefined && value !== '' && value !== '-';
+    });
+    if (!visible.length) return '';
+
+    const heading = this.escapeTooltipText(
+      points[0]?.axisValueLabel ?? points[0]?.name ?? '',
+    );
+    const rows = visible.map((point) => {
+      const value = Array.isArray(point.value) ? point.value.at(-1) : point.value;
+      return `${point.marker ?? ''}${this.escapeTooltipText(point.seriesName ?? '')}` +
+        `<span style="float:right;margin-left:24px;font-weight:600">${this.escapeTooltipText(String(value))}</span>`;
+    });
+    return [heading, ...rows].filter(Boolean).join('<br/>');
+  }
+
+  private escapeTooltipText(value: string): string {
+    return value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
   private periodDisplay(value: string): string {
     return new Intl.DateTimeFormat(this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US', {
       month: 'short', year: 'numeric',
@@ -1571,32 +2091,68 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   onChartPointClick(chart: CustomChart, event: { seriesName?: string; name?: string; data?: unknown }): void {
+    if (chart.explorer) {
+      const data = event?.data as { groupKey?: string } | undefined;
+      const groupKey = data?.groupKey;
+      if (groupKey) {
+        this.openExplorerDrilldown(chart, groupKey);
+      }
+      return;
+    }
     const metrics = this.chartMetrics(chart);
     if (!metrics.length) {
       return;
     }
 
-    const seriesName = event?.seriesName ?? event?.name;
-    const metric = metrics.find((candidate) => this.metricLabel(candidate.id) === seriesName) ?? metrics[0];
+    const metric = metrics.find((candidate) => this.metricLabel(candidate.id) === event?.name)
+      ?? metrics.find((candidate) => this.metricLabel(candidate.id) === event?.seriesName)
+      ?? metrics[0];
+    const clickedData = event?.data as { periodStart?: string } | undefined;
+    const periodStart = clickedData?.periodStart ?? null;
+    const periodLabel = periodStart ? this.periodDisplay(periodStart) : null;
 
-    let period: string | null = null;
-    if (chart.kind === 'bar' || chart.kind === 'line') {
-      period = typeof event?.name === 'string' ? event.name : null;
-    } else if (chart.kind === 'scatter') {
-      const scatterPoint = event?.data as { name?: string } | undefined;
-      period = scatterPoint?.name ?? null;
-    }
-
-    this.openDrilldown(metric.id, period);
+    this.openDrilldown(metric.id, periodStart, periodLabel);
   }
 
-  openDrilldown(metricId: string, period: string | null): void {
+  onChartDataZoom(
+    chartId: string,
+    event: { start?: number; end?: number; batch?: { start?: number; end?: number }[] },
+  ): void {
+    const range = event.batch?.[0] ?? event;
+    if (typeof range.start === 'number' && typeof range.end === 'number') {
+      this.chartZoomRanges.set(chartId, { start: range.start, end: range.end });
+    }
+  }
+
+  private chartZoomRange(chartId: string): { start?: number; end?: number } {
+    return this.chartZoomRanges.get(chartId) ?? {};
+  }
+
+  openDrilldown(
+    metricId: string,
+    periodStart: string | null = null,
+    periodLabel: string | null = null,
+  ): void {
     this.drilldownMetricId.set(metricId);
     this.drilldownMetricLabel.set(this.metricLabel(metricId));
-    this.drilldownPeriod.set(period);
+    this.drilldownPeriod.set(periodLabel);
     this.drilldownError.set(null);
+    this.drilldownUnavailable.set(false);
+    this.drilldownData.set(null);
+    this.explorerDrilldown.set(false);
+    this.explorerDrilldownData.set(null);
+    this.explorerDrilldownSpec = null;
+    this.drilldownPeriodStart = periodStart;
     this.mountDrilldown();
-    this.loadDrilldownStudents();
+
+    const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
+    if (metric?.supportsDrilldown === false) {
+      this.drilldownLoading.set(false);
+      this.drilldownUnavailable.set(true);
+      return;
+    }
+
+    this.loadDrilldownData(metricId, periodStart, 1);
   }
 
   closeDrilldown(): void {
@@ -1618,28 +2174,139 @@ export class WorkspaceDetailComponent implements OnInit {
     );
   }
 
-  private drilldownMetricSource(metricId: string | null): string | null {
-    return metricId
-      ? this.metricVariables.find((candidate) => candidate.id === metricId)?.source ?? null
-      : null;
-  }
-
-  private loadDrilldownStudents(): void {
-    if (this.drilldownStudentPool().length) {
+  changeDrilldownPage(page: number): void {
+    if (page < 1 || page > this.drilldownTotalPages()) return;
+    if (this.explorerDrilldown() && this.explorerDrilldownSpec) {
+      this.loadExplorerDrilldown(this.explorerDrilldownSpec, page);
       return;
     }
+    const metricId = this.drilldownMetricId();
+    if (metricId) this.loadDrilldownData(metricId, this.drilldownPeriodStart, page);
+  }
 
+  private openExplorerDrilldown(chart: CustomChart, groupKey: string): void {
+    if (!chart.explorer) return;
+    this.explorerDrilldown.set(true);
+    this.explorerDrilldownData.set(null);
+    this.drilldownData.set(null);
+    this.drilldownUnavailable.set(false);
+    this.drilldownError.set(null);
+    this.drilldownMetricId.set(null);
+    this.drilldownMetricLabel.set(chart.title);
+    this.drilldownPeriod.set(this.explorerKeyLabel(groupKey));
+    this.explorerDrilldownSpec = { ...chart.explorer, groupKey };
+    this.mountDrilldown();
+    this.loadExplorerDrilldown(this.explorerDrilldownSpec, 1);
+  }
+
+  private loadExplorerDrilldown(
+    spec: { dataset: string; dimension: string; measure: string; groupKey: string },
+    page: number,
+  ): void {
+    const filters = this.filters();
+    const params = Object.fromEntries(Object.entries({
+      ...spec,
+      year: filters.year, term: filters.semester, campus: filters.campus,
+      level: filters.level, grade: filters.grade, homeroom: filters.homeroom,
+      studentId: filters.studentId, program: filters.program, subject: filters.subject,
+      page: String(page), pageSize: String(this.drilldownPageSize),
+    }).filter(([, value]) => !!value));
     this.drilldownLoading.set(true);
-    this.studentsService.list().subscribe({
-      next: (students) => {
-        this.drilldownStudentPool.set(students);
+    const requestId = ++this.drilldownRequestId;
+    this.reportBuilderService.loadExploreDrilldown(params).subscribe({
+      next: (data) => {
+        if (requestId !== this.drilldownRequestId || !this.explorerDrilldown()) return;
+        this.explorerDrilldownData.set(data);
         this.drilldownLoading.set(false);
       },
       error: () => {
+        if (requestId !== this.drilldownRequestId) return;
         this.drilldownLoading.set(false);
         this.drilldownError.set(this.languageService.t('workspace.drilldown.loadError'));
       },
     });
+  }
+
+  private loadDrilldownData(metricId: string, periodStart: string | null, page: number): void {
+    const filters = this.filters();
+    const params = Object.fromEntries(Object.entries({
+      metricId,
+      year: filters.year, term: filters.semester, cycle: filters.cycle, campus: filters.campus,
+      level: filters.level, grade: filters.grade, homeroom: filters.homeroom,
+      studentId: filters.studentId, program: filters.program, subject: filters.subject,
+      periodStart: periodStart ?? '',
+      page: String(page),
+      pageSize: String(this.drilldownPageSize),
+    }).filter(([, value]) => !!value));
+
+    this.drilldownLoading.set(true);
+    const requestId = ++this.drilldownRequestId;
+    this.reportBuilderService.loadMetricDrilldown(params).subscribe({
+      next: (data) => {
+        // Ignore a late response if the user already opened a different metric.
+        if (this.drilldownMetricId() !== metricId || requestId !== this.drilldownRequestId) {
+          return;
+        }
+        this.drilldownData.set(data);
+        this.drilldownLoading.set(false);
+      },
+      error: () => {
+        if (requestId !== this.drilldownRequestId) return;
+        this.drilldownLoading.set(false);
+        this.drilldownError.set(this.languageService.t('workspace.drilldown.loadError'));
+      },
+    });
+  }
+
+  formatDrilldownValue(value: number): string {
+    const unit = this.drilldownUnit();
+    return unit === '%' ? `${value}%` : `${value}`;
+  }
+
+  formatRecordDate(value: string): string {
+    return new Intl.DateTimeFormat(this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US', {
+      dateStyle: 'medium', timeStyle: 'short',
+    }).format(new Date(value));
+  }
+
+  recordFields(fields: Record<string, string | null>): { key: string; value: string }[] {
+    return Object.entries(fields ?? {})
+      .filter((entry): entry is [string, string] => !!entry[1])
+      .map(([key, value]) => ({ key, value }));
+  }
+
+  /** Card value: keep symbol units like "%" on the number, drop word units (the label already names them). */
+  cardValue(metric: MetricVariable): string {
+    if (metric.value === null || metric.value === undefined) {
+      return '—';
+    }
+    return metric.unit === '%' ? `${metric.value}%` : `${metric.value}`;
+  }
+
+  toggleSnapshotMenu(): void {
+    this.snapshotMenuOpen.update((open) => !open);
+  }
+
+  closeSnapshotMenu(): void {
+    this.snapshotMenuOpen.set(false);
+  }
+
+  /**
+   * Capture the dashboard with the current filters applied. Both menu actions route here:
+   * the browser's print dialog is where the user chooses a printer or "Save as PDF".
+   */
+  takeSnapshot(): void {
+    this.closeSnapshotMenu();
+    // Close any open panels so they are not part of the snapshot.
+    this.closeSheet();
+    this.closeDrilldown();
+    this.snapshotTimestamp.set(
+      new Intl.DateTimeFormat(this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US', {
+        dateStyle: 'long', timeStyle: 'short',
+      }).format(new Date()),
+    );
+    // Let the timestamp/header render before opening the print dialog.
+    setTimeout(() => window.print(), 50);
   }
 
   private mountDrilldown(): void {
@@ -1690,7 +2357,10 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   private emptyChartDraft(): ChartDraft {
-    return { id: null, title: '', kind: 'bar', metrics: [], showBaseline: false, kpiTarget: null };
+    return {
+      id: null, title: '', kind: 'bar', metrics: [], showBaseline: false, kpiTarget: null,
+      source: 'metric', dataset: '', dimension: '', measure: '',
+    };
   }
 
   private owner(): string {

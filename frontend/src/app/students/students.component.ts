@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -33,8 +33,7 @@ import { riskBadgeClass } from './risk.util';
               {{ languageService.t('students.listTitle') }}
             </h3>
             <p class="mt-1 text-sm text-[#6f6877]">
-              {{ filteredStudents().length }} / {{ students().length }}
-              {{ languageService.t('students.studentsLabel') }}
+              {{ totalCount() }} {{ languageService.t('students.studentsLabel') }}
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-3">
@@ -90,7 +89,7 @@ import { riskBadgeClass } from './risk.util';
               </tr>
             </thead>
             <tbody class="divide-y divide-[#ebe6ef]">
-              @for (student of filteredStudents(); track student.id) {
+              @for (student of students(); track student.id) {
                 <tr class="text-sm transition hover:bg-[#fdfcff]">
                   <td class="px-6 py-4">
                     <a class="flex items-center gap-3" [routerLink]="['/students', student.id]">
@@ -144,7 +143,7 @@ import { riskBadgeClass } from './risk.util';
                     {{ languageService.t('students.loading') }}
                   </td>
                 </tr>
-              } @else if (!filteredStudents().length) {
+              } @else if (!students().length) {
                 <tr>
                   <td class="px-6 py-10 text-center text-sm text-[#7c7284]" colspan="8">
                     {{ languageService.t('students.noStudents') }}
@@ -154,11 +153,38 @@ import { riskBadgeClass } from './risk.util';
             </tbody>
           </table>
         </div>
+        @if (!loading() && totalCount() > 0) {
+          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[#ebe6ef] px-5 py-4">
+            <div class="flex items-center gap-2 text-xs text-[#6f6877]">
+              <span>{{ pageLabel() }}</span>
+              <label class="ml-2 flex items-center gap-2">
+                {{ languageService.t('pagination.perPage') }}
+                <select
+                  class="rounded-md border border-[#d8d0df] bg-white px-2 py-1.5 text-xs outline-none focus:border-[#6d3a91]"
+                  [value]="pageSize()"
+                  (change)="changePageSize($event)"
+                >
+                  <option value="10">10</option>
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                </select>
+              </label>
+            </div>
+            <div class="flex gap-2">
+              <button class="rounded-md border border-[#d8d0df] px-4 py-2 text-xs font-semibold text-[#32124f] transition hover:bg-[#f7f3fa] disabled:cursor-not-allowed disabled:opacity-40" type="button" [disabled]="page() <= 1" (click)="previousPage()">
+                {{ languageService.t('pagination.previous') }}
+              </button>
+              <button class="rounded-md border border-[#d8d0df] px-4 py-2 text-xs font-semibold text-[#32124f] transition hover:bg-[#f7f3fa] disabled:cursor-not-allowed disabled:opacity-40" type="button" [disabled]="page() >= totalPages()" (click)="nextPage()">
+                {{ languageService.t('pagination.next') }}
+              </button>
+            </div>
+          </div>
+        }
       </section>
     </section>
   `,
 })
-export class StudentsComponent implements OnInit {
+export class StudentsComponent implements OnInit, OnDestroy {
   private readonly studentsService = inject(StudentsService);
   private readonly authService = inject(AuthenticationService);
   private readonly route = inject(ActivatedRoute);
@@ -167,9 +193,16 @@ export class StudentsComponent implements OnInit {
   readonly students = signal<StudentListItem[]>([]);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  readonly page = signal(1);
+  readonly pageSize = signal(20);
+  readonly totalCount = signal(0);
+  readonly totalPages = signal(0);
+  readonly gradeLevels = signal<string[]>([]);
   private readonly searchSignal = signal('');
   private readonly gradeFilterSignal = signal('');
   private readonly atRiskOnlySignal = signal(false);
+  private searchTimer: number | null = null;
+  private requestId = 0;
 
   get search(): string {
     return this.searchSignal();
@@ -177,6 +210,8 @@ export class StudentsComponent implements OnInit {
 
   set search(value: string) {
     this.searchSignal.set(value);
+    if (this.searchTimer !== null) window.clearTimeout(this.searchTimer);
+    this.searchTimer = window.setTimeout(() => this.loadPage(1), 300);
   }
 
   get gradeFilter(): string {
@@ -185,6 +220,7 @@ export class StudentsComponent implements OnInit {
 
   set gradeFilter(value: string) {
     this.gradeFilterSignal.set(value);
+    this.loadPage(1);
   }
 
   get atRiskOnly(): boolean {
@@ -193,36 +229,8 @@ export class StudentsComponent implements OnInit {
 
   set atRiskOnly(value: boolean) {
     this.atRiskOnlySignal.set(value);
+    this.loadPage(1);
   }
-
-  readonly gradeLevels = computed(() => {
-    const grades = new Set(
-      this.students()
-        .map((student) => student.gradeLevel)
-        .filter((grade): grade is string => !!grade),
-    );
-    return [...grades].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  });
-
-  readonly filteredStudents = computed(() => {
-    const query = this.searchSignal().trim().toLocaleLowerCase();
-    const grade = this.gradeFilterSignal();
-    const atRiskOnly = this.atRiskOnlySignal();
-    return this.students().filter((student) => {
-      if (grade && student.gradeLevel !== grade) {
-        return false;
-      }
-      if (atRiskOnly && student.riskLevel === 'None') {
-        return false;
-      }
-      if (!query) {
-        return true;
-      }
-      return `${student.fullName} ${student.studentCode} ${student.homeroom ?? ''} ${student.teacherName ?? ''}`
-        .toLocaleLowerCase()
-        .includes(query);
-    });
-  });
 
   riskBadge(level: string): string {
     return riskBadgeClass(level);
@@ -239,16 +247,55 @@ export class StudentsComponent implements OnInit {
       this.searchSignal.set(homeroom);
     }
 
-    this.studentsService.list().subscribe({
-      next: (students) => {
-        this.students.set(students);
+    this.loadPage(1);
+  }
+
+  ngOnDestroy(): void {
+    if (this.searchTimer !== null) window.clearTimeout(this.searchTimer);
+  }
+
+  loadPage(page: number): void {
+    const requestId = ++this.requestId;
+    this.loading.set(true);
+    this.error.set(null);
+    this.studentsService.list(
+      page, this.pageSize(), this.searchSignal(), this.gradeFilterSignal(), this.atRiskOnlySignal(),
+    ).subscribe({
+      next: (response) => {
+        if (requestId !== this.requestId) return;
+        this.students.set(response.items);
+        this.page.set(response.page);
+        this.totalCount.set(response.totalCount);
+        this.totalPages.set(response.totalPages);
+        this.gradeLevels.set(response.availableGrades);
         this.loading.set(false);
       },
       error: () => {
+        if (requestId !== this.requestId) return;
         this.loading.set(false);
         this.error.set(this.languageService.t('students.loadError'));
       },
     });
+  }
+
+  previousPage(): void {
+    if (this.page() > 1) this.loadPage(this.page() - 1);
+  }
+
+  nextPage(): void {
+    if (this.page() < this.totalPages()) this.loadPage(this.page() + 1);
+  }
+
+  changePageSize(event: Event): void {
+    this.pageSize.set(Number((event.target as HTMLSelectElement).value));
+    this.loadPage(1);
+  }
+
+  pageLabel(): string {
+    return this.languageService.t('pagination.pageOf')
+      .replace('{page}', String(this.page()))
+      .replace('{pages}', String(this.totalPages()))
+      .replace('{total}', String(this.totalCount()));
   }
 
   scopeHint(): string {
