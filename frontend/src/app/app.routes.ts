@@ -39,6 +39,11 @@ export const routes: Routes = [
           import('./students/cohorts.component').then((m) => m.CohortsComponent),
       },
       {
+        path: 'classes',
+        loadComponent: () =>
+          import('./classes/classes.component').then((m) => m.ClassesComponent),
+      },
+      {
         path: 'students/:studentId',
         loadComponent: () =>
           import('./students/student-profile.component').then((m) => m.StudentProfileComponent),
@@ -69,14 +74,6 @@ export const routes: Routes = [
         path: 'admin/accounts',
         loadComponent: () =>
           import('./admin/account-management.component').then((m) => m.AccountManagementComponent),
-        canActivate: [adminGuard],
-      },
-      {
-        path: 'admin/teacher-student-assignments',
-        loadComponent: () =>
-          import('./admin/teacher-student-assignment.component').then(
-            (m) => m.TeacherStudentAssignmentComponent,
-          ),
         canActivate: [adminGuard],
       },
       {

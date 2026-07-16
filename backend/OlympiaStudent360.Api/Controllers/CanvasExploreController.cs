@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
@@ -144,7 +145,11 @@ public class CanvasExploreController : ControllerBase
         Filters f, string dimension, string measure, string groupKey)
     {
         var query = _context.CanvasSubmissions.AsNoTracking().Where(item => item.StudentProfileId != null);
-        query = ApplyStudentScope(query, item => item.Student!);
+        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        {
+            var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));
+            query = query.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
+        }
         if (f.Has(f.Campus)) query = query.Where(item => item.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(item => item.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(item => item.Student!.GradeLevel == f.Grade);
@@ -195,7 +200,11 @@ public class CanvasExploreController : ControllerBase
         Filters f, string dimension, string measure, string groupKey)
     {
         var query = _context.CanvasCourseScores.AsNoTracking().Where(item => item.CourseScore && item.StudentProfileId != null);
-        query = ApplyStudentScope(query, item => item.Student!);
+        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        {
+            var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));
+            query = query.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
+        }
         if (f.Has(f.Campus)) query = query.Where(item => item.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(item => item.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(item => item.Student!.GradeLevel == f.Grade);
@@ -285,7 +294,11 @@ public class CanvasExploreController : ControllerBase
         Filters f, string dimension, string groupKey)
     {
         var query = _context.StudentParents.AsNoTracking().Include(item => item.Student).AsQueryable();
-        query = ApplyStudentScope(query, item => item.Student);
+        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        {
+            var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));
+            query = query.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
+        }
         if (f.Has(f.Campus)) query = query.Where(item => item.Student.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(item => item.Student.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(item => item.Student.GradeLevel == f.Grade);
@@ -331,7 +344,11 @@ public class CanvasExploreController : ControllerBase
     private async Task<List<(string Key, double? Value)>> SubmissionRows(Filters f, string dimension, string measure)
     {
         var query = _context.CanvasSubmissions.AsNoTracking().Where(s => s.StudentProfileId != null);
-        query = ApplyStudentScope(query, s => s.Student!);
+        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        {
+            var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));
+            query = query.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
+        }
         if (f.Has(f.Campus)) query = query.Where(s => s.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(s => s.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(s => s.Student!.GradeLevel == f.Grade);
@@ -378,7 +395,11 @@ public class CanvasExploreController : ControllerBase
     {
         var query = _context.CanvasCourseScores.AsNoTracking()
             .Where(s => s.CourseScore && s.StudentProfileId != null);
-        query = ApplyStudentScope(query, s => s.Student!);
+        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        {
+            var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));
+            query = query.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
+        }
         if (f.Has(f.Campus)) query = query.Where(s => s.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(s => s.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(s => s.Student!.GradeLevel == f.Grade);
@@ -476,7 +497,11 @@ public class CanvasExploreController : ControllerBase
         // Parent/guardian demographics. Only the student-level filters apply (parents have no
         // year/term/subject dimension).
         var query = _context.StudentParents.AsNoTracking().AsQueryable();
-        query = ApplyStudentScope(query, p => p.Student);
+        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        {
+            var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));
+            query = query.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
+        }
         if (f.Has(f.Campus)) query = query.Where(p => p.Student.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(p => p.Student.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(p => p.Student.GradeLevel == f.Grade);
@@ -503,22 +528,6 @@ public class CanvasExploreController : ControllerBase
     }
 
     // ---- Helpers ----
-
-    private IQueryable<T> ApplyStudentScope<T>(IQueryable<T> query,
-        System.Linq.Expressions.Expression<Func<T, Core.Entities.StudentProfile>> student)
-    {
-        if (User.IsInRole("Admin") || User.IsInRole("Principal"))
-        {
-            return query;
-        }
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var param = student.Parameters[0];
-        var teacherProperty = System.Linq.Expressions.Expression.Property(student.Body, nameof(Core.Entities.StudentProfile.TeacherUserId));
-        var equals = System.Linq.Expressions.Expression.Equal(teacherProperty,
-            System.Linq.Expressions.Expression.Constant(userId, typeof(string)));
-        var predicate = System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(equals, param);
-        return query.Where(predicate);
-    }
 
     private static string Aggregation(string measure) => measure switch
     {

@@ -124,13 +124,6 @@ public class AdminUsersController : ControllerBase
         }
         await _userManager.AddToRoleAsync(user, model.Role);
 
-        if (currentRoles.Contains("Teacher") && model.Role != "Teacher")
-        {
-            await _context.StudentProfiles
-                .Where(student => student.TeacherUserId == user.Id)
-                .ExecuteUpdateAsync(updates => updates.SetProperty(student => student.TeacherUserId, (string?)null));
-        }
-
         if (!string.IsNullOrWhiteSpace(model.NewPassword))
         {
             var resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);

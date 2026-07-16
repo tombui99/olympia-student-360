@@ -302,7 +302,7 @@ public class ImportsController : ControllerBase
         }
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return query.Where(student => student.TeacherUserId == userId);
+        return SISClassVisibility.Students(_context, userId);
     }
 
     private async Task<string> CurrentUserDisplayName()

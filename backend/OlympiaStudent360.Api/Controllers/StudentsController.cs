@@ -50,7 +50,8 @@ public class StudentsController : ControllerBase
                 EF.Functions.Like(student.FullName, pattern, "!") ||
                 EF.Functions.Like(student.StudentCode, pattern, "!") ||
                 student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!") ||
-                student.Teacher != null && EF.Functions.Like(student.Teacher.FullName, pattern, "!"));
+                student.SISClassMemberships.Any(membership => membership.SISClass.Teachers.Any(
+                    assignment => EF.Functions.Like(assignment.Teacher.FullName, pattern, "!"))));
         }
         if (!string.IsNullOrWhiteSpace(grade))
         {
@@ -67,7 +68,8 @@ public class StudentsController : ControllerBase
             student.Campus,
             student.EducationLevel,
             student.Program,
-            TeacherName = student.Teacher == null ? null : student.Teacher.FullName,
+            TeacherName = student.SISClassMemberships.SelectMany(membership => membership.SISClass.Teachers)
+                .Select(assignment => assignment.Teacher.FullName).FirstOrDefault(),
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
             MentalHealthCount = student.MentalHealthRecords.Count,
@@ -145,7 +147,7 @@ public class StudentsController : ControllerBase
                     FullName = entry.Student.FullName,
                     GradeLevel = entry.Student.GradeLevel,
                     Homeroom = entry.Student.Homeroom,
-                    TeacherName = entry.Student.Teacher?.FullName,
+                    TeacherName = SISClassVisibility.TeacherNames(entry.Student),
                     BehaviourCount = entry.Student.Behaviours.Count,
                     ProjectCount = entry.Student.Projects.Count,
                     MentalHealthCount = entry.Student.MentalHealthRecords.Count,
@@ -182,7 +184,7 @@ public class StudentsController : ControllerBase
                     StudentName = student.FullName,
                     GradeLevel = student.GradeLevel,
                     Homeroom = student.Homeroom,
-                    TeacherName = student.Teacher?.FullName,
+                    TeacherName = SISClassVisibility.TeacherNames(student),
                     IncidentDate = behaviour.IncidentDate,
                     CommendationType = behaviour.BehaviourType,
                     Notes = behaviour.Notes,
@@ -539,7 +541,10 @@ public class StudentsController : ControllerBase
         var hasYearFilter = !string.IsNullOrWhiteSpace(academicYear) && academicYear != "all";
         var student = await VisibleStudents()
             .AsSplitQuery()
-            .Include(candidate => candidate.Teacher)
+            .Include(candidate => candidate.SISClassMemberships)
+                .ThenInclude(membership => membership.SISClass)
+                .ThenInclude(sisClass => sisClass.Teachers)
+                .ThenInclude(assignment => assignment.Teacher)
             .Include(candidate => candidate.Behaviours)
             .Include(candidate => candidate.Projects)
             .Include(candidate => candidate.Parents)
@@ -578,7 +583,7 @@ public class StudentsController : ControllerBase
             Campus = student.Campus,
             EducationLevel = student.EducationLevel,
             Program = student.Program,
-            TeacherName = student.Teacher?.FullName,
+            TeacherName = SISClassVisibility.TeacherNames(student),
             RiskLevel = risk.Level,
             Flags = risk.Flags,
             Summary = new StudentSummaryDto
@@ -859,7 +864,7 @@ public class StudentsController : ControllerBase
             Campus = student.Campus,
             EducationLevel = student.EducationLevel,
             Program = student.Program,
-            TeacherName = student.Teacher?.FullName,
+            TeacherName = SISClassVisibility.TeacherNames(student),
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
             MentalHealthCount = student.MentalHealthRecords.Count,
@@ -996,7 +1001,10 @@ public class StudentsController : ControllerBase
     {
         return await VisibleStudents()
             .AsSplitQuery()
-            .Include(student => student.Teacher)
+            .Include(student => student.SISClassMemberships)
+                .ThenInclude(membership => membership.SISClass)
+                .ThenInclude(sisClass => sisClass.Teachers)
+                .ThenInclude(assignment => assignment.Teacher)
             .Include(student => student.Behaviours)
             .Include(student => student.Projects)
             .Include(student => student.MentalHealthRecords)
@@ -1013,7 +1021,7 @@ public class StudentsController : ControllerBase
         }
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return query.Where(student => student.TeacherUserId == userId);
+        return SISClassVisibility.Students(_context, userId);
     }
 
     private async Task<string> CurrentUserDisplayName()

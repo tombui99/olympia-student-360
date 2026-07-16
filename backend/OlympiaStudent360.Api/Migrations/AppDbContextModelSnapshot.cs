@@ -955,6 +955,124 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("ImportModuleFields");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClass", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("AcademicYear")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("Campus")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ClassName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("GradeLevel")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Homeroom")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("SISClassCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("Term")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SISClassCode")
+                        .IsUnique();
+
+                    b.HasIndex("AcademicYear", "IsActive");
+
+                    b.ToTable("SISClasses", (string)null);
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassStudent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("SISClassId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("SISClassId", "StudentProfileId")
+                        .IsUnique();
+
+                    b.ToTable("SISClassStudents", (string)null);
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassTeacher", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("AssignmentRole")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("SISClassId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TeacherUserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeacherUserId");
+
+                    b.HasIndex("SISClassId", "TeacherUserId")
+                        .IsUnique();
+
+                    b.ToTable("SISClassTeachers", (string)null);
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISHealthVisit", b =>
                 {
                     b.Property<int>("Id")
@@ -1314,9 +1432,6 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
-                    b.Property<string>("TeacherUserId")
-                        .HasColumnType("varchar(255)");
-
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -1324,8 +1439,6 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasIndex("StudentCode")
                         .IsUnique();
-
-                    b.HasIndex("TeacherUserId");
 
                     b.ToTable("StudentProfiles");
                 });
@@ -1535,6 +1648,44 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassStudent", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.SISClass", "SISClass")
+                        .WithMany("Students")
+                        .HasForeignKey("SISClassId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany("SISClassMemberships")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SISClass");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassTeacher", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.SISClass", "SISClass")
+                        .WithMany("Teachers")
+                        .HasForeignKey("SISClassId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "Teacher")
+                        .WithMany("SISClassAssignments")
+                        .HasForeignKey("TeacherUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SISClass");
+
+                    b.Navigation("Teacher");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISHealthVisit", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
@@ -1610,16 +1761,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
-                {
-                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "Teacher")
-                        .WithMany("AssignedStudents")
-                        .HasForeignKey("TeacherUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Teacher");
-                });
-
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProject", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.ImportHistory", "ImportHistory")
@@ -1640,7 +1781,7 @@ namespace OlympiaStudent360.Api.Migrations
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ApplicationUser", b =>
                 {
-                    b.Navigation("AssignedStudents");
+                    b.Navigation("SISClassAssignments");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasAssignment", b =>
@@ -1676,6 +1817,13 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Projects");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClass", b =>
+                {
+                    b.Navigation("Students");
+
+                    b.Navigation("Teachers");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
                 {
                     b.Navigation("Behaviours");
@@ -1687,6 +1835,8 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Parents");
 
                     b.Navigation("Projects");
+
+                    b.Navigation("SISClassMemberships");
 
                     b.Navigation("SISHealthVisits");
                 });

@@ -8,8 +8,8 @@ import {
   faGaugeHigh,
   faBars,
   faRightFromBracket,
-  faArrowRightArrowLeft,
   faUserGraduate,
+  faSchool,
   faTriangleExclamation,
   faLayerGroup,
   faAward,
@@ -253,6 +253,7 @@ export class MainLayoutComponent {
       titleKey: 'navSection.students',
       items: [
         { path: '/students', labelKey: 'nav.students', icon: faUserGraduate },
+        { path: '/classes', labelKey: 'nav.classes', icon: faSchool },
         { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation },
         { path: '/commendations', labelKey: 'nav.commendations', icon: faAward },
         { path: '/cohorts', labelKey: 'nav.cohorts', icon: faLayerGroup },
@@ -269,12 +270,6 @@ export class MainLayoutComponent {
       titleKey: 'navSection.administration',
       items: [
         { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
-        {
-          path: '/admin/teacher-student-assignments',
-          labelKey: 'nav.teacherAssignments',
-          icon: faArrowRightArrowLeft,
-          adminOnly: true,
-        },
         {
           path: '/admin/sync-history',
           labelKey: 'nav.syncHistory',

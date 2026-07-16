@@ -7,7 +7,7 @@ public class ApplicationUser : IdentityUser
     public string FullName { get; set; } = default!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
-    public ICollection<StudentProfile> AssignedStudents { get; set; } = [];
+    public ICollection<SISClassTeacher> SISClassAssignments { get; set; } = [];
 }
 
 public abstract class BaseEntity
@@ -26,14 +26,47 @@ public class StudentProfile : BaseEntity
     public string? Campus { get; set; }
     public string? EducationLevel { get; set; }
     public string? Program { get; set; }
-    public string? TeacherUserId { get; set; }
-    public ApplicationUser? Teacher { get; set; }
+    public ICollection<SISClassStudent> SISClassMemberships { get; set; } = [];
     public ICollection<StudentBehaviour> Behaviours { get; set; } = [];
     public ICollection<StudentProject> Projects { get; set; } = [];
     public ICollection<StudentParent> Parents { get; set; } = [];
     public ICollection<StudentMentalHealthRecord> MentalHealthRecords { get; set; } = [];
     public ICollection<SISHealthVisit> SISHealthVisits { get; set; } = [];
     public ICollection<StudentBusAttendanceRecord> BusAttendanceRecords { get; set; } = [];
+}
+
+/// <summary>
+/// A class synchronised from SIS. SIS is the source of truth for class identity and membership.
+/// </summary>
+public class SISClass : BaseEntity
+{
+    public string SISClassCode { get; set; } = default!;
+    public string ClassName { get; set; } = default!;
+    public string AcademicYear { get; set; } = default!;
+    public string? Term { get; set; }
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+    public string? Campus { get; set; }
+    public bool IsActive { get; set; } = true;
+    public ICollection<SISClassTeacher> Teachers { get; set; } = [];
+    public ICollection<SISClassStudent> Students { get; set; } = [];
+}
+
+public class SISClassTeacher : BaseEntity
+{
+    public int SISClassId { get; set; }
+    public SISClass SISClass { get; set; } = default!;
+    public string TeacherUserId { get; set; } = default!;
+    public ApplicationUser Teacher { get; set; } = default!;
+    public string? AssignmentRole { get; set; }
+}
+
+public class SISClassStudent : BaseEntity
+{
+    public int SISClassId { get; set; }
+    public SISClass SISClass { get; set; } = default!;
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
 }
 
 /// <summary>
@@ -225,8 +258,8 @@ public class DashboardPreference : BaseEntity
 //
 // These mirror the parts of the Canvas Data 2 (DAP/CD2) schema we care about for
 // student grades and assignments. They are the landing/warehouse tables that a
-// future ETL job will populate from Canvas; for now they hold demo data seeded by
-// DbInitializer. Canvas surrogate ids are kept (bigint) alongside a link to our
+// future ETL job will populate from Canvas. Canvas surrogate ids are kept
+// (bigint) alongside a link to our
 // own StudentProfile, resolved through the SIS id (StudentProfile.StudentCode ==
 // Canvas pseudonyms.sis_user_id). Fact rows also carry the academic dimensions
 // (AcademicYear/Term/Subject) so they participate in the dashboard filters exactly

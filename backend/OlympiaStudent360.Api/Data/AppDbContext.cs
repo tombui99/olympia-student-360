@@ -11,6 +11,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     }
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
+    public DbSet<SISClass> SISClasses { get; set; }
+    public DbSet<SISClassTeacher> SISClassTeachers { get; set; }
+    public DbSet<SISClassStudent> SISClassStudents { get; set; }
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<StudentParent> StudentParents { get; set; }
@@ -62,14 +65,43 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .HasIndex(s => s.StudentCode)
             .IsUnique();
 
-        modelBuilder.Entity<StudentProfile>()
-            .HasOne(s => s.Teacher)
-            .WithMany(u => u.AssignedStudents)
-            .HasForeignKey(s => s.TeacherUserId)
-            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<SISClass>(sisClass =>
+        {
+            sisClass.ToTable("SISClasses");
+            sisClass.Property(item => item.SISClassCode).HasMaxLength(100);
+            sisClass.Property(item => item.ClassName).HasMaxLength(255);
+            sisClass.Property(item => item.AcademicYear).HasMaxLength(20);
+            sisClass.Property(item => item.Term).HasMaxLength(50);
+            sisClass.Property(item => item.GradeLevel).HasMaxLength(50);
+            sisClass.Property(item => item.Homeroom).HasMaxLength(100);
+            sisClass.Property(item => item.Campus).HasMaxLength(100);
+            sisClass.HasIndex(item => item.SISClassCode).IsUnique();
+            sisClass.HasIndex(item => new { item.AcademicYear, item.IsActive });
+        });
 
-        modelBuilder.Entity<StudentProfile>()
-            .HasIndex(s => s.TeacherUserId);
+        modelBuilder.Entity<SISClassTeacher>(assignment =>
+        {
+            assignment.ToTable("SISClassTeachers");
+            assignment.Property(item => item.TeacherUserId).HasMaxLength(255);
+            assignment.Property(item => item.AssignmentRole).HasMaxLength(100);
+            assignment.HasIndex(item => new { item.SISClassId, item.TeacherUserId }).IsUnique();
+            assignment.HasIndex(item => item.TeacherUserId);
+            assignment.HasOne(item => item.SISClass).WithMany(item => item.Teachers)
+                .HasForeignKey(item => item.SISClassId).OnDelete(DeleteBehavior.Cascade);
+            assignment.HasOne(item => item.Teacher).WithMany(item => item.SISClassAssignments)
+                .HasForeignKey(item => item.TeacherUserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SISClassStudent>(membership =>
+        {
+            membership.ToTable("SISClassStudents");
+            membership.HasIndex(item => new { item.SISClassId, item.StudentProfileId }).IsUnique();
+            membership.HasIndex(item => item.StudentProfileId);
+            membership.HasOne(item => item.SISClass).WithMany(item => item.Students)
+                .HasForeignKey(item => item.SISClassId).OnDelete(DeleteBehavior.Cascade);
+            membership.HasOne(item => item.Student).WithMany(item => item.SISClassMemberships)
+                .HasForeignKey(item => item.StudentProfileId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<StudentBehaviour>(behaviour =>
         {
