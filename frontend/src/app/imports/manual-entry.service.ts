@@ -11,7 +11,8 @@ export interface ManualEntryStudent {
 }
 
 export interface ManualEntryOptions {
-  behaviourTypes: string[];
+  positiveBehaviourTypes: string[];
+  concerningBehaviourTypes: string[];
   projectSubjects: string[];
   projectStatuses: string[];
   academicYears: string[];

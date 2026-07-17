@@ -5,20 +5,24 @@ import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 import { AtRiskStudent, RiskFlag, StudentsService } from './students.service';
 import { riskBadgeClass, riskDotClass } from './risk.util';
+import { ClassificationSettingsModalComponent } from './classification-settings-modal.component';
 
 @Component({
   selector: 'app-at-risk',
-  imports: [NgClass, RouterLink],
+  imports: [ClassificationSettingsModalComponent, NgClass, RouterLink],
   template: `
     <section class="space-y-7">
-      <div>
-        <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">
-          {{ languageService.t('atRisk.eyebrow') }}
-        </p>
-        <h2 class="mt-2 text-3xl font-semibold text-[#32124f]">
-          {{ languageService.t('atRisk.title') }}
-        </h2>
-        <p class="mt-2 max-w-3xl text-[#6f6877]">{{ scopeHint() }}</p>
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">{{ languageService.t('atRisk.eyebrow') }}</p>
+          <h2 class="mt-2 text-3xl font-semibold text-[#32124f]">{{ languageService.t('atRisk.title') }}</h2>
+          <p class="mt-2 max-w-3xl text-[#6f6877]">{{ scopeHint() }}</p>
+        </div>
+        @if (canManageSettings()) {
+          <button class="rounded-md border border-[#7b4aa4] bg-white px-4 py-2.5 text-sm font-semibold text-[#4a1b73] hover:bg-[#f4eef8]" type="button" (click)="settingsOpen.set(true)">
+            {{ languageService.t('classificationSettings.risk.button') }}
+          </button>
+        }
       </div>
 
       @if (error()) {
@@ -154,6 +158,12 @@ import { riskBadgeClass, riskDotClass } from './risk.util';
           </div>
         }
       </section>
+      <app-classification-settings-modal
+        [open]="settingsOpen()"
+        mode="risk"
+        (closed)="settingsOpen.set(false)"
+        (saved)="loadPage(1)"
+      />
     </section>
   `,
 })
@@ -171,6 +181,7 @@ export class AtRiskComponent implements OnInit {
   readonly totalPages = signal(0);
   readonly highRiskCount = signal(0);
   readonly mediumRiskCount = signal(0);
+  readonly settingsOpen = signal(false);
 
   ngOnInit(): void {
     this.loadPage(1);
@@ -226,6 +237,11 @@ export class AtRiskComponent implements OnInit {
     return role === 'Admin' || role === 'Principal'
       ? this.languageService.t('atRisk.adminScopeHint')
       : this.languageService.t('atRisk.teacherScopeHint');
+  }
+
+  canManageSettings(): boolean {
+    const role = this.authService.getUserRole();
+    return role === 'Admin' || role === 'Principal';
   }
 
   flagLabel(flag: RiskFlag): string {

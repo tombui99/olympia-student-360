@@ -14,6 +14,11 @@ namespace OlympiaStudent360.Api.Controllers;
 [Authorize]
 public class StudentsController : ControllerBase
 {
+    private sealed record StudentSignalRow(
+        StudentProfile Student,
+        StudentSignalSummary Signals,
+        DateTime? LatestCanvasScoreDate);
+
     private readonly AppDbContext _context;
 
     public StudentsController(AppDbContext context)
@@ -58,6 +63,17 @@ public class StudentsController : ControllerBase
             query = query.Where(student => student.GradeLevel == grade.Trim());
         }
 
+        var settings = await ClassificationSettings();
+        var riskSince = DateTime.UtcNow.AddDays(-settings.RiskWindowDays);
+        if (atRiskOnly)
+        {
+            var atRiskIds = (await LoadVisibleSignals(settings))
+                .Where(entry => StudentClassificationService.ClassifyRisk(entry.Signals, settings).Level != "None")
+                .Select(entry => entry.Student.Id)
+                .ToList();
+            query = query.Where(student => atRiskIds.Contains(student.Id));
+        }
+
         var rows = query.Select(student => new
         {
             student.Id,
@@ -73,20 +89,8 @@ public class StudentsController : ControllerBase
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
             MentalHealthCount = student.MentalHealthRecords.Count,
-            ConcernCount = student.Behaviours.Count(behaviour =>
-                behaviour.BehaviourType == "Late to class" ||
-                behaviour.BehaviourType == "Homework not submitted" ||
-                behaviour.BehaviourType == "Disruptive in class" ||
-                behaviour.BehaviourType == "Đi học muộn" ||
-                behaviour.BehaviourType == "Chưa nộp bài tập" ||
-                behaviour.BehaviourType == "Thiếu bài tập về nhà" ||
-                behaviour.BehaviourType == "Gây mất trật tự trong lớp")
+            BusViolationCount = student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince)
         });
-        if (atRiskOnly)
-        {
-            rows = rows.Where(student => student.ConcernCount > 0);
-        }
-
         var totalCount = await rows.CountAsync();
         var totalPages = TotalPages(totalCount, pageSize);
         page = Math.Min(page, Math.Max(1, totalPages));
@@ -96,18 +100,42 @@ public class StudentsController : ControllerBase
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
+        var pageStudentIds = pageRows.Select(student => student.Id).ToList();
+        var canvasAverages = await CanvasAverages(pageStudentIds);
+        var behaviourRows = await _context.StudentBehaviours.AsNoTracking()
+            .Where(behaviour => pageStudentIds.Contains(behaviour.StudentProfileId))
+            .Select(behaviour => new { behaviour.StudentProfileId, behaviour.BehaviourType, behaviour.IncidentDate })
+            .ToListAsync();
+        var behaviourCounts = behaviourRows.GroupBy(behaviour => behaviour.StudentProfileId)
+            .ToDictionary(group => group.Key, group => new
+            {
+                Positive = group.Count(behaviour => StudentClassificationService.IsCommendationBehaviourType(behaviour.BehaviourType)),
+                Concerning = group.Count(behaviour => StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType)),
+                RecentConcerning = group.Count(behaviour => behaviour.IncidentDate >= riskSince
+                    && StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType))
+            });
 
         return Ok(new StudentsPageDto
         {
             Items = pageRows.Select(student =>
             {
-                var risk = StudentClassificationService.ClassifyRisk(student.GradeLevel, student.ConcernCount);
+                var counts = behaviourCounts.GetValueOrDefault(student.Id);
+                var risk = StudentClassificationService.ClassifyRisk(
+                    new StudentSignalSummary(
+                        counts?.RecentConcerning ?? 0,
+                        0,
+                        canvasAverages.GetValueOrDefault(student.Id),
+                        student.BusViolationCount,
+                        0),
+                    settings);
                 return new StudentListItemDto
                 {
                     Id = student.Id, StudentCode = student.StudentCode, FullName = student.FullName,
                     GradeLevel = student.GradeLevel, Homeroom = student.Homeroom,
                     Campus = student.Campus, EducationLevel = student.EducationLevel, Program = student.Program,
                     TeacherName = student.TeacherName, BehaviourCount = student.BehaviourCount,
+                    PositiveBehaviourCount = counts?.Positive ?? 0,
+                    ConcerningBehaviourCount = counts?.Concerning ?? 0,
                     ProjectCount = student.ProjectCount, MentalHealthCount = student.MentalHealthCount,
                     RiskLevel = risk.Level, RiskFlagCount = risk.Flags.Count
                 };
@@ -126,11 +154,17 @@ public class StudentsController : ControllerBase
         [FromQuery] int pageSize = 10)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
-        var atRiskStudents = (await LoadVisibleWithActivity())
-            .Select(student => new { Student = student, Risk = StudentClassificationService.ClassifyRisk(student) })
+        var settings = await ClassificationSettings();
+        var atRiskStudents = (await LoadVisibleSignals(settings))
+            .Select(entry => new
+            {
+                entry.Student,
+                entry.Signals,
+                Risk = StudentClassificationService.ClassifyRisk(entry.Signals, settings)
+            })
             .Where(entry => entry.Risk.Level != "None")
             .OrderByDescending(entry => entry.Risk.Level == "High")
-            .ThenByDescending(entry => entry.Risk.Flags.First().Value)
+            .ThenByDescending(entry => entry.Signals.ConcerningBehaviourCount + entry.Signals.RiskBusViolationCount)
             .ThenBy(entry => entry.Student.FullName)
             .ToList();
 
@@ -149,6 +183,8 @@ public class StudentsController : ControllerBase
                     Homeroom = entry.Student.Homeroom,
                     TeacherName = SISClassVisibility.TeacherNames(entry.Student),
                     BehaviourCount = entry.Student.Behaviours.Count,
+                    PositiveBehaviourCount = entry.Student.Behaviours.Count(StudentClassificationService.IsCommendationBehaviour),
+                    ConcerningBehaviourCount = entry.Student.Behaviours.Count(StudentClassificationService.IsConcerningBehaviour),
                     ProjectCount = entry.Student.Projects.Count,
                     MentalHealthCount = entry.Student.MentalHealthRecords.Count,
                     RiskLevel = entry.Risk.Level,
@@ -165,6 +201,38 @@ public class StudentsController : ControllerBase
         });
     }
 
+    [HttpGet("classification-settings")]
+    public async Task<ActionResult<StudentClassificationSettingsDto>> GetClassificationSettings() =>
+        Ok(await ClassificationSettings());
+
+    [HttpPut("classification-settings")]
+    [Authorize(Roles = "Admin,Principal")]
+    public async Task<ActionResult<StudentClassificationSettingsDto>> SaveClassificationSettings(
+        StudentClassificationSettingsDto model)
+    {
+        ValidateClassificationSettings(model);
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var setting = await _context.StudentClassificationSettings.OrderBy(item => item.Id).FirstOrDefaultAsync();
+        if (setting == null)
+        {
+            setting = new StudentClassificationSetting();
+            _context.StudentClassificationSettings.Add(setting);
+        }
+        setting.RiskWindowDays = model.RiskWindowDays;
+        setting.HighRiskBehaviourCount = model.HighRiskBehaviourCount;
+        setting.HighRiskBusViolationCount = model.HighRiskBusViolationCount;
+        setting.HighRiskCanvasAverageBelow = model.HighRiskCanvasAverageBelow;
+        setting.CommendationWindowDays = model.CommendationWindowDays;
+        setting.CommendationPositiveBehaviourCount = model.CommendationPositiveBehaviourCount;
+        setting.CommendationCanvasAverageAtLeast = model.CommendationCanvasAverageAtLeast;
+        setting.CommendationMaxBusViolations = model.CommendationMaxBusViolations;
+        setting.UpdatedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        setting.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Ok(ToSettingsDto(setting));
+    }
+
     [HttpGet("commendations")]
     public async Task<ActionResult<StudentCommendationsPageDto>> GetCommendations(
         [FromQuery] int page = 1,
@@ -173,23 +241,44 @@ public class StudentsController : ControllerBase
         [FromQuery] string? grade = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
-        var commendations = (await LoadVisibleWithActivity())
-            .SelectMany(student => student.Behaviours
-                .Where(StudentClassificationService.IsCommendationBehaviour)
-                .Select(behaviour => new StudentCommendationDto
-                {
-                    Id = behaviour.Id,
-                    StudentId = student.Id,
-                    StudentCode = student.StudentCode,
-                    StudentName = student.FullName,
-                    GradeLevel = student.GradeLevel,
-                    Homeroom = student.Homeroom,
-                    TeacherName = SISClassVisibility.TeacherNames(student),
-                    IncidentDate = behaviour.IncidentDate,
-                    CommendationType = behaviour.BehaviourType,
-                    Notes = behaviour.Notes,
-                    RecordedByName = behaviour.RecordedByName
-                }))
+        var settings = await ClassificationSettings();
+        var commendationSince = DateTime.UtcNow.AddDays(-settings.CommendationWindowDays);
+        var commendations = (await LoadVisibleSignals(settings))
+            .Select(entry => new
+            {
+                entry.Student,
+                entry.Signals,
+                entry.LatestCanvasScoreDate,
+                Recognition = StudentClassificationService.ClassifyRecognition(entry.Signals, settings),
+                PositiveBehaviours = entry.Student.Behaviours
+                    .Where(StudentClassificationService.IsCommendationBehaviour)
+                    .Where(behaviour => behaviour.IncidentDate >= commendationSince)
+                    .OrderByDescending(behaviour => behaviour.IncidentDate)
+                    .ToList()
+            })
+            .Where(entry => entry.Recognition.Qualifies)
+            .Select(entry => new StudentCommendationDto
+            {
+                Id = entry.Student.Id,
+                StudentId = entry.Student.Id,
+                StudentCode = entry.Student.StudentCode,
+                StudentName = entry.Student.FullName,
+                GradeLevel = entry.Student.GradeLevel,
+                Homeroom = entry.Student.Homeroom,
+                TeacherName = SISClassVisibility.TeacherNames(entry.Student),
+                IncidentDate = new[]
+                    {
+                        entry.PositiveBehaviours.FirstOrDefault()?.IncidentDate,
+                        entry.Recognition.HighCanvasGrade ? entry.LatestCanvasScoreDate : null
+                    }
+                    .Where(date => date.HasValue).Max(date => date!.Value),
+                CommendationType = "Multi-source recognition",
+                Notes = entry.PositiveBehaviours.FirstOrDefault()?.Notes,
+                RecordedByName = entry.PositiveBehaviours.FirstOrDefault()?.RecordedByName,
+                PositiveBehaviourCount = entry.Signals.PositiveBehaviourCount,
+                AverageCanvasGrade = entry.Signals.AverageCanvasGrade,
+                BusViolationCount = entry.Signals.CommendationBusViolationCount
+            })
             .ToList();
 
         var availableGrades = commendations
@@ -219,7 +308,7 @@ public class StudentsController : ControllerBase
             TotalCount = totalCount,
             TotalPages = TotalPages(totalCount, pageSize),
             TotalCommendationCount = commendations.Count,
-            StudentsRecognisedCount = commendations.Select(commendation => commendation.StudentId).Distinct().Count(),
+            StudentsRecognisedCount = commendations.Count,
             RecentCount = commendations.Count(commendation => commendation.IncidentDate >= DateTime.UtcNow.AddDays(-30)),
             AvailableGrades = availableGrades
         });
@@ -235,7 +324,8 @@ public class StudentsController : ControllerBase
             .ToListAsync();
         return Ok(new ManualEntryOptionsDto
         {
-            BehaviourTypes = StudentClassificationService.SupportedBehaviourTypes,
+            PositiveBehaviourTypes = StudentClassificationService.PositiveBehaviourTypes,
+            ConcerningBehaviourTypes = StudentClassificationService.ConcerningBehaviourTypes,
             ProjectSubjects = StudentDataEntryOptions.ProjectSubjects,
             ProjectStatuses = StudentDataEntryOptions.ProjectStatuses,
             AcademicYears = academicYears,
@@ -291,7 +381,7 @@ public class StudentsController : ControllerBase
             return BadRequest(new { Message = "The selected student ID is invalid or is not assigned to you." });
         }
 
-        if (!StudentClassificationService.IsSupportedBehaviourType(model.BehaviourType))
+        if (!StudentClassificationService.TryCanonicalBehaviourType(model.BehaviourType, out var behaviourType))
         {
             return BadRequest(new { Message = "The selected behaviour type is invalid." });
         }
@@ -307,8 +397,7 @@ public class StudentsController : ControllerBase
         {
             StudentProfileId = student.Id,
             IncidentDate = DateTime.SpecifyKind(model.IncidentDate!.Value, DateTimeKind.Utc),
-            BehaviourType = StudentClassificationService.SupportedBehaviourTypes
-                .First(type => string.Equals(type, model.BehaviourType, StringComparison.OrdinalIgnoreCase)),
+            BehaviourType = behaviourType,
             Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim(),
             RecordedByName = recordedByName,
             AcademicYear = Clean(model.AcademicYear), Term = Clean(model.Term),
@@ -326,7 +415,8 @@ public class StudentsController : ControllerBase
         {
             Id = behaviour.Id,
             IncidentDate = behaviour.IncidentDate,
-            BehaviourType = behaviour.BehaviourType,
+            BehaviourType = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(behaviour.BehaviourType),
+            Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType),
             Notes = behaviour.Notes,
             RecordedByName = behaviour.RecordedByName,
             AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
@@ -506,12 +596,12 @@ public class StudentsController : ControllerBase
     [HttpGet("cohorts")]
     public async Task<ActionResult<CohortsResponseDto>> GetCohorts()
     {
-        var students = await LoadVisibleWithActivity();
-
-        var evaluated = students
-            .Select(student =>
+        var settings = await ClassificationSettings();
+        var evaluated = (await LoadVisibleSignals(settings))
+            .Select(entry =>
             {
-                var risk = StudentClassificationService.ClassifyRisk(student);
+                var student = entry.Student;
+                var risk = StudentClassificationService.ClassifyRisk(entry.Signals, settings);
                 return new CohortEntry(
                     string.IsNullOrWhiteSpace(student.GradeLevel) ? "—" : student.GradeLevel!,
                     string.IsNullOrWhiteSpace(student.Homeroom) ? "—" : student.Homeroom!,
@@ -561,7 +651,20 @@ public class StudentsController : ControllerBase
         var now = DateTime.UtcNow;
         var last30Days = now.AddDays(-30);
         // Risk always reflects the student's full record, not the selected year.
-        var risk = StudentClassificationService.ClassifyRisk(student);
+        var settings = await ClassificationSettings();
+        var riskSince = now.AddDays(-settings.RiskWindowDays);
+        var commendationSince = now.AddDays(-settings.CommendationWindowDays);
+        var canvasAverage = (await CanvasAverages([student.Id])).GetValueOrDefault(student.Id);
+        var risk = StudentClassificationService.ClassifyRisk(
+            new StudentSignalSummary(
+                student.Behaviours.Count(behaviour => behaviour.IncidentDate >= riskSince
+                    && StudentClassificationService.IsConcerningBehaviour(behaviour)),
+                student.Behaviours.Count(behaviour => behaviour.IncidentDate >= commendationSince
+                    && StudentClassificationService.IsCommendationBehaviour(behaviour)),
+                canvasAverage,
+                student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince),
+                student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince)),
+            settings);
 
         // Behaviours and projects re-scope to the selected school year (records carry an
         // academic year; older ones fall back to their date within the Aug–Jul range).
@@ -589,6 +692,8 @@ public class StudentsController : ControllerBase
             Summary = new StudentSummaryDto
             {
                 TotalBehaviours = behaviourItems.Count,
+                PositiveBehaviours = behaviourItems.Count(StudentClassificationService.IsCommendationBehaviour),
+                ConcerningBehaviours = behaviourItems.Count(StudentClassificationService.IsConcerningBehaviour),
                 BehavioursLast30Days = behaviourItems.Count(behaviour => behaviour.IncidentDate >= last30Days),
                 TotalProjects = projectItems.Count,
                 ActiveProjects = projectItems.Count(project =>
@@ -601,7 +706,8 @@ public class StudentsController : ControllerBase
                 {
                     Id = behaviour.Id,
                     IncidentDate = behaviour.IncidentDate,
-                    BehaviourType = behaviour.BehaviourType,
+                    BehaviourType = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(behaviour.BehaviourType),
+                    Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType),
                     Notes = behaviour.Notes,
                     RecordedByName = behaviour.RecordedByName,
                     AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
@@ -851,28 +957,6 @@ public class StudentsController : ControllerBase
         };
     }
 
-    private static StudentListItemDto ToListItem(StudentProfile student)
-    {
-        var risk = StudentClassificationService.ClassifyRisk(student);
-        return new StudentListItemDto
-        {
-            Id = student.Id,
-            StudentCode = student.StudentCode,
-            FullName = student.FullName,
-            GradeLevel = student.GradeLevel,
-            Homeroom = student.Homeroom,
-            Campus = student.Campus,
-            EducationLevel = student.EducationLevel,
-            Program = student.Program,
-            TeacherName = SISClassVisibility.TeacherNames(student),
-            BehaviourCount = student.Behaviours.Count,
-            ProjectCount = student.Projects.Count,
-            MentalHealthCount = student.MentalHealthRecords.Count,
-            RiskLevel = risk.Level,
-            RiskFlagCount = risk.Flags.Count
-        };
-    }
-
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string EscapeLikePattern(string value) =>
@@ -1008,7 +1092,105 @@ public class StudentsController : ControllerBase
             .Include(student => student.Behaviours)
             .Include(student => student.Projects)
             .Include(student => student.MentalHealthRecords)
+            .Include(student => student.BusAttendanceRecords)
             .ToListAsync();
+    }
+
+    private async Task<List<StudentSignalRow>> LoadVisibleSignals(StudentClassificationSettingsDto settings)
+    {
+        var students = await LoadVisibleWithActivity();
+        var now = DateTime.UtcNow;
+        var riskSince = now.AddDays(-settings.RiskWindowDays);
+        var commendationSince = now.AddDays(-settings.CommendationWindowDays);
+        var studentIds = students.Select(student => student.Id).ToList();
+        var scoreRows = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.CourseScore && score.StudentProfileId != null
+                && studentIds.Contains(score.StudentProfileId.Value)
+                && (score.FinalScore ?? score.CurrentScore) != null)
+            .Select(score => new
+            {
+                StudentId = score.StudentProfileId!.Value,
+                Value = (decimal)(score.FinalScore ?? score.CurrentScore)!.Value,
+                Date = score.UpdatedAt ?? score.CreatedAt
+            })
+            .ToListAsync();
+        var canvasByStudent = scoreRows
+            .GroupBy(score => score.StudentId)
+            .ToDictionary(
+                group => group.Key,
+                group => new { Average = Math.Round(group.Average(score => score.Value), 1), Latest = group.Max(score => score.Date) });
+
+        return students.Select(student =>
+        {
+            var canvas = canvasByStudent.GetValueOrDefault(student.Id);
+            return new StudentSignalRow(
+                student,
+                new StudentSignalSummary(
+                    student.Behaviours.Count(behaviour => behaviour.IncidentDate >= riskSince
+                        && StudentClassificationService.IsConcerningBehaviour(behaviour)),
+                    student.Behaviours.Count(behaviour => behaviour.IncidentDate >= commendationSince
+                        && StudentClassificationService.IsCommendationBehaviour(behaviour)),
+                    canvas?.Average,
+                    student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince),
+                    student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince)),
+                canvas?.Latest);
+        }).ToList();
+    }
+
+    private async Task<Dictionary<int, decimal>> CanvasAverages(IReadOnlyCollection<int> studentIds)
+    {
+        if (studentIds.Count == 0) return [];
+        var scores = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.CourseScore && score.StudentProfileId != null
+                && studentIds.Contains(score.StudentProfileId.Value)
+                && (score.FinalScore ?? score.CurrentScore) != null)
+            .Select(score => new
+            {
+                StudentId = score.StudentProfileId!.Value,
+                Value = (decimal)(score.FinalScore ?? score.CurrentScore)!.Value
+            })
+            .ToListAsync();
+        return scores.GroupBy(score => score.StudentId)
+            .ToDictionary(group => group.Key, group => Math.Round(group.Average(score => score.Value), 1));
+    }
+
+    private async Task<StudentClassificationSettingsDto> ClassificationSettings()
+    {
+        var setting = await _context.StudentClassificationSettings.AsNoTracking()
+            .OrderBy(item => item.Id).FirstOrDefaultAsync();
+        return setting == null ? new StudentClassificationSettingsDto() : ToSettingsDto(setting);
+    }
+
+    private static StudentClassificationSettingsDto ToSettingsDto(StudentClassificationSetting setting) => new()
+    {
+        RiskWindowDays = setting.RiskWindowDays,
+        HighRiskBehaviourCount = setting.HighRiskBehaviourCount,
+        HighRiskBusViolationCount = setting.HighRiskBusViolationCount,
+        HighRiskCanvasAverageBelow = setting.HighRiskCanvasAverageBelow,
+        CommendationWindowDays = setting.CommendationWindowDays,
+        CommendationPositiveBehaviourCount = setting.CommendationPositiveBehaviourCount,
+        CommendationCanvasAverageAtLeast = setting.CommendationCanvasAverageAtLeast,
+        CommendationMaxBusViolations = setting.CommendationMaxBusViolations
+    };
+
+    private void ValidateClassificationSettings(StudentClassificationSettingsDto model)
+    {
+        if (model.RiskWindowDays is < 1 or > 365)
+            ModelState.AddModelError(nameof(model.RiskWindowDays), "Must be between 1 and 365 days.");
+        if (model.CommendationWindowDays is < 1 or > 365)
+            ModelState.AddModelError(nameof(model.CommendationWindowDays), "Must be between 1 and 365 days.");
+        if (model.HighRiskBehaviourCount is < 0 or > 1000)
+            ModelState.AddModelError(nameof(model.HighRiskBehaviourCount), "Must be between 0 and 1000.");
+        if (model.HighRiskBusViolationCount is < 0 or > 1000)
+            ModelState.AddModelError(nameof(model.HighRiskBusViolationCount), "Must be between 0 and 1000.");
+        if (model.CommendationPositiveBehaviourCount is < 1 or > 1000)
+            ModelState.AddModelError(nameof(model.CommendationPositiveBehaviourCount), "Must be between 1 and 1000.");
+        if (model.CommendationMaxBusViolations is < 0 or > 1000)
+            ModelState.AddModelError(nameof(model.CommendationMaxBusViolations), "Must be between 0 and 1000.");
+        if (model.HighRiskCanvasAverageBelow is < 0 or > 100)
+            ModelState.AddModelError(nameof(model.HighRiskCanvasAverageBelow), "Must be between 0 and 100.");
+        if (model.CommendationCanvasAverageAtLeast is < 0 or > 100)
+            ModelState.AddModelError(nameof(model.CommendationCanvasAverageAtLeast), "Must be between 0 and 100.");
     }
 
     private IQueryable<StudentProfile> VisibleStudents()

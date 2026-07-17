@@ -174,7 +174,14 @@ import { riskBadgeClass } from './risk.util';
           <article class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <p class="text-sm text-[#7c7284]">{{ languageService.t('studentProfile.stats.behaviours') }}</p>
             <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.summary.totalBehaviours }}</p>
-            <p class="mt-1 text-xs text-[#7c7284]">{{ languageService.t('studentProfile.stats.behavioursHint') }}</p>
+            <div class="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+              <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                {{ languageService.t('studentProfile.behaviourCategory.Positive') }}: {{ profile.summary.positiveBehaviours }}
+              </span>
+              <span class="rounded-full bg-red-50 px-2.5 py-1 text-red-700">
+                {{ languageService.t('studentProfile.behaviourCategory.Concerning') }}: {{ profile.summary.concerningBehaviours }}
+              </span>
+            </div>
           </article>
           <article class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <p class="text-sm text-[#7c7284]">{{ languageService.t('studentProfile.stats.recentBehaviours') }}</p>
@@ -217,9 +224,17 @@ import { riskBadgeClass } from './risk.util';
                 </thead>
                 <tbody class="divide-y divide-[#ebe6ef]">
                   @for (behaviour of profile.behaviours; track behaviour.id) {
-                    <tr class="text-sm">
+                    <tr class="text-sm" [ngClass]="behaviour.category === 'Positive' ? 'bg-emerald-50/25' : behaviour.category === 'Concerning' ? 'bg-red-50/25' : ''">
                       <td class="whitespace-nowrap px-6 py-3 text-[#6f6877]">{{ formatDate(behaviour.incidentDate) }}</td>
-                      <td class="px-6 py-3 font-semibold text-[#32124f]">{{ behaviour.behaviourType }}</td>
+                      <td class="px-6 py-3">
+                        <span
+                          class="inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                          [ngClass]="behaviour.category === 'Positive' ? 'bg-emerald-100 text-emerald-700' : behaviour.category === 'Concerning' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'"
+                        >
+                          {{ languageService.t('studentProfile.behaviourCategory.' + behaviour.category) }}
+                        </span>
+                        <span class="mt-1 block font-semibold text-[#32124f]">{{ behaviour.behaviourType }}</span>
+                      </td>
                       <td class="px-6 py-3 text-[#6f6877]">
                         {{ behaviour.notes || '-' }}
                         @if (customFieldEntries(behaviour).length) {

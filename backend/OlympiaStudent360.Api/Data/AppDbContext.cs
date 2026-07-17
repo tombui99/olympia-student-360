@@ -23,6 +23,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<ImportModuleField> ImportModuleFields { get; set; }
     public DbSet<CustomReport> CustomReports { get; set; }
+    public DbSet<WorkspacePreference> WorkspacePreferences { get; set; }
     public DbSet<AcademicPeriod> AcademicPeriods { get; set; }
     public DbSet<DashboardMetric> DashboardMetrics { get; set; }
     public DbSet<DashboardMetricObservation> DashboardMetricObservations { get; set; }
@@ -32,6 +33,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CanvasEnrollment> CanvasEnrollments { get; set; }
     public DbSet<CanvasCourseScore> CanvasCourseScores { get; set; }
     public DbSet<CanvasSubmission> CanvasSubmissions { get; set; }
+    public DbSet<StudentClassificationSetting> StudentClassificationSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,6 +66,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<StudentProfile>()
             .HasIndex(s => s.StudentCode)
             .IsUnique();
+
+        modelBuilder.Entity<StudentClassificationSetting>(setting =>
+        {
+            setting.Property(item => item.HighRiskCanvasAverageBelow).HasPrecision(5, 2);
+            setting.Property(item => item.CommendationCanvasAverageAtLeast).HasPrecision(5, 2);
+            setting.Property(item => item.UpdatedByUserId).HasMaxLength(450);
+        });
 
         modelBuilder.Entity<SISClass>(sisClass =>
         {
@@ -271,6 +280,23 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<CustomReport>()
             .HasIndex(r => r.OwnerUserId);
+
+        modelBuilder.Entity<WorkspacePreference>(preference =>
+        {
+            preference.Property(p => p.UserId).HasMaxLength(450);
+            preference.Property(p => p.AcademicYear).HasMaxLength(20);
+            preference.Property(p => p.Term).HasMaxLength(50);
+            preference.Property(p => p.MeasurementCycle).HasMaxLength(50);
+            preference.Property(p => p.Campus).HasMaxLength(100);
+            preference.Property(p => p.EducationLevel).HasMaxLength(100);
+            preference.Property(p => p.GradeLevel).HasMaxLength(50);
+            preference.Property(p => p.Homeroom).HasMaxLength(100);
+            preference.Property(p => p.Program).HasMaxLength(100);
+            preference.Property(p => p.Subject).HasMaxLength(100);
+            preference.HasIndex(p => new { p.CustomReportId, p.UserId }).IsUnique();
+            preference.HasOne(p => p.CustomReport).WithMany(r => r.Preferences)
+                .HasForeignKey(p => p.CustomReportId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<AcademicPeriod>(period =>
         {

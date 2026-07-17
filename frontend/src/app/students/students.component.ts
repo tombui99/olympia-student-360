@@ -75,7 +75,7 @@ import { riskBadgeClass } from './risk.util';
         </div>
 
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[860px] text-left">
+          <table class="w-full min-w-[980px] text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284]">
               <tr>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('students.student') }}</th>
@@ -106,9 +106,14 @@ import { riskBadgeClass } from './risk.util';
                   <td class="px-6 py-4 text-[#6f6877]">{{ student.homeroom || '-' }}</td>
                   <td class="px-6 py-4 text-[#6f6877]">{{ student.teacherName || '-' }}</td>
                   <td class="px-6 py-4">
-                    <span class="rounded-full bg-[#f3c246]/25 px-3 py-1 text-xs font-bold text-[#7a5b12]">
-                      {{ student.behaviourCount }}
-                    </span>
+                    <div class="flex flex-wrap gap-1.5">
+                      <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                        {{ languageService.t('students.positiveShort') }} {{ student.positiveBehaviourCount }}
+                      </span>
+                      <span class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                        {{ languageService.t('students.concerningShort') }} {{ student.concerningBehaviourCount }}
+                      </span>
+                    </div>
                   </td>
                   <td class="px-6 py-4">
                     <span class="rounded-full bg-[#f1edf4] px-3 py-1 text-xs font-bold text-[#5b287d]">

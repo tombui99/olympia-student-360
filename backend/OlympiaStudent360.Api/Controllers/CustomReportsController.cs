@@ -135,6 +135,76 @@ public class CustomReportsController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("{id:int}/preference")]
+    public async Task<ActionResult<WorkspacePreferenceDto>> Preference(int id)
+    {
+        var userId = CurrentUserId();
+        var username = CurrentUsername();
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(username))
+        {
+            return Unauthorized();
+        }
+
+        var report = await _context.CustomReports.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+        if (report == null)
+        {
+            return NotFound();
+        }
+        if (!CanAccess(report, userId, username))
+        {
+            return Forbid();
+        }
+
+        var preference = await _context.WorkspacePreferences.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.CustomReportId == id && item.UserId == userId);
+        return Ok(preference == null ? new WorkspacePreferenceDto() : ToPreferenceDto(preference));
+    }
+
+    [HttpPut("{id:int}/preference")]
+    public async Task<ActionResult<WorkspacePreferenceDto>> SavePreference(
+        int id, [FromBody] WorkspacePreferenceDto model)
+    {
+        var userId = CurrentUserId();
+        var username = CurrentUsername();
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(username))
+        {
+            return Unauthorized();
+        }
+
+        var report = await _context.CustomReports.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+        if (report == null)
+        {
+            return NotFound();
+        }
+        if (!CanAccess(report, userId, username))
+        {
+            return Forbid();
+        }
+
+        var preference = await _context.WorkspacePreferences
+            .FirstOrDefaultAsync(item => item.CustomReportId == id && item.UserId == userId);
+        if (preference == null)
+        {
+            preference = new WorkspacePreference { CustomReportId = id, UserId = userId };
+            _context.WorkspacePreferences.Add(preference);
+        }
+
+        preference.AcademicYear = Clean(model.AcademicYear);
+        preference.Term = Clean(model.Term);
+        preference.MeasurementCycle = Clean(model.MeasurementCycle);
+        preference.Campus = Clean(model.Campus);
+        preference.EducationLevel = Clean(model.EducationLevel);
+        preference.GradeLevel = Clean(model.GradeLevel);
+        preference.Homeroom = Clean(model.Homeroom);
+        preference.StudentProfileId = model.StudentProfileId;
+        preference.Program = Clean(model.Program);
+        preference.Subject = Clean(model.Subject);
+        preference.ChartOrderJson = JsonSerializer.Serialize(model.ChartOrder ?? []);
+        preference.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Ok(ToPreferenceDto(preference));
+    }
+
     private string? CurrentUserId()
     {
         return User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -172,6 +242,26 @@ public class CustomReportsController : ControllerBase
             return [];
         }
     }
+
+    private static bool CanAccess(CustomReport report, string userId, string username) =>
+        report.OwnerUserId == userId || SharedWith(report).Contains(username, StringComparer.OrdinalIgnoreCase);
+
+    private static WorkspacePreferenceDto ToPreferenceDto(WorkspacePreference preference) => new()
+    {
+        AcademicYear = preference.AcademicYear,
+        Term = preference.Term,
+        MeasurementCycle = preference.MeasurementCycle,
+        Campus = preference.Campus,
+        EducationLevel = preference.EducationLevel,
+        GradeLevel = preference.GradeLevel,
+        Homeroom = preference.Homeroom,
+        StudentProfileId = preference.StudentProfileId,
+        Program = preference.Program,
+        Subject = preference.Subject,
+        ChartOrder = JsonSerializer.Deserialize<List<string>>(preference.ChartOrderJson) ?? []
+    };
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private async Task<List<string>> ValidRecipients(IEnumerable<string> recipients, string ownerUserId)
     {

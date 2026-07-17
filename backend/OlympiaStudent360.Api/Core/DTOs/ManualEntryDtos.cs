@@ -13,7 +13,8 @@ public class ManualEntryStudentDto
 
 public class ManualEntryOptionsDto
 {
-    public IReadOnlyList<string> BehaviourTypes { get; set; } = [];
+    public IReadOnlyList<string> PositiveBehaviourTypes { get; set; } = [];
+    public IReadOnlyList<string> ConcerningBehaviourTypes { get; set; } = [];
     public IReadOnlyList<string> ProjectSubjects { get; set; } = [];
     public IReadOnlyList<string> ProjectStatuses { get; set; } = [];
     public IReadOnlyList<string> AcademicYears { get; set; } = [];

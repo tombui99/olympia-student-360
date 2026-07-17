@@ -39,7 +39,7 @@ public class ImportsController : ControllerBase
                 continue;
             }
 
-            if (!StudentClassificationService.IsSupportedBehaviourType(row.BehaviourType))
+            if (!StudentClassificationService.TryCanonicalBehaviourType(row.BehaviourType, out var behaviourType))
             {
                 errors.Add($"Row {rowNumber}: behaviour_type is not supported.");
                 continue;
@@ -48,8 +48,6 @@ public class ImportsController : ControllerBase
             var (customErrors, customJson) = ImportCustomFieldService.Build(customFields, row.CustomFields, $"Row {rowNumber}: ");
             errors.AddRange(customErrors);
 
-            var behaviourType = StudentClassificationService.SupportedBehaviourTypes.First(type =>
-                string.Equals(type, row.BehaviourType, StringComparison.OrdinalIgnoreCase));
             behaviours.Add(new StudentBehaviour
             {
                 StudentProfileId = student!.Id,

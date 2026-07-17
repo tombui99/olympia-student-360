@@ -36,6 +36,22 @@ public class StudentProfile : BaseEntity
 }
 
 /// <summary>
+/// Singleton, school-wide policy containing direct, human-readable classification rules.
+/// </summary>
+public class StudentClassificationSetting : BaseEntity
+{
+    public int RiskWindowDays { get; set; } = 7;
+    public int HighRiskBehaviourCount { get; set; } = 5;
+    public int HighRiskBusViolationCount { get; set; } = 5;
+    public decimal HighRiskCanvasAverageBelow { get; set; } = 50;
+    public int CommendationWindowDays { get; set; } = 7;
+    public int CommendationPositiveBehaviourCount { get; set; } = 3;
+    public decimal CommendationCanvasAverageAtLeast { get; set; } = 85;
+    public int CommendationMaxBusViolations { get; set; } = 0;
+    public string? UpdatedByUserId { get; set; }
+}
+
+/// <summary>
 /// A class synchronised from SIS. SIS is the source of truth for class identity and membership.
 /// </summary>
 public class SISClass : BaseEntity
@@ -250,7 +266,6 @@ public class DashboardPreference : BaseEntity
     public int? StudentProfileId { get; set; }
     public string? Program { get; set; }
     public string? Subject { get; set; }
-    public string ChartOrdersJson { get; set; } = "{}";
 }
 
 // ---------------------------------------------------------------------------
@@ -411,4 +426,23 @@ public class CustomReport : BaseEntity
     public string DefinitionJson { get; set; } = default!;
 
     public string SharedWithJson { get; set; } = "[]";
+    public ICollection<WorkspacePreference> Preferences { get; set; } = [];
+}
+
+public class WorkspacePreference : BaseEntity
+{
+    public int CustomReportId { get; set; }
+    public CustomReport CustomReport { get; set; } = default!;
+    public string UserId { get; set; } = default!;
+    public string? AcademicYear { get; set; }
+    public string? Term { get; set; }
+    public string? MeasurementCycle { get; set; }
+    public string? Campus { get; set; }
+    public string? EducationLevel { get; set; }
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+    public int? StudentProfileId { get; set; }
+    public string? Program { get; set; }
+    public string? Subject { get; set; }
+    public string ChartOrderJson { get; set; } = "[]";
 }

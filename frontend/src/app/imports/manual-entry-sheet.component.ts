@@ -131,9 +131,16 @@ import { ImportModuleField, ImportModuleFieldsService } from './import-module-fi
                   [(ngModel)]="behaviourType"
                 >
                   <option value="">{{ languageService.t('imports.manual.selectBehaviour') }}</option>
-                  @for (type of options()?.behaviourTypes ?? []; track type) {
-                    <option [value]="type">{{ type }}</option>
-                  }
+                  <optgroup [label]="languageService.t('imports.manual.positiveBehaviours')">
+                    @for (type of options()?.positiveBehaviourTypes ?? []; track type) {
+                      <option [value]="type">{{ type }}</option>
+                    }
+                  </optgroup>
+                  <optgroup [label]="languageService.t('imports.manual.concerningBehaviours')">
+                    @for (type of options()?.concerningBehaviourTypes ?? []; track type) {
+                      <option [value]="type">{{ type }}</option>
+                    }
+                  </optgroup>
                 </select>
               </label>
               <label class="block">

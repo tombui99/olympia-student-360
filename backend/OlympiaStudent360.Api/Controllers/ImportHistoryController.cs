@@ -168,7 +168,7 @@ public class ImportHistoryController : ControllerBase
             .Where(item => item.ImportHistoryId == historyId).OrderByDescending(item => item.IncidentDate).ToListAsync();
         return items.Select(item => Record(item.Id, item.Student, item.CustomFieldsJson,
             ("incident_date", item.IncidentDate.ToString("yyyy-MM-dd")),
-            ("behaviour_type", item.BehaviourType), ("notes", item.Notes))).ToList();
+            ("behaviour_type", StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType)), ("notes", item.Notes))).ToList();
     }
 
     private async Task<List<ImportHistoryRecordDto>> LoadProjects(int historyId)
@@ -221,9 +221,11 @@ public class ImportHistoryController : ControllerBase
         if (!TryDate(values, "incident_date", out var date)) return "incident_date is invalid.";
         var type = Required(values, "behaviour_type");
         if (type == null) return "behaviour_type is required.";
+        if (!StudentClassificationService.TryCanonicalBehaviourType(type, out var canonicalType))
+            return "behaviour_type is not supported.";
         var custom = await BuildCustomFields("student-behaviours", values);
         if (custom.Error != null) return custom.Error;
-        item.IncidentDate = date; item.BehaviourType = type; item.Notes = Clean(Value(values, "notes"));
+        item.IncidentDate = date; item.BehaviourType = canonicalType; item.Notes = Clean(Value(values, "notes"));
         item.CustomFieldsJson = custom.Json;
         item.UpdatedAt = DateTime.UtcNow;
         return null;

@@ -12,6 +12,8 @@ public class StudentListItemDto
     public string? Program { get; set; }
     public string? TeacherName { get; set; }
     public int BehaviourCount { get; set; }
+    public int PositiveBehaviourCount { get; set; }
+    public int ConcerningBehaviourCount { get; set; }
     public int ProjectCount { get; set; }
     public int MentalHealthCount { get; set; }
     public string RiskLevel { get; set; } = "None";
@@ -51,6 +53,18 @@ public class AtRiskStudentsPageDto
     public int MediumRiskCount { get; set; }
 }
 
+public class StudentClassificationSettingsDto
+{
+    public int RiskWindowDays { get; set; } = 7;
+    public int HighRiskBehaviourCount { get; set; } = 5;
+    public int HighRiskBusViolationCount { get; set; } = 5;
+    public decimal HighRiskCanvasAverageBelow { get; set; } = 50;
+    public int CommendationWindowDays { get; set; } = 7;
+    public int CommendationPositiveBehaviourCount { get; set; } = 3;
+    public decimal CommendationCanvasAverageAtLeast { get; set; } = 85;
+    public int CommendationMaxBusViolations { get; set; } = 0;
+}
+
 public class StudentCommendationDto
 {
     public int Id { get; set; }
@@ -64,6 +78,9 @@ public class StudentCommendationDto
     public string CommendationType { get; set; } = default!;
     public string? Notes { get; set; }
     public string? RecordedByName { get; set; }
+    public int PositiveBehaviourCount { get; set; }
+    public decimal? AverageCanvasGrade { get; set; }
+    public int BusViolationCount { get; set; }
 }
 
 public class StudentCommendationsPageDto
@@ -240,6 +257,8 @@ public class StudentParentDto
 public class StudentSummaryDto
 {
     public int TotalBehaviours { get; set; }
+    public int PositiveBehaviours { get; set; }
+    public int ConcerningBehaviours { get; set; }
     public int BehavioursLast30Days { get; set; }
     public int TotalProjects { get; set; }
     public int ActiveProjects { get; set; }
@@ -250,6 +269,7 @@ public class StudentBehaviourDto
     public int Id { get; set; }
     public DateTime IncidentDate { get; set; }
     public string BehaviourType { get; set; } = default!;
+    public string Category { get; set; } = default!;
     public string? Notes { get; set; }
     public string? RecordedByName { get; set; }
     public string? AcademicYear { get; set; }

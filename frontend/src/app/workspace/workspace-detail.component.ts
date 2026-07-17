@@ -1438,21 +1438,31 @@ export class WorkspaceDetailComponent implements OnInit {
       }
       this.customReports.set(remoteReports);
       this.reportBuilderService.saveReports(remoteReports);
-      // On a direct refresh the filter preference can resolve before the remote
-      // workspace definition. Load explorer charts again once their definitions exist.
-      this.loadExplorerCharts();
+      const report = this.selectedReport();
+      if (!report?.serverId) {
+        this.filters.set(defaultFilterSet());
+        this.chartOrder.set([]);
+        this.loadMetrics();
+        return;
+      }
+      this.workspaceFilters.loadWorkspace(report.serverId).subscribe({
+        next: (filters) => {
+          this.filters.set(filters);
+          this.chartOrder.set(this.workspaceFilters.loadWorkspaceChartOrder());
+          this.loadMetrics();
+        },
+        error: () => {
+          this.filters.set(defaultFilterSet());
+          this.chartOrder.set([]);
+          this.loadMetrics();
+        },
+      });
     });
 
     this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
     this.reportBuilderService.loadExploreOptions().subscribe((options) => this.exploreOptions.set(options));
     this.workspaceFilters.options().subscribe((options) => this.options.set(options));
 
-    this.workspaceFilters.load().subscribe((filters) => {
-      this.filters.set(filters);
-      const workspaceId = this.selectedReportId();
-      if (workspaceId) this.chartOrder.set(this.workspaceFilters.loadChartOrder(workspaceId));
-      this.loadMetrics();
-    });
   }
 
   setFilter(key: keyof WorkspaceFilterSet, value: string): void {
@@ -1470,13 +1480,15 @@ export class WorkspaceDetailComponent implements OnInit {
       }
       return next;
     });
-    this.workspaceFilters.save(this.filters());
+    const workspaceId = this.selectedReport()?.serverId;
+    if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
     this.loadMetrics();
   }
 
   resetFilters(): void {
     this.filters.set(defaultFilterSet());
-    this.workspaceFilters.save(this.filters());
+    const workspaceId = this.selectedReport()?.serverId;
+    if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
     this.loadMetrics();
   }
 
@@ -1503,9 +1515,9 @@ export class WorkspaceDetailComponent implements OnInit {
     const ids = charts.map((candidate) => candidate.id);
     [ids[index], ids[target]] = [ids[target], ids[index]];
     this.chartOrder.set(ids);
-    const workspaceId = this.selectedReportId();
+    const workspaceId = this.selectedReport()?.serverId;
     if (workspaceId) {
-      this.workspaceFilters.saveChartOrder(workspaceId, ids, this.filters());
+      this.workspaceFilters.saveWorkspaceChartOrder(workspaceId, ids, this.filters());
     }
   }
 
@@ -2227,11 +2239,12 @@ export class WorkspaceDetailComponent implements OnInit {
               },
             },
             data: metrics.map((metric) => {
-              const point = metric.series.at(-1);
               return {
                 name: this.metricLabel(metric.id),
-                value: Math.max(0, point?.value ?? 0),
-                periodStart: point?.periodStart,
+                // Pie charts are filter-scope summaries rather than time-series
+                // snapshots. Using each metric's latest point can silently compare
+                // different months and send each slice to a different drill-down.
+                value: Math.max(0, metric.value ?? 0),
               };
             }),
           },

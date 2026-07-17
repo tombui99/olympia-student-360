@@ -119,7 +119,6 @@ public class DashboardController : ControllerBase
         preference.StudentProfileId = model.StudentProfileId;
         preference.Program = Clean(model.Program);
         preference.Subject = Clean(model.Subject);
-        preference.ChartOrdersJson = JsonSerializer.Serialize(model.ChartOrders ?? []);
         preference.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
         return Ok(ToPreferenceDto(preference));
@@ -263,7 +262,7 @@ public class DashboardController : ControllerBase
                     _ => true
                 })
                 .Select(item => new MetricSample(item.StudentProfileId, item.IncidentDate, 1.0,
-                    DetailFields(("Loại hành vi", item.BehaviourType), ("Ghi chú", item.Notes),
+                    DetailFields(("Loại hành vi", StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType)), ("Ghi chú", item.Notes),
                         ("Môn học", item.Subject), ("Ghi nhận bởi", item.RecordedByName)))));
         }
         else if (metricId is "project-records" or "active-project-records")
@@ -1152,8 +1151,24 @@ public class DashboardController : ControllerBase
         var students = await VisibleStudents()
             .Include(student => student.Behaviours)
             .Include(student => student.Projects)
+            .Include(student => student.BusAttendanceRecords)
             .AsSplitQuery()
             .ToListAsync();
+        var settings = await ClassificationSettings();
+        var studentIds = students.Select(student => student.Id).ToList();
+        var canvasScores = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.CourseScore && score.StudentProfileId != null
+                && studentIds.Contains(score.StudentProfileId.Value)
+                && (score.FinalScore ?? score.CurrentScore) != null)
+            .Select(score => new
+            {
+                StudentId = score.StudentProfileId!.Value,
+                Value = (decimal)(score.FinalScore ?? score.CurrentScore)!.Value
+            })
+            .ToListAsync();
+        var canvasAverages = canvasScores
+            .GroupBy(score => score.StudentId)
+            .ToDictionary(group => group.Key, group => Math.Round(group.Average(score => score.Value), 1));
 
         var overview = new DashboardOverviewDto
         {
@@ -1167,13 +1182,25 @@ public class DashboardController : ControllerBase
 
         var since = now.AddDays(-30);
         var gradeBuckets = new Dictionary<string, DashboardGradeDto>();
-        var attentionCandidates = new List<(StudentProfile Student, string RiskLevel, int ConcernCount)>();
+        var riskSince = now.AddDays(-settings.RiskWindowDays);
+        var commendationSince = now.AddDays(-settings.CommendationWindowDays);
+        var attentionCandidates = new List<(StudentProfile Student, string RiskLevel, int SignalCount)>();
 
         foreach (var student in students)
         {
             var periodBehaviours = student.Behaviours.Where(behaviour => InPeriod(behaviour, period)).ToList();
-            var concernCount = periodBehaviours.Count(StudentClassificationService.IsConcerningBehaviour);
-            var risk = StudentClassificationService.ClassifyRisk(student.GradeLevel, concernCount);
+            var concernCount = student.Behaviours.Count(behaviour => behaviour.IncidentDate >= riskSince
+                && StudentClassificationService.IsConcerningBehaviour(behaviour));
+            var riskBusViolationCount = student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince);
+            var risk = StudentClassificationService.ClassifyRisk(
+                new StudentSignalSummary(
+                    concernCount,
+                    student.Behaviours.Count(behaviour => behaviour.IncidentDate >= commendationSince
+                        && StudentClassificationService.IsCommendationBehaviour(behaviour)),
+                    canvasAverages.GetValueOrDefault(student.Id),
+                    riskBusViolationCount,
+                    student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince)),
+                settings);
             switch (risk.Level)
             {
                 case "High":
@@ -1189,7 +1216,7 @@ public class DashboardController : ControllerBase
 
             if (risk.Level != "None")
             {
-                attentionCandidates.Add((student, risk.Level, concernCount));
+                attentionCandidates.Add((student, risk.Level, concernCount + riskBusViolationCount));
             }
 
             foreach (var behaviour in student.Behaviours)
@@ -1227,7 +1254,7 @@ public class DashboardController : ControllerBase
             .ToList();
         overview.TopAtRisk = attentionCandidates
             .OrderBy(candidate => candidate.RiskLevel == "High" ? 0 : 1)
-            .ThenByDescending(candidate => candidate.ConcernCount)
+            .ThenByDescending(candidate => candidate.SignalCount)
             .ThenBy(candidate => candidate.Student.FullName, StringComparer.OrdinalIgnoreCase)
             .Take(5)
             .Select(candidate => new DashboardAttentionStudentDto
@@ -1300,6 +1327,26 @@ public class DashboardController : ControllerBase
         return date >= period.Start && date < period.End;
     }
 
+    private async Task<StudentClassificationSettingsDto> ClassificationSettings()
+    {
+        var setting = await _context.StudentClassificationSettings.AsNoTracking()
+            .OrderBy(item => item.Id)
+            .FirstOrDefaultAsync();
+        return setting == null
+            ? new StudentClassificationSettingsDto()
+            : new StudentClassificationSettingsDto
+            {
+                RiskWindowDays = setting.RiskWindowDays,
+                HighRiskBehaviourCount = setting.HighRiskBehaviourCount,
+                HighRiskBusViolationCount = setting.HighRiskBusViolationCount,
+                HighRiskCanvasAverageBelow = setting.HighRiskCanvasAverageBelow,
+                CommendationWindowDays = setting.CommendationWindowDays,
+                CommendationPositiveBehaviourCount = setting.CommendationPositiveBehaviourCount,
+                CommendationCanvasAverageAtLeast = setting.CommendationCanvasAverageAtLeast,
+                CommendationMaxBusViolations = setting.CommendationMaxBusViolations
+            };
+    }
+
     private static List<DashboardTrendPointDto> BuildTrend(
         List<StudentProfile> students, DateTime start, DateTime end, DateTime now)
     {
@@ -1363,8 +1410,7 @@ public class DashboardController : ControllerBase
         AcademicYear = item.AcademicYear, Term = item.Term, MeasurementCycle = item.MeasurementCycle,
         Campus = item.Campus, EducationLevel = item.EducationLevel, GradeLevel = item.GradeLevel,
         Homeroom = item.Homeroom, StudentProfileId = item.StudentProfileId,
-        Program = item.Program, Subject = item.Subject,
-        ChartOrders = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(item.ChartOrdersJson) ?? []
+        Program = item.Program, Subject = item.Subject
     };
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

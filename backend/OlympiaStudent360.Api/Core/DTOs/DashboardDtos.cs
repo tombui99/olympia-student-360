@@ -89,7 +89,21 @@ public class DashboardPreferenceDto
     public int? StudentProfileId { get; set; }
     public string? Program { get; set; }
     public string? Subject { get; set; }
-    public Dictionary<string, List<string>> ChartOrders { get; set; } = [];
+}
+
+public class WorkspacePreferenceDto
+{
+    public string? AcademicYear { get; set; }
+    public string? Term { get; set; }
+    public string? MeasurementCycle { get; set; }
+    public string? Campus { get; set; }
+    public string? EducationLevel { get; set; }
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+    public int? StudentProfileId { get; set; }
+    public string? Program { get; set; }
+    public string? Subject { get; set; }
+    public List<string> ChartOrder { get; set; } = [];
 }
 
 public class DashboardMetricDto

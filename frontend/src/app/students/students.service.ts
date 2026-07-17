@@ -19,6 +19,8 @@ export interface StudentListItem {
   homeroom?: string | null;
   teacherName?: string | null;
   behaviourCount: number;
+  positiveBehaviourCount: number;
+  concerningBehaviourCount: number;
   projectCount: number;
   mentalHealthCount: number;
   riskLevel: RiskLevel;
@@ -36,6 +38,17 @@ export interface StudentsPage {
 
 export interface AtRiskStudent extends StudentListItem {
   flags: RiskFlag[];
+}
+
+export interface StudentClassificationSettings {
+  riskWindowDays: number;
+  highRiskBehaviourCount: number;
+  highRiskBusViolationCount: number;
+  highRiskCanvasAverageBelow: number;
+  commendationWindowDays: number;
+  commendationPositiveBehaviourCount: number;
+  commendationCanvasAverageAtLeast: number;
+  commendationMaxBusViolations: number;
 }
 
 export interface AtRiskStudentsPage {
@@ -60,6 +73,9 @@ export interface StudentCommendation {
   commendationType: string;
   notes?: string | null;
   recordedByName?: string | null;
+  positiveBehaviourCount: number;
+  averageCanvasGrade?: number | null;
+  busViolationCount: number;
 }
 
 export interface StudentCommendationsPage {
@@ -92,6 +108,8 @@ export interface CohortsResponse {
 
 export interface StudentSummary {
   totalBehaviours: number;
+  positiveBehaviours: number;
+  concerningBehaviours: number;
   behavioursLast30Days: number;
   totalProjects: number;
   activeProjects: number;
@@ -101,6 +119,7 @@ export interface StudentBehaviour {
   id: number;
   incidentDate: string;
   behaviourType: string;
+  category: 'Positive' | 'Concerning' | 'Other';
   notes?: string | null;
   recordedByName?: string | null;
   academicYear?: string | null;
@@ -282,6 +301,16 @@ export class StudentsService {
       params = params.set('grade', grade);
     }
     return this.http.get<StudentCommendationsPage>(`${this.basePath}/api/students/commendations`, { params });
+  }
+
+  classificationSettings(): Observable<StudentClassificationSettings> {
+    return this.http.get<StudentClassificationSettings>(`${this.basePath}/api/students/classification-settings`);
+  }
+
+  saveClassificationSettings(settings: StudentClassificationSettings): Observable<StudentClassificationSettings> {
+    return this.http.put<StudentClassificationSettings>(
+      `${this.basePath}/api/students/classification-settings`, settings,
+    );
   }
 
   cohorts(): Observable<CohortsResponse> {
