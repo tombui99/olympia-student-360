@@ -1133,6 +1133,57 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("SISHealthVisits", (string)null);
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISStudentParent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("AgeGroup")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("EmploymentSector")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Occupation")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Relationship")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.ToTable("SISStudentParents", (string)null);
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentBehaviour", b =>
                 {
                     b.Property<int>("Id")
@@ -1383,57 +1434,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("AcademicYear", "RiskLevel");
 
                     b.ToTable("StudentMentalHealthRecords");
-                });
-
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentParent", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<string>("AgeGroup")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Email")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("EmploymentSector")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("FullName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("Occupation")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("PhoneNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("Relationship")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<int>("StudentProfileId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StudentProfileId");
-
-                    b.ToTable("StudentParents");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
@@ -1810,6 +1810,17 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISStudentParent", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany("Parents")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentBehaviour", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.ImportHistory", "ImportHistory")
@@ -1860,17 +1871,6 @@ namespace OlympiaStudent360.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("ImportHistory");
-
-                    b.Navigation("Student");
-                });
-
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentParent", b =>
-                {
-                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
-                        .WithMany("Parents")
-                        .HasForeignKey("StudentProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
 
                     b.Navigation("Student");
                 });

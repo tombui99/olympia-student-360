@@ -293,7 +293,7 @@ public class CanvasExploreController : ControllerBase
     private async Task<List<CanvasExploreDrilldownRowDto>> ParentDrilldownRows(
         Filters f, string dimension, string groupKey)
     {
-        var query = _context.StudentParents.AsNoTracking().Include(item => item.Student).AsQueryable();
+        var query = _context.SISStudentParents.AsNoTracking().Include(item => item.Student).AsQueryable();
         if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
         {
             var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));
@@ -306,7 +306,7 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Program)) query = query.Where(item => item.Student.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(item => item.StudentProfileId == f.StudentId);
         var rows = await query.ToListAsync();
-        string Dim(Core.Entities.StudentParent item) => dimension switch
+        string Dim(Core.Entities.SISStudentParent item) => dimension switch
         {
             "employmentSector" => Text(item.EmploymentSector), "ageGroup" => Text(item.AgeGroup),
             "relationship" => Text(item.Relationship), "occupation" => Text(item.Occupation),
@@ -496,7 +496,7 @@ public class CanvasExploreController : ControllerBase
     {
         // Parent/guardian demographics. Only the student-level filters apply (parents have no
         // year/term/subject dimension).
-        var query = _context.StudentParents.AsNoTracking().AsQueryable();
+        var query = _context.SISStudentParents.AsNoTracking().AsQueryable();
         if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
         {
             var visibleStudentIds = SISClassVisibility.StudentIds(_context, User.FindFirstValue(ClaimTypes.NameIdentifier));

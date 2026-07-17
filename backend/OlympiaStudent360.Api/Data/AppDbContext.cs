@@ -16,7 +16,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<SISClassStudent> SISClassStudents { get; set; }
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
-    public DbSet<StudentParent> StudentParents { get; set; }
+    public DbSet<SISStudentParent> SISStudentParents { get; set; }
     public DbSet<StudentMentalHealthRecord> StudentMentalHealthRecords { get; set; }
     public DbSet<SISHealthVisit> SISHealthVisits { get; set; }
     public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
@@ -157,8 +157,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<StudentParent>(parent =>
+        modelBuilder.Entity<SISStudentParent>(parent =>
         {
+            parent.ToTable("SISStudentParents");
             parent.Property(p => p.FullName).HasMaxLength(255);
             parent.Property(p => p.Relationship).HasMaxLength(50);
             parent.Property(p => p.PhoneNumber).HasMaxLength(50);

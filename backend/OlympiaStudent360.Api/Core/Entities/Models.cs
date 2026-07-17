@@ -29,7 +29,7 @@ public class StudentProfile : BaseEntity
     public ICollection<SISClassStudent> SISClassMemberships { get; set; } = [];
     public ICollection<StudentBehaviour> Behaviours { get; set; } = [];
     public ICollection<StudentProject> Projects { get; set; } = [];
-    public ICollection<StudentParent> Parents { get; set; } = [];
+    public ICollection<SISStudentParent> Parents { get; set; } = [];
     public ICollection<StudentMentalHealthRecord> MentalHealthRecords { get; set; } = [];
     public ICollection<SISHealthVisit> SISHealthVisits { get; set; } = [];
     public ICollection<StudentBusAttendanceRecord> BusAttendanceRecords { get; set; } = [];
@@ -160,7 +160,8 @@ public class StudentBusAttendanceRecord : BaseEntity
     public string? CustomFieldsJson { get; set; }
 }
 
-public class StudentParent : BaseEntity
+/// <summary>Parent demographic data synchronised from SIS.</summary>
+public class SISStudentParent : BaseEntity
 {
     public int StudentProfileId { get; set; }
     public StudentProfile Student { get; set; } = default!;
