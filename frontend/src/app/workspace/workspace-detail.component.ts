@@ -20,6 +20,8 @@ import {
   MetricVariable,
   ReportBuilderService,
   SystemUser,
+  WorkspaceAiChartSnapshot,
+  WorkspaceAiReportRequest,
 } from '../reports/report-builder.service';
 import {
   defaultFilterSet,
@@ -55,6 +57,24 @@ interface ChartDraft {
 interface MetricGroup {
   category: string;
   metrics: MetricVariable[];
+}
+
+interface AiReportDraft {
+  language: 'en' | 'vi';
+  audience: 'leadership' | 'teachers' | 'parents';
+  tone: 'constructive' | 'formal' | 'concise';
+  detailLevel: 'brief' | 'standard' | 'detailed';
+  additionalInstructions: string;
+  includeRecommendations: boolean;
+}
+
+interface ChartImageExporter {
+  getDataURL(options?: {
+    type?: 'png';
+    pixelRatio?: number;
+    backgroundColor?: string;
+    excludeComponents?: string[];
+  }): string;
 }
 
 @Component({
@@ -140,6 +160,19 @@ interface MetricGroup {
               </p>
             </div>
           </div>
+          <button
+            class="inline-flex items-center gap-2 rounded-md border border-[#7b4aa4] bg-[#f7f1fb] px-4 py-3 text-sm font-semibold text-[#4a1b73] transition hover:bg-[#efe2f7] disabled:cursor-not-allowed disabled:opacity-40"
+            type="button"
+            [disabled]="!selectedReport()?.charts?.length"
+            (click)="openAiReportSheet()"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z" />
+              <path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z" />
+              <path d="m5 13-1 2.5L1.5 16.5 4 17.5 5 20l1-2.5 2.5-1L6 15.5 5 13Z" />
+            </svg>
+            {{ languageService.t('workspace.aiReport.button') }}
+          </button>
           <ng-container *ngIf="isSelectedOwner()">
             <button
               class="rounded-md border border-[#d8d0df] px-4 py-3 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
@@ -361,6 +394,7 @@ interface MetricGroup {
                   [options]="chartOptions(chart)"
                   role="img"
                   [attr.aria-label]="chart.title"
+                  (chartInit)="onChartInit(chart.id, $event)"
                   (chartClick)="onChartPointClick(chart, $event)"
                   (chartDataZoom)="onChartDataZoom(chart.id, $event)"
                 ></div>
@@ -395,6 +429,7 @@ interface MetricGroup {
                   [options]="chartOptions(chart)"
                   role="img"
                   [attr.aria-label]="chart.title"
+                  (chartInit)="onChartInit(chart.id, $event)"
                   (chartClick)="onChartPointClick(chart, $event)"
                   (chartDataZoom)="onChartDataZoom(chart.id, $event)"
                 ></div>
@@ -831,6 +866,127 @@ interface MetricGroup {
       </div>
 
       <div
+        *ngIf="aiReportMounted()"
+        class="no-print fixed inset-0 z-50"
+        [class.pointer-events-none]="!aiReportOpen()"
+      >
+        <button
+          class="sheet-backdrop absolute inset-0 bg-[#24182f]/35"
+          [class.sheet-backdrop-open]="aiReportOpen()"
+          [class.sheet-backdrop-closing]="!aiReportOpen()"
+          type="button"
+          [attr.aria-label]="languageService.t('workspace.aiReport.close')"
+          (click)="closeAiReportSheet()"
+        ></button>
+
+        <aside
+          class="sheet-panel absolute right-0 top-0 flex h-full w-full max-w-xl flex-col bg-white shadow-[0_24px_80px_rgba(36,24,47,0.28)]"
+          [class.sheet-panel-open]="aiReportOpen()"
+          [class.sheet-panel-closing]="!aiReportOpen()"
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-label]="languageService.t('workspace.aiReport.title')"
+        >
+          <div class="flex items-start justify-between gap-4 border-b border-[#ebe6ef] px-6 py-5">
+            <div>
+              <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">
+                {{ languageService.t('workspace.aiReport.eyebrow') }}
+              </p>
+              <h3 class="mt-2 text-2xl font-semibold text-[#32124f]">
+                {{ languageService.t('workspace.aiReport.title') }}
+              </h3>
+              <p class="mt-1 text-sm leading-6 text-[#6f6877]">
+                {{ languageService.t('workspace.aiReport.description') }}
+              </p>
+            </div>
+            <button
+              class="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[#d8d0df] text-lg font-semibold text-[#32124f]"
+              type="button"
+              [attr.aria-label]="languageService.t('workspace.aiReport.close')"
+              (click)="closeAiReportSheet()"
+            >x</button>
+          </div>
+
+          <form class="flex min-h-0 flex-1 flex-col" (ngSubmit)="generateAiReport()">
+            <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              <div class="rounded-md border border-[#eadcae] bg-[#fff8e1] px-4 py-3 text-sm leading-6 text-[#74570c]">
+                {{ languageService.t('workspace.aiReport.dataNotice')
+                    .replace('{charts}', aiReportChartCount().toString()) }}
+              </div>
+
+              <p *ngIf="aiReportError()" class="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+                {{ aiReportError() }}
+              </p>
+
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="block text-sm font-medium text-[#34243d]">
+                  {{ languageService.t('workspace.aiReport.language') }}
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-3 outline-none focus:border-[#6d3a91]" name="aiLanguage" [(ngModel)]="aiReportDraft.language">
+                    <option value="vi">{{ languageService.t('workspace.aiReport.language.vi') }}</option>
+                    <option value="en">{{ languageService.t('workspace.aiReport.language.en') }}</option>
+                  </select>
+                </label>
+                <label class="block text-sm font-medium text-[#34243d]">
+                  {{ languageService.t('workspace.aiReport.audience') }}
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-3 outline-none focus:border-[#6d3a91]" name="aiAudience" [(ngModel)]="aiReportDraft.audience">
+                    <option value="leadership">{{ languageService.t('workspace.aiReport.audience.leadership') }}</option>
+                    <option value="teachers">{{ languageService.t('workspace.aiReport.audience.teachers') }}</option>
+                    <option value="parents">{{ languageService.t('workspace.aiReport.audience.parents') }}</option>
+                  </select>
+                </label>
+                <label class="block text-sm font-medium text-[#34243d]">
+                  {{ languageService.t('workspace.aiReport.tone') }}
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-3 outline-none focus:border-[#6d3a91]" name="aiTone" [(ngModel)]="aiReportDraft.tone">
+                    <option value="constructive">{{ languageService.t('workspace.aiReport.tone.constructive') }}</option>
+                    <option value="formal">{{ languageService.t('workspace.aiReport.tone.formal') }}</option>
+                    <option value="concise">{{ languageService.t('workspace.aiReport.tone.concise') }}</option>
+                  </select>
+                </label>
+                <label class="block text-sm font-medium text-[#34243d]">
+                  {{ languageService.t('workspace.aiReport.detail') }}
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-4 py-3 outline-none focus:border-[#6d3a91]" name="aiDetail" [(ngModel)]="aiReportDraft.detailLevel">
+                    <option value="brief">{{ languageService.t('workspace.aiReport.detail.brief') }}</option>
+                    <option value="standard">{{ languageService.t('workspace.aiReport.detail.standard') }}</option>
+                    <option value="detailed">{{ languageService.t('workspace.aiReport.detail.detailed') }}</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="block text-sm font-medium text-[#34243d]">
+                {{ languageService.t('workspace.aiReport.instructions') }}
+                <textarea
+                  class="mt-2 min-h-28 w-full resize-y rounded-md border border-[#d8d0df] bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#6d3a91]"
+                  name="aiInstructions"
+                  maxlength="1200"
+                  [(ngModel)]="aiReportDraft.additionalInstructions"
+                  [placeholder]="languageService.t('workspace.aiReport.instructionsPlaceholder')"
+                ></textarea>
+                <span class="mt-1 block text-right text-xs text-[#9a91a3]">{{ aiReportDraft.additionalInstructions.length }}/1200</span>
+              </label>
+
+              <label class="flex cursor-pointer items-start gap-3 rounded-md border border-[#e7e0eb] bg-[#faf9f6] p-4 text-sm text-[#34243d]">
+                <input class="mt-1" type="checkbox" name="aiRecommendations" [(ngModel)]="aiReportDraft.includeRecommendations" />
+                <span>
+                  <span class="block font-semibold text-[#32124f]">{{ languageService.t('workspace.aiReport.recommendations') }}</span>
+                  <span class="mt-1 block leading-5 text-[#7c7284]">{{ languageService.t('workspace.aiReport.recommendationsHint') }}</span>
+                </span>
+              </label>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 border-t border-[#ebe6ef] bg-[#faf9f6] px-6 py-4">
+              <button class="rounded-md border border-[#d8d0df] px-5 py-3 text-sm font-semibold text-[#32124f]" type="button" [disabled]="aiReportLoading()" (click)="closeAiReportSheet()">
+                {{ languageService.t('workspace.cancel') }}
+              </button>
+              <button class="inline-flex items-center gap-2 rounded-md bg-[#32124f] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45" type="submit" [disabled]="aiReportLoading() || aiReportChartCount() === 0">
+                <svg *ngIf="aiReportLoading()" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-30" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+                {{ languageService.t(aiReportLoading() ? 'workspace.aiReport.generating' : 'workspace.aiReport.generate') }}
+              </button>
+            </div>
+          </form>
+        </aside>
+      </div>
+
+      <div
         *ngIf="drilldownMounted()"
         class="no-print fixed inset-0 z-40"
         [class.pointer-events-none]="!drilldownOpen()"
@@ -1200,6 +1356,7 @@ export class WorkspaceDetailComponent implements OnInit {
   private drilldownRequestId = 0;
   private readonly drilldownPageSize = 20;
   private readonly chartZoomRanges = new Map<string, { start: number; end: number }>();
+  private readonly chartImageExporters = new Map<string, ChartImageExporter>();
 
   readonly drilldownStudents = computed<MetricDrilldownRow[]>(
     () => this.drilldownData()?.students ?? [],
@@ -1222,9 +1379,15 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly snapshotMenuOpen = signal(false);
   readonly snapshotTimestamp = signal('');
 
+  readonly aiReportMounted = signal(false);
+  readonly aiReportOpen = signal(false);
+  readonly aiReportLoading = signal(false);
+  readonly aiReportError = signal<string | null>(null);
+
   readonly exploreOptions = signal<CanvasExploreOptions>({ datasets: [] });
   /** Cached explore results keyed by chart id (explorer charts fetch on filter change). */
   readonly exploreResults = signal<Record<string, CanvasExploreResult>>({});
+  private explorerRequestVersion = 0;
 
   /** Active filters, resolved to human-readable label/value pairs for the snapshot header. */
   readonly appliedFilters = computed<{ label: string; value: string }[]>(() => {
@@ -1260,9 +1423,11 @@ export class WorkspaceDetailComponent implements OnInit {
 
   private sheetUnmountTimer: number | null = null;
   private drilldownUnmountTimer: number | null = null;
+  private aiReportUnmountTimer: number | null = null;
 
   workspaceDraft: WorkspaceDraft = this.emptyWorkspaceDraft();
   chartDraft: ChartDraft = this.emptyChartDraft();
+  aiReportDraft: AiReportDraft = this.defaultAiReportDraft();
 
   readonly selectedReport = computed(() => {
     const selectedId = this.selectedReportId();
@@ -1279,6 +1444,9 @@ export class WorkspaceDetailComponent implements OnInit {
       }
       this.customReports.set(remoteReports);
       this.reportBuilderService.saveReports(remoteReports);
+      // On a direct refresh the filter preference can resolve before the remote
+      // workspace definition. Load explorer charts again once their definitions exist.
+      this.loadExplorerCharts();
     });
 
     this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
@@ -1360,7 +1528,7 @@ export class WorkspaceDetailComponent implements OnInit {
     return order
       .map((category) => ({
         category,
-        metrics: this.metricVariables.filter((metric) => metric.category === category),
+        metrics: this.metricVariables().filter((metric) => metric.category === category),
       }))
       .filter((group) => group.metrics.length > 0);
   }
@@ -1379,7 +1547,7 @@ export class WorkspaceDetailComponent implements OnInit {
 
   private selectedChartCategory(): string | null {
     for (const metricId of this.chartDraft.metrics) {
-      const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
+      const metric = this.metricVariables().find((candidate) => candidate.id === metricId);
       if (metric) {
         return metric.category;
       }
@@ -1438,6 +1606,7 @@ export class WorkspaceDetailComponent implements OnInit {
   private loadExplorerCharts(): void {
     const report = this.selectedReport();
     if (!report) return;
+    const requestVersion = ++this.explorerRequestVersion;
     const base = this.filterParams();
     for (const chart of report.charts) {
       if (!chart.explorer) continue;
@@ -1445,7 +1614,11 @@ export class WorkspaceDetailComponent implements OnInit {
       this.reportBuilderService
         .loadExplore({ ...base, dataset, dimension, measure })
         .subscribe({
-          next: (result) => this.exploreResults.update((current) => ({ ...current, [chart.id]: result })),
+          next: (result) => {
+            if (requestVersion === this.explorerRequestVersion) {
+              this.exploreResults.update((current) => ({ ...current, [chart.id]: result }));
+            }
+          },
           error: () => {},
         });
     }
@@ -1686,11 +1859,99 @@ export class WorkspaceDetailComponent implements OnInit {
     }, 300);
   }
 
+  openAiReportSheet(): void {
+    const report = this.selectedReport();
+    if (!report?.serverId || !report.charts.length) {
+      return;
+    }
+
+    if (this.aiReportUnmountTimer !== null) {
+      window.clearTimeout(this.aiReportUnmountTimer);
+      this.aiReportUnmountTimer = null;
+    }
+
+    this.aiReportDraft = this.defaultAiReportDraft();
+    this.aiReportError.set(null);
+    this.aiReportMounted.set(true);
+    requestAnimationFrame(() => this.aiReportOpen.set(true));
+  }
+
+  closeAiReportSheet(): void {
+    if (this.aiReportLoading()) {
+      return;
+    }
+
+    this.aiReportOpen.set(false);
+    this.aiReportUnmountTimer = window.setTimeout(() => {
+      this.aiReportMounted.set(false);
+      this.aiReportUnmountTimer = null;
+    }, 300);
+  }
+
+  aiReportChartCount(): number {
+    return this.buildAiChartSnapshots().length;
+  }
+
+  generateAiReport(): void {
+    const report = this.selectedReport();
+    if (!report?.serverId || this.aiReportLoading()) {
+      return;
+    }
+
+    const charts = this.buildAiChartSnapshots();
+    if (!charts.length) {
+      this.aiReportError.set(this.languageService.t('workspace.aiReport.noData'));
+      return;
+    }
+
+    const request: WorkspaceAiReportRequest = {
+      ...this.aiReportDraft,
+      additionalInstructions: this.aiReportDraft.additionalInstructions.trim(),
+      filters: this.appliedFilters(),
+      charts,
+    };
+
+    this.aiReportLoading.set(true);
+    this.aiReportError.set(null);
+    this.reportBuilderService.generateAiReport(report.serverId, request).subscribe({
+      next: (response) => {
+        const blob = response.body;
+        if (!blob) {
+          this.aiReportLoading.set(false);
+          this.aiReportError.set(this.languageService.t('workspace.aiReport.error'));
+          return;
+        }
+
+        const disposition = response.headers.get('content-disposition');
+        const filename = this.downloadFilename(disposition, report.title);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 0);
+
+        this.aiReportLoading.set(false);
+        this.closeAiReportSheet();
+      },
+      error: (error: { status?: number }) => {
+        this.aiReportLoading.set(false);
+        this.aiReportError.set(this.languageService.t(
+          error.status === 503
+            ? 'workspace.aiReport.notConfigured'
+            : 'workspace.aiReport.error',
+        ));
+      },
+    });
+  }
+
   metricLabel(metricId: string): string {
     const key = `workspace.metrics.${metricId}.label`;
     const translated = this.languageService.t(key);
     return translated === key
-      ? this.metricVariables.find((metric) => metric.id === metricId)?.label ?? metricId
+      ? this.metricVariables().find((metric) => metric.id === metricId)?.label ?? metricId
       : translated;
   }
 
@@ -1718,12 +1979,126 @@ export class WorkspaceDetailComponent implements OnInit {
 
   chartMetrics(chart: CustomChart): MetricVariable[] {
     return chart.metrics
-      .map((metricId) => this.metricVariables.find((metric) => metric.id === metricId))
+      .map((metricId) => this.metricVariables().find((metric) => metric.id === metricId))
       .filter((metric): metric is MetricVariable => !!metric);
   }
 
   explorerResult(chart: CustomChart): CanvasExploreResult | null {
     return this.exploreResults()[chart.id] ?? null;
+  }
+
+  private buildAiChartSnapshots(): WorkspaceAiChartSnapshot[] {
+    const report = this.selectedReport();
+    if (!report) {
+      return [];
+    }
+
+    return this.orderedCharts(report).flatMap((chart) => {
+      if (chart.explorer) {
+        const result = this.explorerResult(chart);
+        if (!result?.rows.length) {
+          return [];
+        }
+
+        return [{
+          chartId: chart.id,
+          title: chart.title,
+          chartType: this.languageService.t(`workspace.chartType.${chart.kind}`),
+          source: this.exploreDatasetLabel(chart.explorer.dataset),
+          imageDataUrl: this.chartSnapshotDataUrl(chart),
+          series: [{
+            name: this.exploreFieldLabel(chart.explorer.measure, chart.explorer.measure),
+            unit: result.unit,
+            points: result.rows.map((row) => ({
+              label: this.explorerKeyLabel(row.key),
+              value: row.value,
+            })),
+          }],
+        }];
+      }
+
+      const metrics = this.chartMetrics(chart)
+        .filter((metric) => metric.series.length > 0);
+      if (!metrics.length) {
+        return [];
+      }
+
+      return [{
+        chartId: chart.id,
+        title: chart.title,
+        chartType: this.languageService.t(`workspace.chartType.${chart.kind}`),
+        source: [...new Set(metrics.map((metric) => this.sourceLabel(metric.source)))].join(', '),
+        imageDataUrl: this.chartSnapshotDataUrl(chart),
+        series: metrics.map((metric) => ({
+          name: this.metricLabel(metric.id),
+          unit: metric.unit,
+          points: metric.series.map((point) => ({
+            label: this.periodDisplay(point.periodStart),
+            value: point.value,
+          })),
+        })),
+      }];
+    });
+  }
+
+  onChartInit(chartId: string, chart: ChartImageExporter): void {
+    this.chartImageExporters.set(chartId, chart);
+  }
+
+  private chartSnapshotDataUrl(chart: CustomChart): string | null {
+    try {
+      const dataUrl = chart.kind === 'card'
+        ? this.cardChartSnapshotDataUrl(chart)
+        : this.chartImageExporters.get(chart.id)?.getDataURL({
+            type: 'png',
+            pixelRatio: 1.5,
+            backgroundColor: '#ffffff',
+            excludeComponents: ['toolbox'],
+          });
+      return dataUrl?.startsWith('data:image/png;base64,') && dataUrl.length <= 2_000_000
+        ? dataUrl
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private cardChartSnapshotDataUrl(chart: CustomChart): string | null {
+    const metrics = this.chartMetrics(chart);
+    if (!metrics.length) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = Math.max(420, 170 + Math.ceil(metrics.length / 2) * 190);
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#32124f';
+    context.font = '600 36px Calibri, Arial, sans-serif';
+    context.fillText(chart.title, 48, 62);
+
+    metrics.forEach((metric, index) => {
+      const column = index % 2;
+      const row = Math.floor(index / 2);
+      const x = 48 + column * 570;
+      const y = 100 + row * 190;
+      context.fillStyle = '#faf9f6';
+      context.strokeStyle = '#e4dde8';
+      context.lineWidth = 2;
+      context.fillRect(x, y, 530, 154);
+      context.strokeRect(x, y, 530, 154);
+      context.fillStyle = '#6f6877';
+      context.font = '500 25px Calibri, Arial, sans-serif';
+      const label = this.metricLabel(metric.id);
+      context.fillText(label.length > 36 ? `${label.slice(0, 35)}…` : label, x + 26, y + 45);
+      context.fillStyle = '#32124f';
+      context.font = '600 48px Calibri, Arial, sans-serif';
+      context.fillText(this.cardValue(metric), x + 26, y + 112);
+    });
+
+    return canvas.toDataURL('image/png');
   }
 
   explorerHasRows(chart: CustomChart): boolean {
@@ -1803,10 +2178,17 @@ export class WorkspaceDetailComponent implements OnInit {
           type: cartesianKind,
           cursor: 'pointer',
           data: rows.map((row) => ({ value: row.value, groupKey: row.key })),
-          smooth: cartesianKind === 'line',
+          // Monthly/category values are discrete observations. Spline smoothing can
+          // overshoot sharply-changing counts and make the chart imply values that
+          // are not present in the source data.
+          smooth: false,
+          connectNulls: true,
+          showSymbol: cartesianKind === 'line' && rows.length <= 36,
+          symbol: 'circle',
+          symbolSize: 6,
           barMaxWidth: 34,
           itemStyle: { color: '#32124f' },
-          areaStyle: cartesianKind === 'line' ? { opacity: 0.08 } : undefined,
+          lineStyle: cartesianKind === 'line' ? { width: 2 } : undefined,
         },
       ],
     };
@@ -2032,12 +2414,20 @@ export class WorkspaceDetailComponent implements OnInit {
           value: this.metricPoint(metric, periodStart)?.value ?? null,
           periodStart,
         })),
-        smooth: cartesianKind === 'line',
-        symbolSize: 8,
+        // Keep count/percentage observations faithful to each period. Full spline
+        // smoothing creates artificial waves and overshoot when adjacent months
+        // differ substantially (especially across long Canvas histories).
+        smooth: false,
+        connectNulls: true,
+        // A sparse metric may share a long axis with a denser one. Base marker
+        // visibility on this metric's observations so isolated values remain visible.
+        showSymbol: cartesianKind === 'line' && metric.series.length <= 36,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: cartesianKind === 'line' ? { width: 2 } : undefined,
         barMaxWidth: 30,
         barMinHeight: cartesianKind === 'bar' ? 6 : undefined,
         emphasis: { focus: 'series' },
-        areaStyle: cartesianKind === 'line' ? { opacity: 0.08 } : undefined,
         markLine:
           index === 0 && referenceLines.length
             ? { symbol: 'none', data: referenceLines }
@@ -2145,7 +2535,7 @@ export class WorkspaceDetailComponent implements OnInit {
     this.drilldownPeriodStart = periodStart;
     this.mountDrilldown();
 
-    const metric = this.metricVariables.find((candidate) => candidate.id === metricId);
+    const metric = this.metricVariables().find((candidate) => candidate.id === metricId);
     if (metric?.supportsDrilldown === false) {
       this.drilldownLoading.set(false);
       this.drilldownUnavailable.set(true);
@@ -2350,6 +2740,43 @@ export class WorkspaceDetailComponent implements OnInit {
       );
       this.reportBuilderService.saveReports(this.customReports());
     });
+  }
+
+  private defaultAiReportDraft(): AiReportDraft {
+    return {
+      language: this.languageService.language() === 'vi' ? 'vi' : 'en',
+      audience: 'leadership',
+      tone: 'constructive',
+      detailLevel: 'standard',
+      additionalInstructions: '',
+      includeRecommendations: true,
+    };
+  }
+
+  private downloadFilename(contentDisposition: string | null, reportTitle: string): string {
+    if (contentDisposition) {
+      const encoded = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition)?.[1];
+      if (encoded) {
+        try {
+          return decodeURIComponent(encoded);
+        } catch {
+          // Fall back to the regular filename or a locally generated safe name.
+        }
+      }
+
+      const regular = /filename="?([^";]+)"?/i.exec(contentDisposition)?.[1]?.trim();
+      if (regular) {
+        return regular;
+      }
+    }
+
+    const safeTitle = reportTitle
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase() || 'workspace';
+    return `${safeTitle}-ai-report.docx`;
   }
 
   private emptyWorkspaceDraft(): WorkspaceDraft {

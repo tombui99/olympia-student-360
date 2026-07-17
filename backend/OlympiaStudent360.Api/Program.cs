@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -63,6 +64,9 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+builder.Services.AddHttpClient<GeminiService>();
+builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -83,6 +87,7 @@ builder.Services.AddCors(options =>
                 "http://127.0.0.1:4201")
             .AllowAnyHeader()
             .AllowAnyMethod()
+            .WithExposedHeaders("Content-Disposition")
             .AllowCredentials();
     });
 });

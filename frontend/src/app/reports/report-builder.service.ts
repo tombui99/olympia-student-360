@@ -1,5 +1,5 @@
-import { HttpClient } from '@angular/common/http';
-import { inject, Injectable } from '@angular/core';
+import { HttpClient, HttpResponse } from '@angular/common/http';
+import { inject, Injectable, signal } from '@angular/core';
 import { catchError, map, Observable, of } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
 
@@ -137,6 +137,30 @@ export interface SystemUser {
   fullName: string;
 }
 
+export interface WorkspaceAiReportRequest {
+  language: 'en' | 'vi';
+  audience: 'leadership' | 'teachers' | 'parents';
+  tone: 'constructive' | 'formal' | 'concise';
+  detailLevel: 'brief' | 'standard' | 'detailed';
+  additionalInstructions: string;
+  includeRecommendations: boolean;
+  filters: { label: string; value: string }[];
+  charts: WorkspaceAiChartSnapshot[];
+}
+
+export interface WorkspaceAiChartSnapshot {
+  chartId: string;
+  title: string;
+  chartType: string;
+  source: string;
+  imageDataUrl?: string | null;
+  series: {
+    name: string;
+    unit: string;
+    points: { label: string; value: number | null }[];
+  }[];
+}
+
 interface ApiCustomReport {
   id: number;
   ownerUsername: string;
@@ -156,12 +180,16 @@ export class ReportBuilderService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  readonly metricVariables: MetricVariable[] = [];
+  readonly metricVariables = signal<MetricVariable[]>([]);
+  private metricRequestVersion = 0;
 
   loadMetricVariables(params: Record<string, string>): Observable<MetricVariable[]> {
+    const requestVersion = ++this.metricRequestVersion;
     return this.http.get<MetricVariable[]>(`${this.basePath}/api/dashboard/metrics`, { params }).pipe(
       map((metrics) => {
-        this.metricVariables.splice(0, this.metricVariables.length, ...metrics);
+        if (requestVersion === this.metricRequestVersion) {
+          this.metricVariables.set(metrics);
+        }
         return metrics;
       }),
       catchError(() => of([])),
@@ -227,6 +255,14 @@ export class ReportBuilderService {
     }
 
     return this.http.delete<void>(`${this.basePath}/api/reports/custom/${report.serverId}`).pipe(map(() => true));
+  }
+
+  generateAiReport(reportId: number, request: WorkspaceAiReportRequest): Observable<HttpResponse<Blob>> {
+    return this.http.post(
+      `${this.basePath}/api/reports/custom/${reportId}/ai-report`,
+      request,
+      { observe: 'response', responseType: 'blob' },
+    );
   }
 
   loadSystemUsers(): Observable<SystemUser[]> {

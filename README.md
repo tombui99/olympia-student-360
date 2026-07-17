@@ -97,6 +97,20 @@ Server=localhost;Port=3306;Database=olympia_student_360;User=root;Password=YourP
 
 JWT settings live under the `Jwt` section in `appsettings.json`. Replace the signing key for any deployed environment.
 
+Workspace AI reports use the Gemini API. Keep the API key outside source control and provide it through configuration:
+
+```bash
+export GeminiApiKey="YOUR_GEMINI_API_KEY"
+```
+
+The default model is `gemini-flash-lite-latest`. It can be overridden without changing code:
+
+```bash
+export Gemini__Model="gemini-flash-lite-latest"
+```
+
+The workspace sends only the aggregated chart series currently visible after filters are applied; student-level drill-down rows are not included in the Gemini request.
+
 ## Database
 
 The application uses EF Core migrations. On backend startup, `DbInitializer.Seed(app)` runs:

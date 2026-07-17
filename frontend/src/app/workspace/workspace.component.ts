@@ -740,7 +740,7 @@ export class WorkspaceComponent implements OnInit {
     return order
       .map((category) => ({
         category,
-        metrics: this.metricVariables.filter((metric) => metric.category === category),
+        metrics: this.metricVariables().filter((metric) => metric.category === category),
       }))
       .filter((group) => group.metrics.length > 0);
   }
@@ -759,7 +759,7 @@ export class WorkspaceComponent implements OnInit {
 
   isMetricDisabled(metric: MetricVariable): boolean {
     if (this.chartDraft.metrics.includes(metric.id)) return false;
-    const selected = this.metricVariables.find((candidate) => this.chartDraft.metrics.includes(candidate.id));
+    const selected = this.metricVariables().find((candidate) => this.chartDraft.metrics.includes(candidate.id));
     return !!selected && selected.category !== metric.category;
   }
 
@@ -791,7 +791,7 @@ export class WorkspaceComponent implements OnInit {
     const key = `workspace.metrics.${metricId}.label`;
     const translated = this.languageService.t(key);
     return translated === key
-      ? this.metricVariables.find((metric) => metric.id === metricId)?.label ?? metricId
+      ? this.metricVariables().find((metric) => metric.id === metricId)?.label ?? metricId
       : translated;
   }
 
