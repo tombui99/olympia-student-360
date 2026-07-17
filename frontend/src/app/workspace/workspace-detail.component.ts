@@ -15,9 +15,11 @@ import {
   ChartKind,
   CustomChart,
   CustomReport,
+  groupMetricVariables,
   MetricDrilldown,
   MetricDrilldownRow,
   MetricVariable,
+  MetricVariableGroup,
   ReportBuilderService,
   SystemUser,
   WorkspaceAiChartSnapshot,
@@ -52,11 +54,6 @@ interface ChartDraft {
   dataset: string;
   dimension: string;
   measure: string;
-}
-
-interface MetricGroup {
-  category: string;
-  metrics: MetricVariable[];
 }
 
 interface AiReportDraft {
@@ -798,12 +795,12 @@ interface ChartImageExporter {
                     {{ languageService.t('workspace.metricVariables') }}
                   </p>
                   <p class="mt-1 text-xs text-[#7c7284]">
-                    {{ languageService.t('workspace.oneCategoryRule') }}
+                    {{ languageService.t('workspace.metricGroupingHint') }}
                   </p>
                   <div class="mt-3 space-y-3">
                     <details *ngFor="let group of metricGroups(); trackBy: trackMetricGroup" class="overflow-hidden rounded-md border border-[#e1dbe6] bg-white">
                       <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-[#f4f0f6] px-4 py-3 text-sm font-semibold text-[#32124f]">
-                        <span>{{ categoryLabel(group.category) }}</span>
+                        <span>{{ datasetLabel(group.dataset) }}</span>
                         <span class="rounded-full bg-white px-2.5 py-0.5 text-xs text-[#6f6877]">
                           {{ selectedMetricCount(group) }}/{{ group.metrics.length }}
                         </span>
@@ -811,9 +808,7 @@ interface ChartImageExporter {
                       <div class="space-y-2 border-t border-[#e1dbe6] p-3">
                         <label
                           *ngFor="let metric of group.metrics; trackBy: trackMetric"
-                          class="flex items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3"
-                          [class.cursor-pointer]="!isMetricDisabled(metric)"
-                          [class.opacity-40]="isMetricDisabled(metric)"
+                          class="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3 transition hover:border-[#f3c246]"
                         >
                           <span>
                             <span class="block text-sm font-semibold text-[#32124f]">{{ metricLabel(metric.id) }}</span>
@@ -823,7 +818,6 @@ interface ChartImageExporter {
                             class="mt-1"
                             type="checkbox"
                             [checked]="chartDraft.metrics.includes(metric.id)"
-                            [disabled]="isMetricDisabled(metric)"
                             (change)="toggleChartMetric(metric.id)"
                           />
                         </label>
@@ -1515,44 +1509,20 @@ export class WorkspaceDetailComponent implements OnInit {
     }
   }
 
-  isMetricDisabled(metric: MetricVariable): boolean {
-    if (this.chartDraft.metrics.includes(metric.id)) {
-      return false;
-    }
-    const selectedCategory = this.selectedChartCategory();
-    return selectedCategory !== null && metric.category !== selectedCategory;
+  metricGroups(): MetricVariableGroup[] {
+    return groupMetricVariables(this.metricVariables());
   }
 
-  metricGroups(): MetricGroup[] {
-    const order = ['Academics', 'AdmissionsFinance', 'Safety', 'Compliance', 'Achievement'];
-    return order
-      .map((category) => ({
-        category,
-        metrics: this.metricVariables().filter((metric) => metric.category === category),
-      }))
-      .filter((group) => group.metrics.length > 0);
-  }
-
-  selectedMetricCount(group: MetricGroup): number {
+  selectedMetricCount(group: MetricVariableGroup): number {
     return group.metrics.filter((metric) => this.chartDraft.metrics.includes(metric.id)).length;
   }
 
-  trackMetricGroup(_index: number, group: MetricGroup): string {
-    return group.category;
+  trackMetricGroup(_index: number, group: MetricVariableGroup): string {
+    return group.dataset;
   }
 
   trackMetric(_index: number, metric: MetricVariable): string {
     return metric.id;
-  }
-
-  private selectedChartCategory(): string | null {
-    for (const metricId of this.chartDraft.metrics) {
-      const metric = this.metricVariables().find((candidate) => candidate.id === metricId);
-      if (metric) {
-        return metric.category;
-      }
-    }
-    return null;
   }
 
   private gradeMatchesLevel(grade: string, level: string): boolean {
@@ -1977,6 +1947,12 @@ export class WorkspaceDetailComponent implements OnInit {
     return translated === key ? source : translated;
   }
 
+  datasetLabel(dataset: string): string {
+    const key = `workspace.datasets.${dataset}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? dataset : translated;
+  }
+
   chartMetrics(chart: CustomChart): MetricVariable[] {
     return chart.metrics
       .map((metricId) => this.metricVariables().find((metric) => metric.id === metricId))
@@ -2359,6 +2335,19 @@ export class WorkspaceDetailComponent implements OnInit {
         label: { formatter: `${this.languageService.t('workspace.kpiLine')}: ${kpiTarget}`, color: '#c94f4f' },
       });
     }
+    const usesDualUnitAxis = metrics.some((metric) => metric.unit === '%')
+      && metrics.some((metric) => metric.unit !== '%');
+    const valueAxis = (percentage: boolean, right = false) => ({
+      type: 'value' as const,
+      name: this.languageService.t(percentage ? 'workspace.chartAxis.percentage' : 'workspace.chartAxis.count'),
+      nameTextStyle: { color: '#7c7284' },
+      position: right ? 'right' as const : 'left' as const,
+      axisLabel: {
+        color: '#6f6877',
+        formatter: percentage ? '{value}%' : '{value}',
+      },
+      splitLine: right ? { show: false } : { lineStyle: { color: '#ebe6ef' } },
+    });
 
     return {
       color: colors,
@@ -2395,11 +2384,9 @@ export class WorkspaceDetailComponent implements OnInit {
         axisLine: { lineStyle: { color: '#d8d0df' } },
         axisLabel: { color: '#6f6877' },
       },
-      yAxis: {
-        type: 'value',
-        axisLabel: { color: '#6f6877' },
-        splitLine: { lineStyle: { color: '#ebe6ef' } },
-      },
+      yAxis: usesDualUnitAxis
+        ? [valueAxis(true), valueAxis(false, true)]
+        : valueAxis(metrics.every((metric) => metric.unit === '%')),
       dataZoom: [
         {
           type: 'inside',
@@ -2410,6 +2397,7 @@ export class WorkspaceDetailComponent implements OnInit {
         name: this.metricLabel(metric.id),
         type: cartesianKind,
         cursor: 'pointer',
+        yAxisIndex: usesDualUnitAxis && metric.unit !== '%' ? 1 : 0,
         data: periods.map((periodStart) => ({
           value: this.metricPoint(metric, periodStart)?.value ?? null,
           periodStart,

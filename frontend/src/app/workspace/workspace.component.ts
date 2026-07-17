@@ -1,14 +1,16 @@
 import { NgFor, NgIf } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 import {
   ChartKind,
   CustomChart,
   CustomReport,
+  groupMetricVariables,
   MetricVariable,
+  MetricVariableGroup,
   ReportBuilderService,
   SystemUser,
 } from '../reports/report-builder.service';
@@ -31,9 +33,11 @@ interface ChartDraft {
   metrics: string[];
 }
 
-interface MetricGroup {
-  category: string;
-  metrics: MetricVariable[];
+interface WorkspaceTemplate {
+  id: string;
+  titleKey: string;
+  descriptionKey: string;
+  charts: { titleKey: string; kind: ChartKind; metrics: string[] }[];
 }
 
 @Component({
@@ -56,6 +60,37 @@ interface MetricGroup {
           {{ languageService.t('workspace.newWorkspace') }}
         </button>
       </div>
+
+      <section *ngIf="activeSection() === 'mine'" class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p class="text-sm uppercase tracking-[0.16em] text-[#8a6811]">{{ languageService.t('workspace.templates.eyebrow') }}</p>
+            <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ languageService.t('workspace.templates.title') }}</h3>
+            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('workspace.templates.hint') }}</p>
+          </div>
+        </div>
+        <div class="mt-5 grid gap-3 lg:grid-cols-3">
+          <article
+            *ngFor="let template of workspaceTemplates; trackBy: trackWorkspaceTemplate"
+            class="flex min-h-48 flex-col rounded-md border border-[#e4dce9] bg-[#faf9f6] p-4 transition hover:border-[#d1b35d] hover:bg-[#fffdf7]"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <span class="rounded bg-[#f3c246]/25 px-2.5 py-1 text-xs font-semibold text-[#7a5b12]">
+                {{ template.charts.length }} {{ languageService.t('workspace.charts') }}
+              </span>
+            </div>
+            <h4 class="mt-4 text-base font-semibold text-[#32124f]">{{ languageService.t(template.titleKey) }}</h4>
+            <p class="mt-2 flex-1 text-sm leading-6 text-[#6f6877]">{{ languageService.t(template.descriptionKey) }}</p>
+            <button
+              class="mt-4 self-start rounded-md border border-[#7b4aa4] bg-white px-4 py-2.5 text-sm font-semibold text-[#4a1b73] transition hover:bg-[#f4eef8]"
+              type="button"
+              (click)="createFromTemplate(template)"
+            >
+              {{ languageService.t('workspace.templates.use') }}
+            </button>
+          </article>
+        </div>
+      </section>
 
       <div class="grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
         <aside class="rounded-lg border border-[#ebe6ef] bg-white p-3 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
@@ -352,10 +387,11 @@ interface MetricGroup {
 
                 <div>
                   <p class="text-sm font-medium text-[#34243d]">{{ languageService.t('workspace.metricVariables') }}</p>
+                  <p class="mt-1 text-xs leading-5 text-[#7c7284]">{{ languageService.t('workspace.metricGroupingHint') }}</p>
                   <div class="mt-3 space-y-3">
                     <details *ngFor="let group of metricGroups(); trackBy: trackMetricGroup" class="overflow-hidden rounded-md border border-[#e1dbe6] bg-white">
                       <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-[#f4f0f6] px-4 py-3 text-sm font-semibold text-[#32124f]">
-                        <span>{{ categoryLabel(group.category) }}</span>
+                        <span>{{ datasetLabel(group.dataset) }}</span>
                         <span class="rounded-full bg-white px-2.5 py-0.5 text-xs text-[#6f6877]">
                           {{ selectedMetricCount(group) }}/{{ group.metrics.length }}
                         </span>
@@ -363,9 +399,7 @@ interface MetricGroup {
                       <div class="space-y-2 border-t border-[#e1dbe6] p-3">
                         <label
                           *ngFor="let metric of group.metrics; trackBy: trackMetric"
-                          class="flex items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3 transition hover:border-[#f3c246]"
-                          [class.cursor-pointer]="!isMetricDisabled(metric)"
-                          [class.opacity-40]="isMetricDisabled(metric)"
+                          class="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-3 transition hover:border-[#f3c246]"
                         >
                           <span>
                             <span class="block text-sm font-semibold text-[#32124f]">{{ metricLabel(metric.id) }}</span>
@@ -375,7 +409,6 @@ interface MetricGroup {
                             class="mt-1"
                             type="checkbox"
                             [checked]="chartDraft.metrics.includes(metric.id)"
-                            [disabled]="isMetricDisabled(metric)"
                             (change)="toggleChartMetric(metric.id)"
                           />
                         </label>
@@ -462,6 +495,7 @@ interface MetricGroup {
 export class WorkspaceComponent implements OnInit {
   private readonly authService = inject(AuthenticationService);
   private readonly reportBuilderService = inject(ReportBuilderService);
+  private readonly router = inject(Router);
   readonly languageService = inject(LanguageService);
 
   readonly activeSection = signal<WorkspaceSection>('mine');
@@ -477,6 +511,37 @@ export class WorkspaceComponent implements OnInit {
   readonly deleteConfirmOpen = signal(false);
   readonly pendingDeleteReport = signal<CustomReport | null>(null);
   readonly metricVariables = this.reportBuilderService.metricVariables;
+  readonly workspaceTemplates: WorkspaceTemplate[] = [
+    {
+      id: 'academic-progress',
+      titleKey: 'workspace.templates.academic.title',
+      descriptionKey: 'workspace.templates.academic.description',
+      charts: [
+        { titleKey: 'workspace.templates.charts.academicScores', kind: 'line', metrics: ['canvas-course-grade-avg', 'canvas-assignment-score-avg'] },
+        { titleKey: 'workspace.templates.charts.assignmentWorkflow', kind: 'line', metrics: ['canvas-assignments-submitted', 'canvas-assignments-graded'] },
+        { titleKey: 'workspace.templates.charts.assignmentAttention', kind: 'bar', metrics: ['canvas-assignments-missing', 'canvas-assignments-late'] },
+      ],
+    },
+    {
+      id: 'wellbeing-safety',
+      titleKey: 'workspace.templates.wellbeing.title',
+      descriptionKey: 'workspace.templates.wellbeing.description',
+      charts: [
+        { titleKey: 'workspace.templates.charts.mentalHealth', kind: 'line', metrics: ['mental-health-records', 'high-risk-mental-health'] },
+        { titleKey: 'workspace.templates.charts.healthVisits', kind: 'line', metrics: ['health-visit-records'] },
+        { titleKey: 'workspace.templates.charts.busSafety', kind: 'bar', metrics: ['bus-late-records', 'bus-seatbelt-violations'] },
+      ],
+    },
+    {
+      id: 'engagement-development',
+      titleKey: 'workspace.templates.engagement.title',
+      descriptionKey: 'workspace.templates.engagement.description',
+      charts: [
+        { titleKey: 'workspace.templates.charts.behaviour', kind: 'line', metrics: ['behaviour-records', 'concern-behaviour-records', 'commendation-records'] },
+        { titleKey: 'workspace.templates.charts.projects', kind: 'line', metrics: ['project-records', 'active-project-records'] },
+      ],
+    },
+  ];
 
   workspaceDraft: WorkspaceDraft = this.emptyWorkspaceDraft();
   chartDraft: ChartDraft = this.emptyChartDraft();
@@ -527,6 +592,27 @@ export class WorkspaceComponent implements OnInit {
       sharedWith: [],
     };
     this.openSheet('workspace');
+  }
+
+  createFromTemplate(template: WorkspaceTemplate): void {
+    const report = this.reportBuilderService.createReport(this.owner());
+    report.title = this.languageService.t(template.titleKey);
+    report.description = this.languageService.t(template.descriptionKey);
+    report.charts = template.charts.map((chart) => ({
+      id: crypto.randomUUID(),
+      title: this.languageService.t(chart.titleKey),
+      kind: chart.kind,
+      metrics: [...chart.metrics],
+    }));
+
+    this.customReports.set([report, ...this.customReports()]);
+    this.activeSection.set('mine');
+    this.selectedReportId.set(report.id);
+    this.persistReport(report, () => this.router.navigate(['/workspace', report.id]));
+  }
+
+  trackWorkspaceTemplate(_index: number, template: WorkspaceTemplate): string {
+    return template.id;
   }
 
   startEditWorkspace(report: CustomReport) {
@@ -735,32 +821,20 @@ export class WorkspaceComponent implements OnInit {
     this.chartDraft.metrics = [...selected];
   }
 
-  metricGroups(): MetricGroup[] {
-    const order = ['AdmissionsFinance', 'Safety', 'Compliance', 'Achievement'];
-    return order
-      .map((category) => ({
-        category,
-        metrics: this.metricVariables().filter((metric) => metric.category === category),
-      }))
-      .filter((group) => group.metrics.length > 0);
+  metricGroups(): MetricVariableGroup[] {
+    return groupMetricVariables(this.metricVariables());
   }
 
-  selectedMetricCount(group: MetricGroup): number {
+  selectedMetricCount(group: MetricVariableGroup): number {
     return group.metrics.filter((metric) => this.chartDraft.metrics.includes(metric.id)).length;
   }
 
-  trackMetricGroup(_index: number, group: MetricGroup): string {
-    return group.category;
+  trackMetricGroup(_index: number, group: MetricVariableGroup): string {
+    return group.dataset;
   }
 
   trackMetric(_index: number, metric: MetricVariable): string {
     return metric.id;
-  }
-
-  isMetricDisabled(metric: MetricVariable): boolean {
-    if (this.chartDraft.metrics.includes(metric.id)) return false;
-    const selected = this.metricVariables().find((candidate) => this.chartDraft.metrics.includes(candidate.id));
-    return !!selected && selected.category !== metric.category;
   }
 
   selectedShareLabel(): string {
@@ -817,13 +891,19 @@ export class WorkspaceComponent implements OnInit {
     return translated === key ? source : translated;
   }
 
+  datasetLabel(dataset: string): string {
+    const key = `workspace.datasets.${dataset}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? dataset : translated;
+  }
+
   private openSheet(kind: SheetKind) {
     this.sheetKind.set(kind);
     this.sheetMounted.set(true);
     window.setTimeout(() => this.sheetOpen.set(true));
   }
 
-  private persistReport(report: CustomReport) {
+  private persistReport(report: CustomReport, afterSave?: () => void) {
     const nextReport = { ...report, updatedAt: new Date().toISOString() };
     this.customReports.update((reports) =>
       reports.map((candidate) => (candidate.id === report.id ? nextReport : candidate)),
@@ -841,6 +921,7 @@ export class WorkspaceComponent implements OnInit {
         ),
       );
       this.reportBuilderService.saveReports(this.customReports());
+      afterSave?.();
     });
   }
 

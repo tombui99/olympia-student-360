@@ -19,6 +19,58 @@ export interface MetricVariable {
   series: { periodStart: string; value: number }[];
 }
 
+export interface MetricVariableGroup {
+  dataset: string;
+  metrics: MetricVariable[];
+}
+
+/**
+ * The metric API exposes business category and source lineage. For selection, users
+ * need the more concrete source dataset; Canvas is the only source currently backed
+ * by two distinct warehouse datasets.
+ */
+export function metricDataset(metric: MetricVariable): string {
+  if (metric.id === 'canvas-course-grade-avg') {
+    return 'CanvasCourseScores';
+  }
+  if (metric.source === 'Canvas') {
+    return 'CanvasSubmissions';
+  }
+  return metric.source;
+}
+
+export function groupMetricVariables(metrics: MetricVariable[]): MetricVariableGroup[] {
+  const preferredOrder = [
+    'CanvasCourseScores',
+    'CanvasSubmissions',
+    'StudentBehaviours',
+    'StudentProjects',
+    'StudentMentalHealth',
+    'SISHealthVisits',
+    'StudentBusAttendance',
+    'SIS',
+    'BaseERP',
+    'Warehouse',
+  ];
+  const grouped = new Map<string, MetricVariable[]>();
+  for (const metric of metrics) {
+    const dataset = metricDataset(metric);
+    grouped.set(dataset, [...(grouped.get(dataset) ?? []), metric]);
+  }
+
+  return [...grouped.entries()]
+    .sort(([left], [right]) => {
+      const leftIndex = preferredOrder.indexOf(left);
+      const rightIndex = preferredOrder.indexOf(right);
+      if (leftIndex !== -1 || rightIndex !== -1) {
+        return (leftIndex === -1 ? preferredOrder.length : leftIndex)
+          - (rightIndex === -1 ? preferredOrder.length : rightIndex);
+      }
+      return left.localeCompare(right);
+    })
+    .map(([dataset, datasetMetrics]) => ({ dataset, metrics: datasetMetrics }));
+}
+
 export interface MetricDrilldownRow {
   studentId: number;
   studentCode: string;
