@@ -1213,72 +1213,37 @@ interface ChartImageExporter {
 
     .sheet-backdrop {
       opacity: 0;
+      transition: opacity 220ms ease-out;
     }
 
     .sheet-backdrop-open {
       opacity: 1;
-      animation: sheet-backdrop-in 300ms ease-out both;
     }
 
     .sheet-backdrop-closing {
-      animation: sheet-backdrop-out 300ms ease-out both;
+      opacity: 0;
     }
 
     .sheet-panel {
       transform: translate3d(100%, 0, 0);
       backface-visibility: hidden;
       will-change: transform;
+      transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+      contain: layout style;
     }
 
     .sheet-panel-open {
       transform: translate3d(0, 0, 0);
-      animation: sheet-slide-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
     .sheet-panel-closing {
-      animation: sheet-slide-out 300ms ease-in both;
-    }
-
-    @keyframes sheet-slide-out {
-      from {
-        transform: translate3d(0, 0, 0);
-      }
-      to {
-        transform: translate3d(100%, 0, 0);
-      }
-    }
-
-    @keyframes sheet-slide-in {
-      from {
-        transform: translate3d(100%, 0, 0);
-      }
-      to {
-        transform: translate3d(0, 0, 0);
-      }
-    }
-
-    @keyframes sheet-backdrop-in {
-      from {
-        opacity: 0;
-      }
-      to {
-        opacity: 1;
-      }
-    }
-
-    @keyframes sheet-backdrop-out {
-      from {
-        opacity: 1;
-      }
-      to {
-        opacity: 0;
-      }
+      transform: translate3d(100%, 0, 0);
     }
 
     @media (prefers-reduced-motion: reduce) {
       .sheet-backdrop,
       .sheet-panel {
-        animation: none;
+        transition: none;
       }
     }
   `,
@@ -1381,6 +1346,21 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly exploreOptions = signal<CanvasExploreOptions>({ datasets: [] });
   /** Cached explore results keyed by chart id (explorer charts fetch on filter change). */
   readonly exploreResults = signal<Record<string, CanvasExploreResult>>({});
+  /** Count reportable charts without performing the expensive canvas image export. */
+  readonly aiReportChartCount = computed(() => {
+    const report = this.selectedReport();
+    if (!report) {
+      return 0;
+    }
+
+    return this.orderedCharts(report).filter((chart) => {
+      if (chart.explorer) {
+        return (this.exploreResults()[chart.id]?.rows.length ?? 0) > 0;
+      }
+
+      return this.chartMetrics(chart).some((metric) => metric.series.length > 0);
+    }).length;
+  });
   private explorerRequestVersion = 0;
 
   /** Active filters, resolved to human-readable label/value pairs for the snapshot header. */
@@ -1855,7 +1835,15 @@ export class WorkspaceDetailComponent implements OnInit {
     this.aiReportDraft = this.defaultAiReportDraft();
     this.aiReportError.set(null);
     this.aiReportMounted.set(true);
-    requestAnimationFrame(() => this.aiReportOpen.set(true));
+    // Give the browser one painted frame with the panel off-screen before
+    // transitioning it in. This avoids a first-open layout jump.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (this.aiReportMounted()) {
+          this.aiReportOpen.set(true);
+        }
+      });
+    });
   }
 
   closeAiReportSheet(): void {
@@ -1868,10 +1856,6 @@ export class WorkspaceDetailComponent implements OnInit {
       this.aiReportMounted.set(false);
       this.aiReportUnmountTimer = null;
     }, 300);
-  }
-
-  aiReportChartCount(): number {
-    return this.buildAiChartSnapshots().length;
   }
 
   generateAiReport(): void {

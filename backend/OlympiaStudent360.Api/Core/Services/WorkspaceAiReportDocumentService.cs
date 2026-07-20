@@ -11,8 +11,9 @@ namespace OlympiaStudent360.Api.Core.Services;
 public class WorkspaceAiReportDocumentService
 {
     private const string Purple = "32124F";
-    private const string Blue = "2E74B5";
-    private const string DarkBlue = "1F4D78";
+    private const string Lavender = "E7DDEF";
+    private const string Gold = "C09118";
+    private const string DarkBlue = "17365D";
     private const string Muted = "6F6877";
 
     public byte[] Build(
@@ -27,29 +28,32 @@ public class WorkspaceAiReportDocumentService
         {
             var mainPart = document.AddMainDocumentPart();
             mainPart.Document = new Document(new Body());
+            AddDocumentSettings(mainPart);
             AddStyles(mainPart);
             AddNumbering(mainPart);
+            var headerRelationshipId = AddHeader(mainPart, request.Language);
             var footerRelationshipId = AddFooter(mainPart, request.Language);
 
             var body = mainPart.Document.Body!;
-            body.Append(Paragraph(narrative.Title, "ReportTitle"));
-            body.Append(Paragraph(workspaceTitle, "Subtitle"));
+            body.Append(CenteredParagraph(narrative.Title, "ReportTitle"));
+            body.Append(CenteredParagraph(workspaceTitle, "Subtitle"));
             if (!string.IsNullOrWhiteSpace(workspaceDescription))
             {
-                body.Append(Paragraph(workspaceDescription, "Metadata"));
+                body.Append(CenteredParagraph(workspaceDescription, "Metadata"));
             }
 
             var generatedLabel = request.Language == "en" ? "Generated" : "Ngày tạo";
             var authorLabel = request.Language == "en" ? "Prepared for" : "Người tạo báo cáo";
-            body.Append(Paragraph($"{generatedLabel}: {DateTime.Now:dd/MM/yyyy HH:mm}  |  {authorLabel}: {generatedBy}", "Metadata"));
+            AppendDefinitionRows(body,
+            [
+                (generatedLabel, DateTime.Now.ToString("dd/MM/yyyy HH:mm")),
+                (authorLabel, generatedBy)
+            ]);
 
             if (request.Filters.Count > 0)
             {
                 body.Append(Paragraph(request.Language == "en" ? "Applied filters" : "Bộ lọc đã áp dụng", "Heading2"));
-                foreach (var filter in request.Filters)
-                {
-                    body.Append(Bullet($"{filter.Label}: {filter.Value}"));
-                }
+                AppendDefinitionRows(body, request.Filters.Select(filter => (filter.Label, filter.Value)));
             }
 
             body.Append(Paragraph(request.Language == "en" ? "Executive summary" : "Tóm tắt điều hành", "Heading1"));
@@ -123,9 +127,10 @@ public class WorkspaceAiReportDocumentService
                 "Disclaimer"));
 
             body.Append(new SectionProperties(
+                new HeaderReference { Type = HeaderFooterValues.Default, Id = headerRelationshipId },
                 new FooterReference { Type = HeaderFooterValues.Default, Id = footerRelationshipId },
-                new PageSize { Width = 12240, Height = 15840 },
-                new PageMargin { Top = 1440, Right = 1440, Bottom = 1440, Left = 1440, Header = 708, Footer = 708 }));
+                new PageSize { Width = 11906, Height = 16838 },
+                new PageMargin { Top = 1700, Right = 1020, Bottom = 1050, Left = 1020, Header = 260, Footer = 300 }));
             mainPart.Document.Save();
         }
         return stream.ToArray();
@@ -158,6 +163,38 @@ public class WorkspaceAiReportDocumentService
         var paragraph = new Paragraph(properties);
         paragraph.Append(new Run(new Text(text) { Space = SpaceProcessingModeValues.Preserve }));
         return paragraph;
+    }
+
+    private static Paragraph CenteredParagraph(string text, string styleId)
+    {
+        var paragraph = Paragraph(text, styleId);
+        paragraph.ParagraphProperties!.Append(new Justification { Val = JustificationValues.Center });
+        return paragraph;
+    }
+
+    private static void AppendDefinitionRows(Body body, IEnumerable<(string Label, string Value)> rows)
+    {
+        foreach (var (label, value) in rows)
+        {
+            var properties = new ParagraphProperties(
+                new Shading { Fill = Lavender, Val = ShadingPatternValues.Clear },
+                new ParagraphBorders(
+                    new BottomBorder { Val = BorderValues.Single, Color = "FFFFFF", Size = 6 }),
+                new Tabs(new TabStop { Val = TabStopValues.Left, Position = 2700 }),
+                new Indentation { Left = "120", Right = "120" },
+                new SpacingBetweenLines { Before = "90", After = "90", Line = "240", LineRule = LineSpacingRuleValues.Auto });
+            var labelRun = new Run(
+                new RunProperties(
+                    new RunFonts { Ascii = "Cambria", HighAnsi = "Cambria", EastAsia = "Cambria" },
+                    new Bold(),
+                    new Color { Val = Purple }),
+                new Text(label) { Space = SpaceProcessingModeValues.Preserve },
+                new TabChar());
+            var valueRun = new Run(
+                new RunProperties(new RunFonts { Ascii = "Cambria", HighAnsi = "Cambria", EastAsia = "Cambria" }),
+                new Text(value) { Space = SpaceProcessingModeValues.Preserve });
+            body.Append(new Paragraph(properties, labelRun, valueRun));
+        }
     }
 
     private static Paragraph Bullet(string text)
@@ -205,8 +242,8 @@ public class WorkspaceAiReportDocumentService
         using (var imageStream = new MemoryStream(bytes)) imagePart.FeedData(imageStream);
         var relationshipId = mainPart.GetIdOfPart(imagePart);
 
-        const long maxWidth = 5_943_600L; // 6.5 inches: usable US Letter width.
-        const long maxHeight = 3_474_720L; // 3.8 inches to keep figures compact.
+        const long maxWidth = 6_350_000L; // Approximately 6.95 inches on A4.
+        const long maxHeight = 3_474_720L;
         const double emusPerPixelAt96Dpi = 9_525d;
         var scale = Math.Min(emusPerPixelAt96Dpi,
             Math.Min((double)maxWidth / pixelWidth, (double)maxHeight / pixelHeight));
@@ -287,15 +324,30 @@ public class WorkspaceAiReportDocumentService
     {
         var part = mainPart.AddNewPart<StyleDefinitionsPart>();
         part.Styles = new Styles(
-            Style("Normal", "Normal", true, "Calibri", "22", "000000", "0", "120", "264"),
-            Style("ReportTitle", "Report Title", false, "Calibri", "48", Purple, "0", "120", "264", true),
-            Style("Subtitle", "Subtitle", false, "Calibri", "28", Purple, "0", "80", "264", true),
-            Style("Metadata", "Metadata", false, "Calibri", "19", Muted, "0", "80", "240"),
-            Style("Heading1", "Heading 1", false, "Calibri", "32", Blue, "320", "160", "264", true),
-            Style("Heading2", "Heading 2", false, "Calibri", "26", Blue, "240", "120", "264", true),
-            Style("Heading3", "Heading 3", false, "Calibri", "24", DarkBlue, "160", "80", "264", true),
-            Style("Disclaimer", "Disclaimer", false, "Calibri", "18", Muted, "240", "0", "240", false, true));
+            Style("Normal", "Normal", true, "Cambria", "21", "000000", "0", "100", "252"),
+            Style("ReportTitle", "Report Title", false, "Cambria", "34", Purple, "100", "80", "252", true),
+            Style("Subtitle", "Subtitle", false, "Cambria", "25", DarkBlue, "0", "70", "252", true),
+            Style("Metadata", "Metadata", false, "Cambria", "18", Muted, "0", "70", "230"),
+            Style("Heading1", "Heading 1", false, "Cambria", "27", Purple, "280", "120", "252", true),
+            Style("Heading2", "Heading 2", false, "Cambria", "23", Purple, "200", "100", "252", true),
+            Style("Heading3", "Heading 3", false, "Cambria", "21", DarkBlue, "140", "70", "252", true),
+            Style("Disclaimer", "Disclaimer", false, "Cambria", "17", Muted, "220", "0", "230", false, true));
         part.Styles.Save();
+    }
+
+    private static void AddDocumentSettings(MainDocumentPart mainPart)
+    {
+        var part = mainPart.AddNewPart<DocumentSettingsPart>();
+        part.Settings = new Settings(
+            new Compatibility(
+                new CompatibilitySetting
+                {
+                    Name = CompatSettingNameValues.CompatibilityMode,
+                    Uri = "http://schemas.microsoft.com/office/word",
+                    Val = "15"
+                }),
+            new DoNotUseHTMLParagraphAutoSpacing());
+        part.Settings.Save();
     }
 
     private static Style Style(
@@ -345,15 +397,66 @@ public class WorkspaceAiReportDocumentService
         part.Numbering.Save();
     }
 
+    private static string AddHeader(MainDocumentPart mainPart, string language)
+    {
+        var headerPart = mainPart.AddNewPart<HeaderPart>();
+        var logoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "olympia_logo.png");
+        Drawing? logo = null;
+        if (File.Exists(logoPath))
+        {
+            var imagePart = headerPart.AddImagePart(ImagePartType.Png);
+            using var source = File.OpenRead(logoPath);
+            imagePart.FeedData(source);
+            logo = ImageDrawing(headerPart.GetIdOfPart(imagePart), 500_000, 500_000, 1, "The Olympia Schools logo");
+        }
+
+        var identity = new Paragraph(
+            new ParagraphProperties(new SpacingBetweenLines { After = "20" }),
+            logo == null ? new Run() : new Run(logo),
+            new Run(new RunProperties(new RunFonts { Ascii = "Cambria", HighAnsi = "Cambria" }, new Bold(), new Color { Val = Purple }, new FontSize { Val = "18" }),
+                new Text("  THE OLYMPIA SCHOOLS")));
+        var rightParagraph = new Paragraph(
+            new ParagraphProperties(
+                new Justification { Val = JustificationValues.Right },
+                new SpacingBetweenLines { After = "20" },
+                new ParagraphBorders(new BottomBorder { Val = BorderValues.Single, Color = Gold, Size = 10 })),
+            new Run(new RunProperties(new RunFonts { Ascii = "Cambria", HighAnsi = "Cambria" }, new Bold(), new Color { Val = DarkBlue }, new FontSize { Val = "17" }),
+                new Text((language == "en" ? "SCHOOL ANALYTICS REPORT" : "BÁO CÁO PHÂN TÍCH NHÀ TRƯỜNG") + "  |  Olympia Student 360")));
+        headerPart.Header = new Header(identity, rightParagraph);
+        headerPart.Header.Save();
+        return mainPart.GetIdOfPart(headerPart);
+    }
+
+    private static Drawing ImageDrawing(string relationshipId, long width, long height, uint id, string description) =>
+        new(new DW.Inline(
+            new DW.Extent { Cx = width, Cy = height },
+            new DW.EffectExtent { LeftEdge = 0, TopEdge = 0, RightEdge = 0, BottomEdge = 0 },
+            new DW.DocProperties { Id = id, Name = description, Description = description },
+            new DW.NonVisualGraphicFrameDrawingProperties(new A.GraphicFrameLocks { NoChangeAspect = true }),
+            new A.Graphic(new A.GraphicData(
+                new PIC.Picture(
+                    new PIC.NonVisualPictureProperties(
+                        new PIC.NonVisualDrawingProperties { Id = 0, Name = description },
+                        new PIC.NonVisualPictureDrawingProperties()),
+                    new PIC.BlipFill(new A.Blip { Embed = relationshipId }, new A.Stretch(new A.FillRectangle())),
+                    new PIC.ShapeProperties(
+                        new A.Transform2D(new A.Offset { X = 0, Y = 0 }, new A.Extents { Cx = width, Cy = height }),
+                        new A.PresetGeometry(new A.AdjustValueList()) { Preset = A.ShapeTypeValues.Rectangle })))
+                { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" })));
+
     private static string AddFooter(MainDocumentPart mainPart, string language)
     {
         var footerPart = mainPart.AddNewPart<FooterPart>();
         footerPart.Footer = new Footer(
             new Paragraph(
-                new ParagraphProperties(new Justification { Val = JustificationValues.Right }),
+                new ParagraphProperties(
+                    new Justification { Val = JustificationValues.Center },
+                    new ParagraphBorders(
+                        new TopBorder { Val = BorderValues.Single, Color = Purple, Size = 28, Space = 6 },
+                        new BottomBorder { Val = BorderValues.Single, Color = Gold, Size = 8, Space = 1 })),
                 new Run(
-                    new RunProperties(new RunFonts { Ascii = "Calibri", HighAnsi = "Calibri" }, new Color { Val = Muted }, new FontSize { Val = "18" }),
-                    new Text(language == "en" ? "Olympia Student 360 | AI report" : "Olympia Student 360 | Báo cáo AI"))));
+                    new RunProperties(new RunFonts { Ascii = "Cambria", HighAnsi = "Cambria" }, new Bold(), new Color { Val = Purple }, new FontSize { Val = "16" }),
+                    new Text("www.theolympiaschools.edu.vn   |   Olympia Student 360"))));
         footerPart.Footer.Save();
         return mainPart.GetIdOfPart(footerPart);
     }
