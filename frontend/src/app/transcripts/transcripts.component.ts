@@ -63,21 +63,17 @@ import { SchoolTranscript, SchoolTranscriptYear, TranscriptsService } from './tr
 
           @if (record.years.length) {
             <div class="border-b border-[#e8e1eb] bg-[#faf8fb] px-5 py-4 lg:px-8">
-              <p class="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-[#766a7e]">{{ t('transcript.chooseYear') }}</p>
-              <div class="flex gap-2 overflow-x-auto">
+              <label class="block max-w-xs text-xs font-bold uppercase tracking-[0.14em] text-[#766a7e]">
+                {{ t('transcript.chooseYear') }}
+                <select
+                  class="mt-2 block w-full rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[#32124f] outline-none transition focus:border-[#6d3a91] focus:ring-2 focus:ring-[#6d3a91]/15"
+                  [value]="selectedYear()"
+                  (change)="changeYear($event)">
                 @for (year of record.years; track year.academicYear) {
-                  <button type="button" class="shrink-0 rounded-full border px-4 py-2 text-sm font-semibold transition"
-                    [class.border-[#32124f]]="selectedYear() === year.academicYear"
-                    [class.bg-[#32124f]]="selectedYear() === year.academicYear"
-                    [class.text-white]="selectedYear() === year.academicYear"
-                    [class.border-[#ddd5e2]]="selectedYear() !== year.academicYear"
-                    [class.bg-white]="selectedYear() !== year.academicYear"
-                    [class.text-[#5f5268]]="selectedYear() !== year.academicYear"
-                    (click)="selectedYear.set(year.academicYear)">
-                    {{ year.academicYear }}
-                  </button>
+                  <option [value]="year.academicYear">{{ year.academicYear }}</option>
                 }
-              </div>
+                </select>
+              </label>
             </div>
 
             @if (activeYear(record); as year) {
@@ -183,6 +179,10 @@ export class TranscriptsComponent {
 
   activeYear(record: SchoolTranscript): SchoolTranscriptYear | undefined {
     return record.years.find((year) => year.academicYear === this.selectedYear()) ?? record.years[0];
+  }
+
+  changeYear(event: Event): void {
+    this.selectedYear.set((event.target as HTMLSelectElement).value);
   }
 
   score(value?: number | null): string { return formatTranscriptScore(value, this.scoreScale()); }
