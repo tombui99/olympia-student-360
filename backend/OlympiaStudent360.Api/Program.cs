@@ -29,7 +29,11 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddDefaultTokenProviders();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var signingKey = jwtSettings["SigningKey"] ?? throw new InvalidOperationException("Jwt:SigningKey is not configured.");
+var signingKey = jwtSettings["SigningKey"];
+if (string.IsNullOrWhiteSpace(signingKey))
+{
+    throw new InvalidOperationException("Jwt:SigningKey is not configured.");
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -78,13 +82,20 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddCors(options =>
 {
+    var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins")
+        .GetChildren()
+        .Select(origin => origin.Value)
+        .Where(origin => !string.IsNullOrWhiteSpace(origin))
+        .Cast<string>()
+        .ToArray();
+
     options.AddPolicy("AllowAngular", policy =>
     {
-        policy.WithOrigins(
+        policy.WithOrigins(configuredOrigins.Length > 0 ? configuredOrigins : [
                 "http://localhost:4200",
                 "http://localhost:4201",
                 "http://127.0.0.1:4200",
-                "http://127.0.0.1:4201")
+                "http://127.0.0.1:4201"])
             .AllowAnyHeader()
             .AllowAnyMethod()
             .WithExposedHeaders("Content-Disposition")
@@ -109,6 +120,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 try
 {
@@ -117,6 +129,10 @@ try
 catch (Exception ex)
 {
     app.Logger.LogError(ex, "An error occurred while migrating or seeding the database.");
+    if (app.Environment.IsProduction())
+    {
+        throw;
+    }
 }
 
 app.Run();
