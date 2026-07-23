@@ -2,7 +2,6 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
-import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 import { CohortStats, StudentsService } from './students.service';
 
@@ -124,7 +123,6 @@ import { CohortStats, StudentsService } from './students.service';
 })
 export class CohortsComponent implements OnInit {
   private readonly studentsService = inject(StudentsService);
-  private readonly authService = inject(AuthenticationService);
   private readonly router = inject(Router);
   readonly languageService = inject(LanguageService);
 
@@ -151,10 +149,7 @@ export class CohortsComponent implements OnInit {
   }
 
   scopeHint(): string {
-    const role = this.authService.getUserRole();
-    return role === 'Admin' || role === 'Principal'
-      ? this.languageService.t('cohorts.adminScopeHint')
-      : this.languageService.t('cohorts.teacherScopeHint');
+    return this.languageService.t('cohorts.scopeHint');
   }
 
   gradeLabel(cohort: CohortStats): string {

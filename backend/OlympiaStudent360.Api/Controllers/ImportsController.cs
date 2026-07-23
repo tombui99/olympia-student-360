@@ -278,7 +278,7 @@ public class ImportsController : ControllerBase
     {
         if (!students.TryGetValue(studentCode.Trim(), out student))
         {
-            errors.Add($"Row {rowNumber}: student_id '{studentCode}' is invalid or is not assigned to you.");
+            errors.Add($"Row {rowNumber}: student_id '{studentCode}' is invalid.");
             return false;
         }
 
@@ -292,16 +292,7 @@ public class ImportsController : ControllerBase
     }
 
     private IQueryable<StudentProfile> VisibleStudents()
-    {
-        var query = _context.StudentProfiles.AsNoTracking();
-        if (User.IsInRole("Admin") || User.IsInRole("Principal"))
-        {
-            return query;
-        }
-
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return SISClassVisibility.Students(_context, userId);
-    }
+        => _context.StudentProfiles.AsNoTracking();
 
     private async Task<string> CurrentUserDisplayName()
     {

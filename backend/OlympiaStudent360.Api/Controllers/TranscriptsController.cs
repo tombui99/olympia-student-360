@@ -1,10 +1,8 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
-using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
@@ -251,11 +249,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
     }
 
     private IQueryable<StudentProfile> VisibleStudents()
-    {
-        var query = context.StudentProfiles.AsNoTracking();
-        if (User.IsInRole("Admin") || User.IsInRole("Principal")) return query;
-        return SISClassVisibility.Students(context, User.FindFirstValue(ClaimTypes.NameIdentifier));
-    }
+        => context.StudentProfiles.AsNoTracking();
 
     private static string? NormalizeGrade(string gradeLevel)
     {

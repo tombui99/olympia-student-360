@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -121,10 +120,5 @@ public class SISClassesController : ControllerBase
     }
 
     private IQueryable<SISClass> VisibleClasses()
-    {
-        var query = _context.SISClasses.AsNoTracking();
-        if (User.IsInRole("Admin") || User.IsInRole("Principal")) return query;
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return query.Where(item => item.Teachers.Any(assignment => assignment.TeacherUserId == userId));
-    }
+        => _context.SISClasses.AsNoTracking();
 }

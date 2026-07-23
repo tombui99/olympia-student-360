@@ -262,10 +262,7 @@ export class CommendationsComponent implements OnInit {
   }
 
   scopeHint(): string {
-    const role = this.authService.getUserRole();
-    return role === 'Admin' || role === 'Principal'
-      ? this.languageService.t('commendations.adminScopeHint')
-      : this.languageService.t('commendations.teacherScopeHint');
+    return this.languageService.t('commendations.scopeHint');
   }
 
   canManageSettings(): boolean {

@@ -233,10 +233,7 @@ export class AtRiskComponent implements OnInit {
   }
 
   scopeHint(): string {
-    const role = this.authService.getUserRole();
-    return role === 'Admin' || role === 'Principal'
-      ? this.languageService.t('atRisk.adminScopeHint')
-      : this.languageService.t('atRisk.teacherScopeHint');
+    return this.languageService.t('atRisk.scopeHint');
   }
 
   canManageSettings(): boolean {

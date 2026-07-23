@@ -378,7 +378,7 @@ public class StudentsController : ControllerBase
         var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
         if (student == null)
         {
-            return BadRequest(new { Message = "The selected student ID is invalid or is not assigned to you." });
+            return BadRequest(new { Message = "The selected student ID is invalid." });
         }
 
         if (!StudentClassificationService.TryCanonicalBehaviourType(model.BehaviourType, out var behaviourType))
@@ -432,7 +432,7 @@ public class StudentsController : ControllerBase
         var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
         if (student == null)
         {
-            return BadRequest(new { Message = "The selected student ID is invalid or is not assigned to you." });
+            return BadRequest(new { Message = "The selected student ID is invalid." });
         }
 
         var subject = StudentDataEntryOptions.ProjectSubjects.FirstOrDefault(value =>
@@ -543,7 +543,7 @@ public class StudentsController : ControllerBase
         var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
         if (student == null)
         {
-            return BadRequest(new { Message = "The selected student ID is invalid or is not assigned to you." });
+            return BadRequest(new { Message = "The selected student ID is invalid." });
         }
 
         var direction = Canonical(StudentDataEntryOptions.BusTripDirections, model.TripDirection);
@@ -1194,17 +1194,7 @@ public class StudentsController : ControllerBase
     }
 
     private IQueryable<StudentProfile> VisibleStudents()
-    {
-        var query = _context.StudentProfiles.AsNoTracking();
-
-        if (User.IsInRole("Admin") || User.IsInRole("Principal"))
-        {
-            return query;
-        }
-
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return SISClassVisibility.Students(_context, userId);
-    }
+        => _context.StudentProfiles.AsNoTracking();
 
     private async Task<string> CurrentUserDisplayName()
     {

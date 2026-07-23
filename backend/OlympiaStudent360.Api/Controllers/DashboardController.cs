@@ -133,12 +133,6 @@ public class DashboardController : ControllerBase
     {
         var query = _context.DashboardMetricObservations.AsNoTracking()
             .Include(o => o.Metric).Where(o => o.Metric.IsActive);
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(o => o.StudentProfileId == null || visibleStudentIds.Contains(o.StudentProfileId.Value));
-        }
         query = Apply(query, o => o.AcademicYear, year);
         query = Apply(query, o => o.Term, term);
         query = Apply(query, o => o.MeasurementCycle, cycle);
@@ -473,12 +467,6 @@ public class DashboardController : ControllerBase
             var query = _context.DashboardMetricObservations.AsNoTracking()
                 .Include(o => o.Metric)
                 .Where(o => o.Metric.Key == metricId && o.StudentProfileId != null);
-            if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-            {
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-                query = query.Where(o => o.StudentProfileId != null && visibleStudentIds.Contains(o.StudentProfileId.Value));
-            }
             query = Apply(query, o => o.AcademicYear, year);
             query = Apply(query, o => o.Term, term);
             query = Apply(query, o => o.MeasurementCycle, cycle);
@@ -618,12 +606,6 @@ public class DashboardController : ControllerBase
         string? program, string? subject, string? year, string? term)
     {
         var query = _context.StudentBehaviours.AsNoTracking().AsQueryable();
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-        }
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
@@ -642,12 +624,6 @@ public class DashboardController : ControllerBase
         string? program, string? subject, string? year, string? term)
     {
         var query = _context.StudentProjects.AsNoTracking().AsQueryable();
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-        }
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
@@ -665,12 +641,6 @@ public class DashboardController : ControllerBase
         string? campus, string? level, string? grade, string? homeroom, string? program, string? year)
     {
         var query = _context.StudentMentalHealthRecords.AsNoTracking().AsQueryable();
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-        }
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
@@ -684,12 +654,6 @@ public class DashboardController : ControllerBase
         string? campus, string? level, string? grade, string? homeroom, string? program, string? year)
     {
         var query = _context.SISHealthVisits.AsNoTracking().Where(item => item.StudentProfileId != null);
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
-        }
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item => item.Student!.GradeLevel == grade);
@@ -708,12 +672,6 @@ public class DashboardController : ControllerBase
         string? program, string? year, string? term)
     {
         var query = _context.StudentBusAttendanceRecords.AsNoTracking().AsQueryable();
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-        }
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
@@ -743,12 +701,6 @@ public class DashboardController : ControllerBase
         string? program, string? subject, string? year, string? term)
     {
         var query = _context.CanvasSubmissions.AsNoTracking().Where(item => item.StudentProfileId != null);
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
-        }
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item => item.Student!.GradeLevel == grade);
@@ -766,12 +718,6 @@ public class DashboardController : ControllerBase
     {
         var query = _context.CanvasCourseScores.AsNoTracking()
             .Where(item => item.CourseScore && item.StudentProfileId != null);
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            query = query.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
-        }
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item => item.Student!.GradeLevel == grade);
@@ -792,17 +738,6 @@ public class DashboardController : ControllerBase
         var mentalHealth = _context.StudentMentalHealthRecords.AsNoTracking().AsQueryable();
         var healthVisits = _context.SISHealthVisits.AsNoTracking().Where(item => item.StudentProfileId != null);
         var busRecords = _context.StudentBusAttendanceRecords.AsNoTracking().AsQueryable();
-
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            behaviours = behaviours.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-            projects = projects.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-            mentalHealth = mentalHealth.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-            healthVisits = healthVisits.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
-            busRecords = busRecords.Where(item => visibleStudentIds.Contains(item.StudentProfileId));
-        }
 
         if (studentId.HasValue)
         {
@@ -982,13 +917,6 @@ public class DashboardController : ControllerBase
         var scores = _context.CanvasCourseScores.AsNoTracking()
             .Where(item => item.CourseScore && item.StudentProfileId != null).AsQueryable();
 
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var visibleStudentIds = SISClassVisibility.StudentIds(_context, userId);
-            submissions = submissions.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
-            scores = scores.Where(item => item.StudentProfileId != null && visibleStudentIds.Contains(item.StudentProfileId.Value));
-        }
         if (studentId.HasValue)
         {
             submissions = submissions.Where(item => item.StudentProfileId == studentId.Value);
@@ -1376,17 +1304,7 @@ public class DashboardController : ControllerBase
     }
 
     private IQueryable<StudentProfile> VisibleStudents()
-    {
-        var query = _context.StudentProfiles.AsNoTracking();
-
-        if (User.IsInRole("Admin") || User.IsInRole("Principal"))
-        {
-            return query;
-        }
-
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return SISClassVisibility.Students(_context, userId);
-    }
+        => _context.StudentProfiles.AsNoTracking();
 
     private static IQueryable<DashboardMetricObservation> Apply(
         IQueryable<DashboardMetricObservation> query,

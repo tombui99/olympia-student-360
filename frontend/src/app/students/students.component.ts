@@ -2,7 +2,6 @@ import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 import { StudentListItem, StudentsService } from './students.service';
 import { riskBadgeClass } from './risk.util';
@@ -191,7 +190,6 @@ import { riskBadgeClass } from './risk.util';
 })
 export class StudentsComponent implements OnInit, OnDestroy {
   private readonly studentsService = inject(StudentsService);
-  private readonly authService = inject(AuthenticationService);
   private readonly route = inject(ActivatedRoute);
   readonly languageService = inject(LanguageService);
 
@@ -304,10 +302,7 @@ export class StudentsComponent implements OnInit, OnDestroy {
   }
 
   scopeHint(): string {
-    const role = this.authService.getUserRole();
-    return role === 'Admin' || role === 'Principal'
-      ? this.languageService.t('students.adminScopeHint')
-      : this.languageService.t('students.teacherScopeHint');
+    return this.languageService.t('students.scopeHint');
   }
 
   initials(name: string): string {
