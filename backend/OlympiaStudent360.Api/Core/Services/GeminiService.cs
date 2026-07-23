@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -24,7 +25,7 @@ public class GeminiService
         GenerateWorkspaceAiReportRequestDto request,
         CancellationToken cancellationToken)
     {
-        var apiKey = _configuration["GeminiApiKey"]?.Trim();
+        var apiKey = (_configuration["GeminiApiKey"] ?? _configuration["GEMINI_API_KEY"])?.Trim();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new InvalidOperationException("Gemini API key is not configured.");
@@ -98,19 +99,25 @@ public class GeminiService
             {evidenceJson}
             """;
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent?key={Uri.EscapeDataString(apiKey)}";
-        using var response = await _httpClient.PostAsJsonAsync(url, new
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent";
+        using var message = new HttpRequestMessage(HttpMethod.Post, url);
+        message.Headers.Add("x-goog-api-key", apiKey);
+        message.Content = JsonContent.Create(new
         {
             contents = new[] { new { parts = new[] { new { text = prompt } } } },
             generationConfig = new { temperature = 0.25, responseMimeType = "application/json" }
-        }, cancellationToken);
+        });
+        using var response = await _httpClient.SendAsync(message, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Gemini workspace report request failed with status {Status}: {Error}",
                 (int)response.StatusCode, Truncate(error, 1000));
-            throw new HttpRequestException("Gemini could not generate the report.", null, response.StatusCode);
+            throw new GeminiProviderException(
+                "Gemini could not generate the report.",
+                response.StatusCode,
+                IsCredentialFailure(response.StatusCode));
         }
 
         var gemini = await response.Content.ReadFromJsonAsync<GeminiResponse>(cancellationToken: cancellationToken);
@@ -161,6 +168,9 @@ public class GeminiService
 
     private static string Truncate(string value, int maxLength) =>
         value[..Math.Min(value.Length, maxLength)];
+
+    private static bool IsCredentialFailure(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
 
     private static WorkspaceAiNarrative Normalize(WorkspaceAiNarrative narrative)
     {
@@ -220,4 +230,20 @@ public class GeminiService
         [JsonPropertyName("text")]
         public string Text { get; set; } = "";
     }
+}
+
+public sealed class GeminiProviderException : Exception
+{
+    public GeminiProviderException(
+        string message,
+        HttpStatusCode providerStatusCode,
+        bool isCredentialFailure)
+        : base(message)
+    {
+        ProviderStatusCode = providerStatusCode;
+        IsCredentialFailure = isCredentialFailure;
+    }
+
+    public HttpStatusCode ProviderStatusCode { get; }
+    public bool IsCredentialFailure { get; }
 }

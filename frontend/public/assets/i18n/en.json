@@ -885,7 +885,7 @@
   "workspace.aiReport.generate": "Generate & download DOCX",
   "workspace.aiReport.generating": "Writing report...",
   "workspace.aiReport.error": "The report could not be generated. Please try again.",
-  "workspace.aiReport.notConfigured": "Gemini is not configured on the server. Add the GeminiApiKey setting and try again.",
+  "workspace.aiReport.notConfigured": "Gemini is not configured or its API key was rejected. An administrator must update GeminiApiKey on the server and try again.",
   "workspace.aiReport.noData": "There is no chart data to analyse with the current filters.",
   "dashboard.period.label": "Data shown for",
   "dashboard.period.year": "School year",

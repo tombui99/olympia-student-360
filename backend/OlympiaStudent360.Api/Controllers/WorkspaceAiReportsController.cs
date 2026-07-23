@@ -1,4 +1,3 @@
-using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
@@ -73,10 +72,33 @@ public class WorkspaceAiReportsController : ControllerBase
         {
             return Problem("Gemini API is not configured for this environment.", statusCode: StatusCodes.Status503ServiceUnavailable);
         }
+        catch (GeminiProviderException ex) when (ex.IsCredentialFailure)
+        {
+            _logger.LogError(
+                "Gemini credentials were rejected while generating report {ReportId}; provider status {Status}.",
+                reportId,
+                (int)ex.ProviderStatusCode);
+            return Problem(
+                "Gemini credentials were rejected. Update the server API key and try again.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (GeminiProviderException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Gemini failed while generating report {ReportId}; provider status {Status}.",
+                reportId,
+                (int)ex.ProviderStatusCode);
+            return Problem(
+                "Gemini could not generate the report. Please try again.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(ex, "Gemini failed while generating report {ReportId}.", reportId);
-            return Problem("Gemini could not generate the report. Please try again.", statusCode: (int)(ex.StatusCode ?? HttpStatusCode.BadGateway));
+            return Problem(
+                "Gemini could not generate the report. Please try again.",
+                statusCode: StatusCodes.Status502BadGateway);
         }
         catch (InvalidDataException ex)
         {

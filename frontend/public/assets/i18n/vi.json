@@ -885,7 +885,7 @@
   "workspace.aiReport.generate": "Tạo và tải DOCX",
   "workspace.aiReport.generating": "Đang viết báo cáo...",
   "workspace.aiReport.error": "Không thể tạo báo cáo. Vui lòng thử lại.",
-  "workspace.aiReport.notConfigured": "Gemini chưa được cấu hình trên máy chủ. Hãy thêm thiết lập GeminiApiKey rồi thử lại.",
+  "workspace.aiReport.notConfigured": "Gemini chưa được cấu hình hoặc API key đã bị từ chối. Quản trị viên cần cập nhật GeminiApiKey trên máy chủ rồi thử lại.",
   "workspace.aiReport.noData": "Không có dữ liệu biểu đồ để phân tích với bộ lọc hiện tại.",
   "dashboard.period.label": "Dữ liệu hiển thị cho",
   "dashboard.period.year": "Năm học",
