@@ -48,8 +48,7 @@ public class AuthController : ControllerBase
         {
             HttpOnly = true,
             Secure = Request.IsHttps,
-            SameSite = SameSiteMode.Lax,
-            Expires = token.ValidTo
+            SameSite = SameSiteMode.Lax
         });
 
         return Ok(new AuthResponseDto
@@ -157,7 +156,6 @@ public class AuthController : ControllerBase
         return new JwtSecurityToken(
             issuer: jwtSettings["Issuer"],
             audience: jwtSettings["Audience"],
-            expires: DateTime.UtcNow.AddHours(8),
             claims: claims,
             signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
     }

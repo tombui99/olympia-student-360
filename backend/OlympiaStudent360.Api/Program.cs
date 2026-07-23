@@ -46,7 +46,9 @@ builder.Services.AddAuthentication(options =>
     {
         ValidateIssuer = true,
         ValidateAudience = true,
-        ValidateLifetime = true,
+        // Sessions intentionally persist; explicit logout removes the token client-side.
+        ValidateLifetime = false,
+        RequireExpirationTime = false,
         ValidateIssuerSigningKey = true,
         ValidIssuer = jwtSettings["Issuer"],
         ValidAudience = jwtSettings["Audience"],
