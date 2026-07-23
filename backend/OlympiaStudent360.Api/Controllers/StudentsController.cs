@@ -1028,6 +1028,8 @@ public class StudentsController : ControllerBase
     private static SISHealthVisitDto ToSISHealthVisitDto(SISHealthVisit visit) => new()
     {
         Id = visit.Id,
+        StudentProfileId = visit.StudentProfileId,
+        StudentCode = visit.Student?.StudentCode,
         ExamTime = visit.ExamTime,
         FullName = visit.FullName,
         Gender = visit.Gender,

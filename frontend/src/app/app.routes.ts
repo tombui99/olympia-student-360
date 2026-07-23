@@ -49,6 +49,11 @@ export const routes: Routes = [
           import('./transcripts/transcripts.component').then((m) => m.TranscriptsComponent),
       },
       {
+        path: 'health-visits',
+        loadComponent: () =>
+          import('./health-visits/health-visits.component').then((m) => m.HealthVisitsComponent),
+      },
+      {
         path: 'transcripts/:academicYear/grades/:gradeLevel',
         loadComponent: () =>
           import('./transcripts/transcript-grade-detail.component').then((m) => m.TranscriptGradeDetailComponent),

@@ -15,6 +15,7 @@ import {
   faAward,
   faUsersGear,
   faFileLines,
+  faKitMedical,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
@@ -256,6 +257,7 @@ export class MainLayoutComponent {
         { path: '/students', labelKey: 'nav.students', icon: faUserGraduate },
         { path: '/classes', labelKey: 'nav.classes', icon: faSchool },
         { path: '/transcripts', labelKey: 'nav.transcripts', icon: faFileLines },
+        { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical },
         { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation },
         { path: '/commendations', labelKey: 'nav.commendations', icon: faAward },
         { path: '/cohorts', labelKey: 'nav.cohorts', icon: faLayerGroup },

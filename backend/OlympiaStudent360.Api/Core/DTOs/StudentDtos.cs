@@ -215,6 +215,8 @@ public class StudentMentalHealthRecordDto
 public class SISHealthVisitDto
 {
     public int Id { get; set; }
+    public int? StudentProfileId { get; set; }
+    public string? StudentCode { get; set; }
     public DateTime ExamTime { get; set; }
     public string FullName { get; set; } = default!;
     public string? Gender { get; set; }
@@ -225,6 +227,17 @@ public class SISHealthVisitDto
     public string? Treatment { get; set; }
     public string? Medication { get; set; }
     public string? ExaminedBy { get; set; }
+}
+
+public class SISHealthVisitsPageDto
+{
+    public List<SISHealthVisitDto> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+    public List<string> AvailableClasses { get; set; } = [];
+    public List<string> AvailableClassifications { get; set; } = [];
 }
 
 public class StudentBusAttendanceRecordDto
