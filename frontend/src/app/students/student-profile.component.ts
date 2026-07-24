@@ -8,6 +8,15 @@ import { LanguageService } from '../core/language/language.service';
 import { RiskFlag, StudentProfileDetail, StudentsService } from './students.service';
 import { riskBadgeClass } from './risk.util';
 
+type ProfileSection =
+  | 'overview'
+  | 'parents'
+  | 'behaviours'
+  | 'projects'
+  | 'transport'
+  | 'wellbeing'
+  | 'learning';
+
 @Component({
   selector: 'app-student-profile',
   imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink],
@@ -98,6 +107,40 @@ import { riskBadgeClass } from './risk.util';
           </div>
         }
 
+        <div class="grid items-start gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+          <aside class="sticky top-4 z-20 -mx-1 overflow-x-auto px-1 lg:mx-0 lg:overflow-visible lg:px-0">
+            <nav
+              class="flex min-w-max gap-2 rounded-lg border border-[#ebe6ef] bg-white p-2 shadow-[0_12px_35px_rgba(50,18,79,0.08)] lg:min-w-0 lg:flex-col"
+              [attr.aria-label]="languageService.t('studentProfile.navigation.label')"
+            >
+              @for (item of profileSections(); track item.id) {
+                <button
+                  type="button"
+                  class="group flex min-h-11 items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold transition"
+                  [ngClass]="activeSection() === item.id
+                    ? 'bg-[#32124f] text-white shadow-sm'
+                    : 'text-[#5f5666] hover:bg-[#f7f3f9] hover:text-[#32124f]'"
+                  [attr.aria-current]="activeSection() === item.id ? 'page' : null"
+                  (click)="selectSection(item.id)"
+                >
+                  <span
+                    class="h-2 w-2 shrink-0 rounded-full"
+                    [ngClass]="activeSection() === item.id ? 'bg-[#f3c246]' : 'bg-[#c8bcd0] group-hover:bg-[#8b6a9e]'"
+                  ></span>
+                  <span class="whitespace-nowrap lg:min-w-0 lg:flex-1 lg:whitespace-normal">{{ item.label }}</span>
+                  @if (item.count !== null) {
+                    <span
+                      class="min-w-6 rounded-full px-2 py-0.5 text-center text-[11px]"
+                      [ngClass]="activeSection() === item.id ? 'bg-white/15 text-white' : 'bg-[#f1edf4] text-[#6f6877]'"
+                    >{{ item.count }}</span>
+                  }
+                </button>
+              }
+            </nav>
+          </aside>
+
+          <main class="min-w-0">
+        @if (activeSection() === 'parents') {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="border-b border-[#ebe6ef] p-6">
             <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.parents.title') }}</h3>
@@ -142,7 +185,9 @@ import { riskBadgeClass } from './risk.util';
             }
           </div>
         </section>
+        }
 
+        @if (activeSection() === 'overview') {
         @if (profile.riskLevel !== 'None') {
           <div
             class="rounded-lg border p-5"
@@ -206,20 +251,23 @@ import { riskBadgeClass } from './risk.util';
             <p class="mt-2 text-xs text-[#9a91a3]">{{ languageService.t('studentProfile.trendSource') }}</p>
           </article>
         </div>
+        }
 
-        <div class="grid gap-5 xl:grid-cols-2">
+        @if (activeSection() === 'behaviours') {
+        <div>
           <article class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <div class="border-b border-[#ebe6ef] p-6">
               <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.behavioursTitle') }}</h3>
               <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.behavioursHint') }}</p>
             </div>
-            <div class="max-h-[420px] overflow-y-auto">
-              <table class="w-full text-left">
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[780px] text-left">
                 <thead class="sticky top-0 bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284]">
                   <tr>
                     <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.date') }}</th>
                     <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.type') }}</th>
                     <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.notes') }}</th>
+                    <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.createdBy') }}</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-[#ebe6ef]">
@@ -246,16 +294,14 @@ import { riskBadgeClass } from './risk.util';
                             }
                           </span>
                         }
-                        @if (behaviour.recordedByName) {
-                          <span class="mt-0.5 block text-xs text-[#9a91a3]">
-                            {{ languageService.t('studentProfile.recordedBy') }} {{ behaviour.recordedByName }}
-                          </span>
-                        }
+                      </td>
+                      <td class="whitespace-nowrap px-6 py-3 font-medium text-[#5f5666]">
+                        {{ behaviour.recordedByName || '—' }}
                       </td>
                     </tr>
                   } @empty {
                     <tr>
-                      <td class="px-6 py-10 text-center text-sm text-[#7c7284]" colspan="3">
+                      <td class="px-6 py-10 text-center text-sm text-[#7c7284]" colspan="4">
                         {{ languageService.t('studentProfile.noBehaviours') }}
                       </td>
                     </tr>
@@ -264,13 +310,17 @@ import { riskBadgeClass } from './risk.util';
               </table>
             </div>
           </article>
+        </div>
+        }
 
+        @if (activeSection() === 'projects') {
+        <div>
           <article class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <div class="border-b border-[#ebe6ef] p-6">
               <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.projectsTitle') }}</h3>
               <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.projectsHint') }}</p>
             </div>
-            <div class="max-h-[420px] space-y-3 overflow-y-auto p-5">
+            <div class="space-y-3 p-5">
               @for (project of profile.projects; track project.id) {
                 <div class="rounded-md border border-[#ebe6ef] p-4 transition hover:border-[#d3c6db] hover:bg-[#fdfcff]">
                   <div class="flex flex-wrap items-start justify-between gap-3">
@@ -308,7 +358,9 @@ import { riskBadgeClass } from './risk.util';
             </div>
           </article>
         </div>
+        }
 
+        @if (activeSection() === 'transport') {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebe6ef] p-6">
             <div>
@@ -319,7 +371,7 @@ import { riskBadgeClass } from './risk.util';
               {{ languageService.t('studentProfile.bus.source') }}
             </span>
           </div>
-          <div class="max-h-[360px] overflow-auto">
+          <div class="overflow-x-auto">
             <table class="w-full min-w-[1000px] text-left">
               <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
                 <tr>
@@ -372,13 +424,15 @@ import { riskBadgeClass } from './risk.util';
             </table>
           </div>
         </section>
+        }
 
+        @if (activeSection() === 'wellbeing') {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="border-b border-[#ebe6ef] p-6">
             <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.mental.title') }}</h3>
             <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.mental.hint') }}</p>
           </div>
-          <div class="max-h-[360px] overflow-auto">
+          <div class="overflow-x-auto">
             <table class="w-full min-w-[900px] text-left">
               <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
                 <tr>
@@ -426,7 +480,7 @@ import { riskBadgeClass } from './risk.util';
           </div>
         </section>
 
-        <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+        <section class="mt-5 rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebe6ef] p-6">
             <div>
               <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.healthVisits.title') }}</h3>
@@ -436,7 +490,7 @@ import { riskBadgeClass } from './risk.util';
               {{ languageService.t('studentProfile.healthVisits.source') }}
             </span>
           </div>
-          <div class="max-h-[360px] overflow-auto">
+          <div class="overflow-x-auto">
             <table class="w-full min-w-[820px] text-left">
               <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
                 <tr>
@@ -471,7 +525,9 @@ import { riskBadgeClass } from './risk.util';
             </table>
           </div>
         </section>
+        }
 
+        @if (activeSection() === 'learning') {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="border-b border-[#ebe6ef] p-6">
             <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.canvas.title') }}</h3>
@@ -523,7 +579,7 @@ import { riskBadgeClass } from './risk.util';
             <div class="grid gap-5 border-t border-[#ebe6ef] p-6 xl:grid-cols-2">
               <div>
                 <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.courseGrades') }}</h4>
-                <div class="mt-3 h-[380px] overflow-auto rounded-md border border-[#ebe6ef]">
+                <div class="mt-3 overflow-x-auto rounded-md border border-[#ebe6ef]">
                   <table class="w-full text-left">
                     <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284]">
                       <tr>
@@ -551,7 +607,7 @@ import { riskBadgeClass } from './risk.util';
 
               <div>
                 <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.recentSubmissions') }}</h4>
-                <div class="mt-3 h-[380px] space-y-2 overflow-y-auto rounded-md border border-[#ebe6ef] p-2">
+                <div class="mt-3 space-y-2 rounded-md border border-[#ebe6ef] p-2">
                   @for (submission of profile.canvas.recentSubmissions; track $index) {
                     <div class="rounded-md border border-[#ebe6ef] p-3">
                       <div class="flex flex-wrap items-start justify-between gap-2">
@@ -581,6 +637,9 @@ import { riskBadgeClass } from './risk.util';
             <p class="p-8 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.empty') }}</p>
           }
         </section>
+        }
+          </main>
+        </div>
       }
     </section>
   `,
@@ -594,6 +653,50 @@ export class StudentProfileComponent implements OnInit {
   readonly student = signal<StudentProfileDetail | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  readonly activeSection = signal<ProfileSection>('overview');
+
+  readonly profileSections = computed<{ id: ProfileSection; label: string; count: number | null }[]>(
+    () => {
+      const profile = this.student();
+      return [
+        {
+          id: 'overview',
+          label: this.languageService.t('studentProfile.navigation.overview'),
+          count: null,
+        },
+        {
+          id: 'parents',
+          label: this.languageService.t('studentProfile.navigation.parents'),
+          count: profile?.parents.length ?? 0,
+        },
+        {
+          id: 'behaviours',
+          label: this.languageService.t('studentProfile.navigation.behaviours'),
+          count: profile?.behaviours.length ?? 0,
+        },
+        {
+          id: 'projects',
+          label: this.languageService.t('studentProfile.navigation.projects'),
+          count: profile?.projects.length ?? 0,
+        },
+        {
+          id: 'transport',
+          label: this.languageService.t('studentProfile.navigation.transport'),
+          count: profile?.busAttendanceRecords.length ?? 0,
+        },
+        {
+          id: 'wellbeing',
+          label: this.languageService.t('studentProfile.navigation.wellbeing'),
+          count: (profile?.mentalHealthRecords.length ?? 0) + (profile?.healthVisits.length ?? 0),
+        },
+        {
+          id: 'learning',
+          label: this.languageService.t('studentProfile.navigation.learning'),
+          count: profile?.canvas.hasData ? profile.canvas.courses.length : 0,
+        },
+      ];
+    },
+  );
 
   readonly trendOptions = computed<EChartsCoreOption>(() => {
     const profile = this.student();
@@ -722,12 +825,37 @@ export class StudentProfileComponent implements OnInit {
       return;
     }
     this.studentId = id;
+    this.route.queryParamMap.subscribe((params) => {
+      const requestedSection = params.get('section');
+      this.activeSection.set(this.isProfileSection(requestedSection) ? requestedSection : 'overview');
+    });
     this.loadStudent();
+  }
+
+  selectSection(section: ProfileSection): void {
+    this.activeSection.set(section);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { section: section === 'overview' ? null : section },
+      queryParamsHandling: 'merge',
+    });
   }
 
   onYearChange(year: string): void {
     this.selectedYear.set(year);
     this.loadStudent();
+  }
+
+  private isProfileSection(value: string | null): value is ProfileSection {
+    return (
+      value === 'overview' ||
+      value === 'parents' ||
+      value === 'behaviours' ||
+      value === 'projects' ||
+      value === 'transport' ||
+      value === 'wellbeing' ||
+      value === 'learning'
+    );
   }
 
   private loadStudent(): void {
