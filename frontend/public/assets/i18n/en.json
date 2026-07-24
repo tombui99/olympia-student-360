@@ -238,6 +238,7 @@
   "healthVisits.from": "From",
   "healthVisits.to": "To",
   "healthVisits.registerTitle": "School clinic register",
+  "healthVisits.horizontalScroll": "Scroll the health visits table horizontally",
   "healthVisits.records": "visits",
   "healthVisits.examTime": "Exam time",
   "healthVisits.student": "Student",

@@ -139,7 +139,7 @@ type ProfileSection =
             </nav>
           </aside>
 
-          <main class="min-w-0">
+          <main class="min-w-0 space-y-5">
         @if (activeSection() === 'parents') {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="border-b border-[#ebe6ef] p-6">
@@ -480,7 +480,7 @@ type ProfileSection =
           </div>
         </section>
 
-        <section class="mt-5 rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+        <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebe6ef] p-6">
             <div>
               <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.healthVisits.title') }}</h3>

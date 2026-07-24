@@ -138,7 +138,22 @@ import {
           </div>
         </div>
 
-        <div class="overflow-x-auto">
+        <div
+          #topScroll
+          class="h-4 overflow-x-scroll border-b border-[#ebe6ef] bg-[#faf9f6]"
+          role="region"
+          tabindex="0"
+          [attr.aria-label]="languageService.t('healthVisits.horizontalScroll')"
+          (scroll)="syncHorizontalScroll($event, tableScroll)"
+        >
+          <div class="h-px min-w-[1420px]" aria-hidden="true"></div>
+        </div>
+
+        <div
+          #tableScroll
+          class="overflow-x-auto"
+          (scroll)="syncHorizontalScroll($event, topScroll)"
+        >
           <table class="w-full min-w-[1420px] text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
               <tr>
@@ -313,6 +328,13 @@ export class HealthVisitsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.searchTimer !== null) window.clearTimeout(this.searchTimer);
+  }
+
+  syncHorizontalScroll(event: Event, target: HTMLElement): void {
+    const source = event.currentTarget as HTMLElement;
+    if (target.scrollLeft !== source.scrollLeft) {
+      target.scrollLeft = source.scrollLeft;
+    }
   }
 
   loadPage(page: number): void {
