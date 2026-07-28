@@ -6,15 +6,114 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+html {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   background: #f6f4ef;
   color: #24182f;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
+}
+
+img,
+svg,
+canvas {
+  max-width: 100%;
+}
+
+/* Wide data sets remain usable on touch screens instead of widening the page. */
+.overflow-x-auto,
+.overflow-x-scroll {
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 639px) {
+  /* Keep dense desktop screens comfortable at 320–430px without changing their
+     tablet/desktop information hierarchy. */
+  main h2.text-3xl {
+    font-size: 1.75rem;
+    line-height: 1.2;
+  }
+
+  main h3.text-2xl {
+    font-size: 1.35rem;
+    line-height: 1.25;
+  }
+
+  main :is(.p-8, .p-7, .p-6, .p-5) {
+    padding: 1rem !important;
+  }
+
+  main :is(.px-8, .px-7, .px-6, .px-5) {
+    padding-inline: 1rem !important;
+  }
+
+  main :is(.py-8, .py-7, .py-6, .py-5) {
+    padding-block: 1rem !important;
+  }
+
+  main :is(.grid-cols-2, .grid-cols-3, .grid-cols-4) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  main :is(.w-64, .w-72) {
+    width: 100% !important;
+  }
+
+  main .flex.flex-wrap > :is(input, select, label) {
+    min-width: 0;
+    width: 100%;
+  }
+
+  main :is(input, select, textarea) {
+    max-width: 100%;
+  }
+
+  main :is(button, a) {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  main :is(p, h1, h2, h3, h4, dd, dt, span) {
+    overflow-wrap: anywhere;
+  }
+
+  /* Pagination and modal action bars need to wrap instead of overflowing. */
+  main .border-t.flex,
+  main .flex.border-t {
+    flex-wrap: wrap;
+    row-gap: 0.75rem;
+  }
+
+  .sheet-panel > :is(header, footer),
+  .sheet-panel form > :last-child {
+    padding-inline: 1rem !important;
+  }
+
+  .sheet-panel footer,
+  .sheet-panel form > :last-child {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
 }
 
 @media print {

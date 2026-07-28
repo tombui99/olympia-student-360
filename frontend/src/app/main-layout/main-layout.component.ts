@@ -38,9 +38,18 @@ interface NavSection {
   imports: [RouterOutlet, RouterLink, RouterLinkActive, FontAwesomeModule],
   template: `
     <div class="layout-shell min-h-screen bg-[#f6f4ef] text-[#24182f]" [class.sidebar-collapsed]="sidebarCollapsed()">
+      @if (mobileMenuOpen()) {
+        <button
+          class="mobile-nav-backdrop no-print"
+          type="button"
+          aria-label="Close navigation"
+          (click)="closeMobileNavigation()"
+        ></button>
+      }
       <aside
         class="sidebar no-print flex flex-col bg-[#32124f] px-5 py-6 text-white lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto"
         [class.sidebar-compact]="sidebarCollapsed()"
+        [class.mobile-open]="mobileMenuOpen()"
       >
         <div class="sidebar-header flex items-center justify-between gap-2">
           <div class="flex min-w-0 items-center gap-3">
@@ -87,6 +96,7 @@ interface NavSection {
                     [class.justify-center]="sidebarCollapsed()"
                     [attr.aria-label]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
                     [attr.title]="sidebarCollapsed() ? languageService.t(item.labelKey) : null"
+                    (click)="closeMobileNavigation()"
                   >
                     <fa-icon class="nav-icon" [icon]="item.icon" />
                     @if (!sidebarCollapsed()) {
@@ -127,19 +137,28 @@ interface NavSection {
       </aside>
 
       <div class="min-w-0">
-        <header class="no-print flex flex-wrap items-center justify-between gap-4 border-b border-[#e4dde8] bg-white px-6 py-4 lg:px-8">
-          <div>
+        <header class="no-print flex items-center justify-between gap-3 border-b border-[#e4dde8] bg-white px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+          <button
+            class="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-[#e4dde8] text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1] lg:hidden"
+            type="button"
+            aria-label="Open navigation"
+            [attr.aria-expanded]="mobileMenuOpen()"
+            (click)="openMobileNavigation()"
+          >
+            <fa-icon [icon]="menuIcon" />
+          </button>
+          <div class="min-w-0 flex-1">
             <p class="text-sm text-[#7c7284]">{{ languageService.t('app.school') }}</p>
-            <h1 class="text-xl font-semibold text-[#32124f]">{{ languageService.t('app.headerTitle') }}</h1>
+            <h1 class="truncate text-base font-semibold text-[#32124f] sm:text-xl">{{ languageService.t('app.headerTitle') }}</h1>
           </div>
-          <div class="flex flex-wrap items-center justify-end gap-4">
+          <div class="flex shrink-0 items-center justify-end">
             <div
               class="flex h-10 items-center rounded-full border border-[#e9e3ef] bg-[#f7f5fa] p-1 shadow-[0_8px_24px_rgba(50,18,79,0.08)]"
               role="group"
               aria-label="Language"
             >
               <button
-                class="h-8 rounded-full px-4 text-xs font-bold transition"
+                class="h-8 rounded-full px-2.5 text-xs font-bold transition sm:px-4"
                 [class.bg-white]="languageService.language() === 'en'"
                 [class.text-[#4b2070]]="languageService.language() === 'en'"
                 [class.shadow-[0_4px_14px_rgba(50,18,79,0.12)]]="languageService.language() === 'en'"
@@ -150,7 +169,7 @@ interface NavSection {
                 {{ languageService.t('language.en') }}
               </button>
               <button
-                class="h-8 rounded-full px-4 text-xs font-bold transition"
+                class="h-8 rounded-full px-2.5 text-xs font-bold transition sm:px-4"
                 [class.bg-white]="languageService.language() === 'vi'"
                 [class.text-[#4b2070]]="languageService.language() === 'vi'"
                 [class.shadow-[0_4px_14px_rgba(50,18,79,0.12)]]="languageService.language() === 'vi'"
@@ -164,7 +183,7 @@ interface NavSection {
           </div>
         </header>
 
-        <main class="px-6 py-7 lg:px-8">
+        <main class="px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
           <router-outlet />
         </main>
       </div>
@@ -176,9 +195,30 @@ interface NavSection {
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .sidebar,
     .layout-shell {
       transition: grid-template-columns 180ms ease, padding 180ms ease;
+    }
+
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 60;
+      width: min(82vw, 20rem);
+      overflow-y: auto;
+      transform: translateX(-105%);
+      transition: transform 180ms ease, padding 180ms ease;
+    }
+
+    .sidebar.mobile-open {
+      transform: translateX(0);
+    }
+
+    .mobile-nav-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      border: 0;
+      background: rgb(36 24 47 / 0.5);
     }
 
     .nav-link {
@@ -239,11 +279,22 @@ interface NavSection {
       .sidebar-compact .sidebar-account button {
         padding-inline: 0;
       }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        right: auto;
+        bottom: auto;
+        left: auto;
+        width: auto;
+        transform: none;
+      }
     }
   `,
 })
 export class MainLayoutComponent {
   readonly sidebarCollapsed = signal(false);
+  readonly mobileMenuOpen = signal(false);
   readonly menuIcon = faBars;
   readonly signOutIcon = faRightFromBracket;
   readonly navSections: NavSection[] = [
@@ -295,7 +346,20 @@ export class MainLayoutComponent {
   }
 
   toggleSidebar(): void {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+      this.mobileMenuOpen.update((open) => !open);
+      return;
+    }
     this.sidebarCollapsed.update((collapsed) => !collapsed);
+  }
+
+  closeMobileNavigation(): void {
+    this.mobileMenuOpen.set(false);
+  }
+
+  openMobileNavigation(): void {
+    this.sidebarCollapsed.set(false);
+    this.mobileMenuOpen.set(true);
   }
 
   userInitials(): string {
