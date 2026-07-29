@@ -47,7 +47,7 @@ interface NavSection {
         ></button>
       }
       <aside
-        class="sidebar no-print flex flex-col bg-[#32124f] px-5 py-6 text-white lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto"
+        class="sidebar no-print flex flex-col overflow-hidden bg-[#32124f] px-5 py-6 text-white"
         [class.sidebar-compact]="sidebarCollapsed()"
         [class.mobile-open]="mobileMenuOpen()"
       >
@@ -77,7 +77,7 @@ interface NavSection {
           </button>
         </div>
 
-        <nav class="mt-9">
+        <nav class="mt-9 min-h-0 flex-1 overflow-y-auto">
           @for (section of navSections; track section.titleKey; let first = $first) {
             @if (visibleItems(section).length) {
               <div class="nav-section space-y-1" [class.mt-6]="!first">
@@ -215,6 +215,24 @@ interface NavSection {
       transform: translateX(0);
     }
 
+    .sidebar nav {
+      scrollbar-color: rgb(255 255 255 / 0.28) transparent;
+      scrollbar-width: thin;
+    }
+
+    .sidebar nav::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .sidebar nav::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .sidebar nav::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgb(255 255 255 / 0.28);
+    }
+
     .mobile-nav-backdrop {
       position: fixed;
       inset: 0;
@@ -255,7 +273,7 @@ interface NavSection {
 
     @media (min-width: 1024px) {
       .layout-shell {
-        grid-template-columns: 280px minmax(0, 1fr);
+        display: block;
       }
 
       .layout-shell::before {
@@ -269,7 +287,7 @@ interface NavSection {
       }
 
       .layout-shell.sidebar-collapsed {
-        grid-template-columns: 88px minmax(0, 1fr);
+        grid-template-columns: none;
       }
 
       .layout-shell.sidebar-collapsed::before {
@@ -279,7 +297,14 @@ interface NavSection {
       .content-column {
         position: relative;
         z-index: 1;
+        min-height: 100vh;
+        margin-left: 280px;
         background: #f6f4ef;
+        transition: margin-left 180ms ease;
+      }
+
+      .layout-shell.sidebar-collapsed .content-column {
+        margin-left: 88px;
       }
 
       .sidebar-compact {
@@ -303,17 +328,20 @@ interface NavSection {
       }
 
       .sidebar {
-        position: sticky;
+        position: fixed;
         top: 0;
         right: auto;
-        bottom: auto;
-        left: auto;
-        height: 100vh;
-        height: 100dvh;
-        min-height: 100vh;
-        max-height: 100dvh;
-        width: auto;
+        bottom: 0;
+        left: 0;
+        width: 280px;
+        height: auto;
+        min-height: 0;
+        max-height: none;
         transform: none;
+      }
+
+      .sidebar-compact {
+        width: 88px;
       }
     }
   `,
