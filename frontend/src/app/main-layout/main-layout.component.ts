@@ -136,7 +136,7 @@ interface NavSection {
         </div>
       </aside>
 
-      <div class="min-w-0">
+      <div class="content-column min-w-0">
         <header class="no-print flex items-center justify-between gap-3 border-b border-[#e4dde8] bg-white px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
           <button
             class="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-[#e4dde8] text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1] lg:hidden"
@@ -193,6 +193,8 @@ interface NavSection {
     .layout-shell {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
+      position: relative;
+      isolation: isolate;
     }
 
     .layout-shell {
@@ -256,8 +258,28 @@ interface NavSection {
         grid-template-columns: 280px minmax(0, 1fr);
       }
 
+      .layout-shell::before {
+        position: absolute;
+        inset: 0 auto 0 0;
+        z-index: 0;
+        width: 280px;
+        background: #32124f;
+        content: '';
+        pointer-events: none;
+      }
+
       .layout-shell.sidebar-collapsed {
         grid-template-columns: 88px minmax(0, 1fr);
+      }
+
+      .layout-shell.sidebar-collapsed::before {
+        width: 88px;
+      }
+
+      .content-column {
+        position: relative;
+        z-index: 1;
+        background: #f6f4ef;
       }
 
       .sidebar-compact {
@@ -286,6 +308,10 @@ interface NavSection {
         right: auto;
         bottom: auto;
         left: auto;
+        height: 100vh;
+        height: 100dvh;
+        min-height: 100vh;
+        max-height: 100dvh;
         width: auto;
         transform: none;
       }
