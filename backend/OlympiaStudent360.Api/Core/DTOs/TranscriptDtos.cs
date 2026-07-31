@@ -1,8 +1,25 @@
 namespace OlympiaStudent360.Api.Core.DTOs;
 
+public class TranscriptStudentDto
+{
+    public int Id { get; set; }
+    public string StudentCode { get; set; } = default!;
+    public string FullName { get; set; } = default!;
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+}
+
 public class SchoolTranscriptDto
 {
+    public int? StudentProfileId { get; set; }
+    public string? StudentCode { get; set; }
+    public string? StudentName { get; set; }
+    public DateTime? DateOfBirth { get; set; }
+    public string? GradeLevel { get; set; }
+    public string? Homeroom { get; set; }
+    public string? Gender { get; set; }
     public double? OverallAverage { get; set; }
+    public double? OverallGpa { get; set; }
     public int TotalAcademicYears { get; set; }
     public int TotalStudents { get; set; }
     public int TotalSubjects { get; set; }
@@ -20,6 +37,7 @@ public class SchoolTranscriptGradeDto
 {
     public string GradeLevel { get; set; } = default!;
     public double? AverageScore { get; set; }
+    public double? Gpa { get; set; }
     public List<string> Terms { get; set; } = [];
     public List<TranscriptSubjectDto> Subjects { get; set; } = [];
 }
@@ -28,7 +46,10 @@ public class TranscriptSubjectDto
 {
     public string Subject { get; set; } = default!;
     public Dictionary<string, double?> TermScores { get; set; } = [];
+    public double? Semester1Final { get; set; }
+    public double? Semester2Final { get; set; }
     public double? YearAverage { get; set; }
+    public double Credit { get; set; } = 1;
 }
 
 public class SchoolTranscriptGradeDetailDto

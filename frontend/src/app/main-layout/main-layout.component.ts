@@ -117,7 +117,7 @@ interface NavSection {
             @if (!sidebarCollapsed()) {
               <div class="min-w-0">
                 <p class="truncate text-sm font-semibold text-white">{{ authService.fullName() || languageService.t('app.userFallback') }}</p>
-                <p class="text-xs text-[#cdbed8]">{{ authService.role() || languageService.t('app.roleFallback') }}</p>
+                <p class="text-xs text-[#cdbed8]">{{ roleLabel(authService.role()) }}</p>
               </div>
             }
           </div>
@@ -397,6 +397,14 @@ export class MainLayoutComponent {
   visibleItems(section: NavSection): NavItem[] {
     const isAdmin = this.authService.getUserRole() === 'Admin';
     return section.items.filter((item) => !item.adminOnly || isAdmin);
+  }
+
+  roleLabel(role: string | null): string {
+    if (!role) {
+      return this.languageService.t('app.roleFallback');
+    }
+    const key = role === 'Principal' ? 'SchoolAdministration' : role;
+    return this.languageService.t(`accounts.roles.${key}`);
   }
 
   toggleSidebar(): void {

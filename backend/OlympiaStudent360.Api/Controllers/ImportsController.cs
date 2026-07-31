@@ -132,7 +132,7 @@ public class ImportsController : ControllerBase
     }
 
     [HttpPost("student-mental-health")]
-    [Authorize(Roles = "Admin,Principal,Teacher")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal,Teacher")]
     public async Task<ActionResult<ImportHistoryDto>> ImportMentalHealth(
         [FromBody] ExcelMentalHealthImportDto model)
     {

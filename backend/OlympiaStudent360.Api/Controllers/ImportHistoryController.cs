@@ -31,7 +31,9 @@ public class ImportHistoryController : ControllerBase
         var query = _context.ImportHistories
             .AsNoTracking()
             .Where(item => item.Status == "Valid");
-        if (!User.IsInRole("Admin") && !User.IsInRole("Principal"))
+        if (!User.IsInRole("Admin") &&
+            !User.IsInRole("SchoolAdministration") &&
+            !User.IsInRole("Principal"))
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             query = query.Where(item => item.ImportedByUserId == userId);
@@ -145,7 +147,9 @@ public class ImportHistoryController : ControllerBase
     private IQueryable<ImportHistory> ManageableHistories()
     {
         var query = _context.ImportHistories.Where(item => item.Status == "Valid");
-        if (User.IsInRole("Admin") || User.IsInRole("Principal")) return query;
+        if (User.IsInRole("Admin") ||
+            User.IsInRole("SchoolAdministration") ||
+            User.IsInRole("Principal")) return query;
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         return query.Where(item => item.ImportedByUserId == userId);
     }

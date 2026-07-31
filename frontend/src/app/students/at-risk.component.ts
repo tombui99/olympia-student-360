@@ -238,7 +238,7 @@ export class AtRiskComponent implements OnInit {
 
   canManageSettings(): boolean {
     const role = this.authService.getUserRole();
-    return role === 'Admin' || role === 'Principal';
+    return role === 'Admin' || role === 'SchoolAdministration' || role === 'Principal';
   }
 
   flagLabel(flag: RiskFlag): string {

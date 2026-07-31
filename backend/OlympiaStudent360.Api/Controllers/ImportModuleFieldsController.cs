@@ -10,8 +10,8 @@ using OlympiaStudent360.Api.Data;
 namespace OlympiaStudent360.Api.Controllers;
 
 /// <summary>
-/// Lets admins/principals design the custom fields on each import module. Reading the fields
-/// is open to any authenticated user (the forms need them); editing is admin/principal only.
+/// Lets admins and school administration design the custom fields on each import module. Reading
+/// the fields is open to any authenticated user; editing is restricted to those two roles.
 /// </summary>
 [Route("api/imports/modules/{moduleId}/fields")]
 [ApiController]
@@ -40,7 +40,7 @@ public class ImportModuleFieldsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "Admin,Principal")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
     public async Task<ActionResult<ImportModuleFieldDto>> Create(string moduleId, SaveImportModuleFieldDto model)
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId))
@@ -74,7 +74,7 @@ public class ImportModuleFieldsController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin,Principal")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
     public async Task<ActionResult<ImportModuleFieldDto>> Update(string moduleId, int id, SaveImportModuleFieldDto model)
     {
         var field = await _context.ImportModuleFields.FirstOrDefaultAsync(f => f.Id == id && f.ModuleId == moduleId);
@@ -99,7 +99,7 @@ public class ImportModuleFieldsController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin,Principal")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
     public async Task<IActionResult> Delete(string moduleId, int id)
     {
         var field = await _context.ImportModuleFields.FirstOrDefaultAsync(f => f.Id == id && f.ModuleId == moduleId);

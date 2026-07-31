@@ -206,7 +206,7 @@ public class StudentsController : ControllerBase
         Ok(await ClassificationSettings());
 
     [HttpPut("classification-settings")]
-    [Authorize(Roles = "Admin,Principal")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
     public async Task<ActionResult<StudentClassificationSettingsDto>> SaveClassificationSettings(
         StudentClassificationSettingsDto model)
     {
@@ -483,7 +483,7 @@ public class StudentsController : ControllerBase
     }
 
     [HttpPost("{studentId:int}/mental-health")]
-    [Authorize(Roles = "Admin,Principal,Teacher")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal,Teacher")]
     public async Task<ActionResult<StudentMentalHealthRecordDto>> CreateMentalHealth(
         int studentId,
         [FromBody] CreateStudentMentalHealthRecordDto model)

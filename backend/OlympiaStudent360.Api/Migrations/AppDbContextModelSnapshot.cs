@@ -1449,6 +1449,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<DateTime?>("DateOfBirth")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("EducationLevel")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
@@ -1457,6 +1460,10 @@ namespace OlympiaStudent360.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Gender")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("GradeLevel")
                         .HasMaxLength(50)

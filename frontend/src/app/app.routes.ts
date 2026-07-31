@@ -46,17 +46,29 @@ export const routes: Routes = [
       {
         path: 'transcripts',
         loadComponent: () =>
-          import('./transcripts/transcripts.component').then((m) => m.TranscriptsComponent),
+          import('./transcripts/transcripts-layout.component').then((m) => m.TranscriptsLayoutComponent),
+        children: [
+          {
+            path: '',
+            loadComponent: () =>
+              import('./transcripts/transcripts.component').then((m) => m.TranscriptsComponent),
+          },
+          {
+            path: 'student',
+            loadComponent: () =>
+              import('./transcripts/student-transcript.component').then((m) => m.StudentTranscriptComponent),
+          },
+          {
+            path: ':academicYear/grades/:gradeLevel',
+            loadComponent: () =>
+              import('./transcripts/transcript-grade-detail.component').then((m) => m.TranscriptGradeDetailComponent),
+          },
+        ],
       },
       {
         path: 'health-visits',
         loadComponent: () =>
           import('./health-visits/health-visits.component').then((m) => m.HealthVisitsComponent),
-      },
-      {
-        path: 'transcripts/:academicYear/grades/:gradeLevel',
-        loadComponent: () =>
-          import('./transcripts/transcript-grade-detail.component').then((m) => m.TranscriptGradeDetailComponent),
       },
       {
         path: 'students/:studentId',

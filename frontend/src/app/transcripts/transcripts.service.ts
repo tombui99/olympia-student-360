@@ -2,15 +2,27 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
 
+export interface TranscriptStudent {
+  id: number;
+  studentCode: string;
+  fullName: string;
+  gradeLevel?: string | null;
+  homeroom?: string | null;
+}
+
 export interface TranscriptSubject {
   subject: string;
   termScores: Record<string, number | null>;
+  semester1Final?: number | null;
+  semester2Final?: number | null;
   yearAverage?: number | null;
+  credit: number;
 }
 
 export interface SchoolTranscriptGrade {
   gradeLevel: string;
   averageScore?: number | null;
+  gpa?: number | null;
   terms: string[];
   subjects: TranscriptSubject[];
 }
@@ -22,7 +34,15 @@ export interface SchoolTranscriptYear {
 }
 
 export interface SchoolTranscript {
+  studentProfileId?: number | null;
+  studentCode?: string | null;
+  studentName?: string | null;
+  dateOfBirth?: string | null;
+  gradeLevel?: string | null;
+  homeroom?: string | null;
+  gender?: string | null;
   overallAverage?: number | null;
+  overallGpa?: number | null;
   totalAcademicYears: number;
   totalStudents: number;
   totalSubjects: number;
@@ -63,8 +83,16 @@ export class TranscriptsService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  getOverall() {
-    return this.http.get<SchoolTranscript>(`${this.basePath}/api/transcripts/overall`);
+  getOverall(studentId?: number) {
+    return this.http.get<SchoolTranscript>(`${this.basePath}/api/transcripts/overall`, {
+      params: studentId ? { studentId } : {},
+    });
+  }
+
+  getStudents(search: string, limit = 10) {
+    return this.http.get<TranscriptStudent[]>(`${this.basePath}/api/transcripts/students`, {
+      params: { search, limit },
+    });
   }
 
   getGradeDetails(academicYear: string, gradeLevel: string, page = 1, pageSize = 25,

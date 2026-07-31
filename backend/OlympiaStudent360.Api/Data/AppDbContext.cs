@@ -52,6 +52,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .HasMaxLength(255);
 
         modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.Gender)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<StudentProfile>()
             .Property(s => s.GradeLevel)
             .HasMaxLength(50);
 

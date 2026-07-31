@@ -21,6 +21,8 @@ public class StudentProfile : BaseEntity
 {
     public string StudentCode { get; set; } = default!;
     public string FullName { get; set; } = default!;
+    public DateTime? DateOfBirth { get; set; }
+    public string? Gender { get; set; }
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
     public string? Campus { get; set; }
@@ -382,7 +384,7 @@ public class CanvasSubmission : BaseEntity
 }
 
 /// <summary>
-/// An admin/principal-defined custom field on an import module. The field's values are
+/// An admin/school-administration-defined custom field on an import module. The field's values are
 /// stored per record in <c>CustomFieldsJson</c> rather than as dedicated columns, so any
 /// number of custom fields can be added without schema changes.
 /// </summary>

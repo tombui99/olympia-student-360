@@ -107,39 +107,34 @@ type ProfileSection =
           </div>
         }
 
-        <div class="grid items-start gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <aside class="sticky top-4 z-20 -mx-1 overflow-x-auto px-1 lg:mx-0 lg:overflow-visible lg:px-0">
-            <nav
-              class="flex min-w-max gap-2 rounded-lg border border-[#ebe6ef] bg-white p-2 shadow-[0_12px_35px_rgba(50,18,79,0.08)] lg:min-w-0 lg:flex-col"
-              [attr.aria-label]="languageService.t('studentProfile.navigation.label')"
-            >
-              @for (item of profileSections(); track item.id) {
-                <button
-                  type="button"
-                  class="group flex min-h-11 items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold transition"
-                  [ngClass]="activeSection() === item.id
-                    ? 'bg-[#32124f] text-white shadow-sm'
-                    : 'text-[#5f5666] hover:bg-[#f7f3f9] hover:text-[#32124f]'"
-                  [attr.aria-current]="activeSection() === item.id ? 'page' : null"
-                  (click)="selectSection(item.id)"
-                >
+        <div class="-mx-1 overflow-x-auto px-1 pb-1">
+          <nav
+            class="flex min-w-max gap-1 rounded-lg border border-[#ebe6ef] bg-white p-1 shadow-[0_8px_26px_rgba(50,18,79,0.06)]"
+            [attr.aria-label]="languageService.t('studentProfile.navigation.label')"
+          >
+            @for (item of profileSections(); track item.id) {
+              <button
+                type="button"
+                class="flex min-h-10 items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition"
+                [ngClass]="activeSection() === item.id
+                  ? 'bg-[#32124f] text-white shadow-sm'
+                  : 'text-[#5f5666] hover:bg-[#f7f3f9] hover:text-[#32124f]'"
+                [attr.aria-current]="activeSection() === item.id ? 'page' : null"
+                (click)="selectSection(item.id)"
+              >
+                <span class="whitespace-nowrap">{{ item.label }}</span>
+                @if (item.count !== null) {
                   <span
-                    class="h-2 w-2 shrink-0 rounded-full"
-                    [ngClass]="activeSection() === item.id ? 'bg-[#f3c246]' : 'bg-[#c8bcd0] group-hover:bg-[#8b6a9e]'"
-                  ></span>
-                  <span class="whitespace-nowrap lg:min-w-0 lg:flex-1 lg:whitespace-normal">{{ item.label }}</span>
-                  @if (item.count !== null) {
-                    <span
-                      class="min-w-6 rounded-full px-2 py-0.5 text-center text-[11px]"
-                      [ngClass]="activeSection() === item.id ? 'bg-white/15 text-white' : 'bg-[#f1edf4] text-[#6f6877]'"
-                    >{{ item.count }}</span>
-                  }
-                </button>
-              }
-            </nav>
-          </aside>
+                    class="min-w-6 rounded-full px-2 py-0.5 text-center text-[11px]"
+                    [ngClass]="activeSection() === item.id ? 'bg-white/15 text-white' : 'bg-[#f1edf4] text-[#6f6877]'"
+                  >{{ item.count }}</span>
+                }
+              </button>
+            }
+          </nav>
+        </div>
 
-          <main class="min-w-0 space-y-5">
+        <main class="min-w-0 space-y-5">
         @if (activeSection() === 'parents') {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="border-b border-[#ebe6ef] p-6">
@@ -638,8 +633,7 @@ type ProfileSection =
           }
         </section>
         }
-          </main>
-        </div>
+        </main>
       }
     </section>
   `,

@@ -55,7 +55,7 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                 </td>
                 <td class="px-6 py-4 text-[#6f6877]">{{ user.username }}</td>
                 <td class="px-6 py-4">
-                  <span class="rounded bg-[#f3c246]/25 px-3 py-1 text-xs font-semibold text-[#7a5b12]">{{ user.role }}</span>
+                  <span class="rounded bg-[#f3c246]/25 px-3 py-1 text-xs font-semibold text-[#7a5b12]">{{ roleLabel(user.role) }}</span>
                 </td>
                 <td class="px-6 py-4 text-[#6f6877]">{{ formatDate(user.lastLoginAt) }}</td>
                 <td class="px-6 py-4">
@@ -164,7 +164,7 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                   [(ngModel)]="form.role"
                   required
                 >
-                  <option *ngFor="let role of roles()" [ngValue]="role">{{ role }}</option>
+                  <option *ngFor="let role of roles()" [ngValue]="role">{{ roleLabel(role) }}</option>
                 </select>
               </label>
 
@@ -337,6 +337,11 @@ export class AccountManagementComponent implements OnInit {
       timeStyle: 'short',
       timeZone: 'Asia/Ho_Chi_Minh',
     }).format(new Date(value));
+  }
+
+  roleLabel(role: string): string {
+    const key = role === 'Principal' ? 'SchoolAdministration' : role;
+    return this.languageService.t(`accounts.roles.${key}`);
   }
 
   private afterSave(message: string) {

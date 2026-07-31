@@ -16,7 +16,9 @@ public static class DbInitializer
 
         await context.Database.MigrateAsync();
 
-        string[] roles = { "Admin", "Principal", "Teacher" };
+        await RenameRole("Principal", "SchoolAdministration", userManager, roleManager, logger);
+
+        string[] roles = { "Admin", "SchoolAdministration", "Teacher" };
         foreach (var role in roles)
         {
             if (!await roleManager.RoleExistsAsync(role))
@@ -89,6 +91,52 @@ public static class DbInitializer
         {
             var errors = string.Join("; ", result.Errors.Select(error => error.Description));
             logger.LogWarning("Unsupported role '{Role}' was not removed: {Errors}", role, errors);
+        }
+    }
+
+    private static async Task RenameRole(
+        string oldName,
+        string newName,
+        UserManager<ApplicationUser> userManager,
+        RoleManager<IdentityRole> roleManager,
+        ILogger logger)
+    {
+        var oldRole = await roleManager.FindByNameAsync(oldName);
+        if (oldRole == null)
+        {
+            return;
+        }
+
+        var newRole = await roleManager.FindByNameAsync(newName);
+        if (newRole == null)
+        {
+            oldRole.Name = newName;
+            var renameResult = await roleManager.UpdateAsync(oldRole);
+            if (!renameResult.Succeeded)
+            {
+                var errors = string.Join("; ", renameResult.Errors.Select(error => error.Description));
+                throw new InvalidOperationException($"Role '{oldName}' could not be renamed: {errors}");
+            }
+
+            logger.LogInformation("Renamed role '{OldRole}' to '{NewRole}'.", oldName, newName);
+            return;
+        }
+
+        var usersInOldRole = await userManager.GetUsersInRoleAsync(oldName);
+        foreach (var user in usersInOldRole)
+        {
+            if (!await userManager.IsInRoleAsync(user, newName))
+            {
+                await userManager.AddToRoleAsync(user, newName);
+            }
+            await userManager.RemoveFromRoleAsync(user, oldName);
+        }
+
+        var deleteResult = await roleManager.DeleteAsync(oldRole);
+        if (!deleteResult.Succeeded)
+        {
+            var errors = string.Join("; ", deleteResult.Errors.Select(error => error.Description));
+            throw new InvalidOperationException($"Legacy role '{oldName}' could not be removed: {errors}");
         }
     }
 }

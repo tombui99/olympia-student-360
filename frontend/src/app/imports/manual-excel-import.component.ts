@@ -242,7 +242,7 @@ export class ManualExcelImportComponent implements OnInit {
 
   historyHint(): string {
     const role = this.authService.getUserRole();
-    return role === 'Admin' || role === 'Principal'
+    return role === 'Admin' || role === 'SchoolAdministration' || role === 'Principal'
       ? this.languageService.t('imports.historyAllHint')
       : this.languageService.t('imports.historyTeacherHint');
   }
@@ -261,7 +261,7 @@ export class ManualExcelImportComponent implements OnInit {
 
   canDesign(): boolean {
     const role = this.authService.getUserRole();
-    return role === 'Admin' || role === 'Principal';
+    return role === 'Admin' || role === 'SchoolAdministration' || role === 'Principal';
   }
 
   openDesigner(moduleId: string): void {

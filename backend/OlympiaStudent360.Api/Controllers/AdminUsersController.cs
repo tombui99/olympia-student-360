@@ -14,7 +14,7 @@ namespace OlympiaStudent360.Api.Controllers;
 [Authorize(Roles = "Admin")]
 public class AdminUsersController : ControllerBase
 {
-    private static readonly string[] ManagedRoles = ["Admin", "Principal", "Teacher"];
+    private static readonly string[] ManagedRoles = ["Admin", "SchoolAdministration", "Teacher"];
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
     private readonly AppDbContext _context;
