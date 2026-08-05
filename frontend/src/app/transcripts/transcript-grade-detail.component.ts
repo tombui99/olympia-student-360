@@ -70,26 +70,36 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
               <h3 class="text-xl font-semibold text-[#32124f]">{{ t('transcript.subjectOverview') }}</h3>
               <p class="mt-1 text-sm text-[#756b7c]">{{ t('transcript.subjectOverviewHelp') }}</p>
             </div>
-            <div class="overflow-x-auto rounded-lg border border-[#e3dce7]">
-              <table class="min-w-full border-collapse text-sm">
-                <thead class="bg-[#eee5f2] text-left text-[0.68rem] uppercase tracking-[0.09em] text-[#4a3158]">
-                  <tr>
-                    <th class="px-4 py-3">{{ t('transcript.subject') }}</th>
-                    @for (term of record.terms; track term) { <th class="px-4 py-3 text-center">{{ term }}</th> }
-                    <th class="bg-[#e4d5eb] px-4 py-3 text-center">{{ t('transcript.average') }}</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-[#ece6ef]">
-                  @for (subject of record.subjects; track subject.subject) {
+            <article class="overflow-hidden rounded-xl border border-[#ded6e3]">
+              <header class="flex items-center justify-between gap-3 bg-[#32124f] px-4 py-3 text-white">
+                <h4 class="text-lg font-semibold">{{ t('transcript.grade') }} {{ record.gradeLevel }}</h4>
+                <span class="text-sm font-bold">GPA {{ formatGpa(record.gpa) }}</span>
+              </header>
+              <div class="overflow-x-auto">
+                <table class="w-full min-w-[480px] border-collapse text-sm">
+                  <thead class="bg-[#eee5f2] text-[#4a3158]">
                     <tr>
-                      <td class="px-4 py-3 font-semibold text-[#32124f]">{{ subject.subject }}</td>
-                      @for (term of record.terms; track term) { <td class="px-4 py-3 text-center">{{ score(subject.termScores[term]) }}</td> }
-                      <td class="bg-[#fcf8fd] px-4 py-3 text-center font-bold text-[#32124f]">{{ score(subject.yearAverage) }}</td>
+                      <th class="px-4 py-2.5 text-left">{{ t('transcript.subject') }}</th>
+                      <th class="px-3 py-2.5 text-center">S1F</th>
+                      <th class="px-3 py-2.5 text-center">S2F</th>
+                      <th class="bg-[#e9dfed] px-3 py-2.5 text-center">YR</th>
+                      <th class="px-3 py-2.5 text-center">{{ t('transcript.credit') }}</th>
                     </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    @for (subject of record.subjects; track subject.subject) {
+                      <tr class="border-t border-[#ece6ef]">
+                        <td class="px-4 py-2.5 font-semibold text-[#32124f]">{{ subject.subject }}</td>
+                        <td class="px-3 py-2.5 text-center">{{ score(subject.semester1Final) }}</td>
+                        <td class="px-3 py-2.5 text-center">{{ score(subject.semester2Final) }}</td>
+                        <td class="bg-[#fcf8fd] px-3 py-2.5 text-center font-bold text-[#32124f]">{{ score(subject.yearAverage) }}</td>
+                        <td class="px-3 py-2.5 text-center">{{ formatCredit(subject.credit) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </article>
           </div>
         </div>
 
@@ -134,7 +144,7 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
                 @for (item of record.records; track item.canvasScoreId) {
                   <tr class="hover:bg-[#fcfafc]">
                     <td class="px-5 py-4 lg:px-8">
-                      <a [routerLink]="['/students', item.studentProfileId]" class="font-semibold text-[#32124f] hover:underline">{{ item.studentName }}</a>
+                      <a [routerLink]="['/transcripts/student', item.studentProfileId]" class="font-semibold text-[#32124f] hover:underline">{{ item.studentName }}</a>
                       <p class="mt-0.5 text-xs text-[#8a808f]">{{ item.studentCode }}</p>
                     </td>
                     <td class="px-4 py-4 font-medium text-[#4b3d53]">{{ item.subject }}</td>
@@ -174,7 +184,7 @@ export class TranscriptGradeDetailComponent {
   readonly error = signal(false);
   readonly selectedSubject = signal('');
   readonly selectedTerm = signal('');
-  readonly scoreScale = signal<TranscriptScoreScale>('percentage');
+  readonly scoreScale = signal<TranscriptScoreScale>('letter');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
   constructor() { this.load(1); }
@@ -213,6 +223,8 @@ export class TranscriptGradeDetailComponent {
   }
 
   score(value?: number | null): string { return formatTranscriptScore(value, this.scoreScale()); }
+  formatGpa(value?: number | null): string { return value == null ? '—' : value.toFixed(2); }
+  formatCredit(value: number): string { return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1); }
   date(value: string): string { return new Intl.DateTimeFormat(this.languageService.language() === 'vi' ? 'vi-VN' : 'en-GB', { dateStyle: 'medium' }).format(new Date(value)); }
   t(key: string): string { return this.languageService.t(key); }
 }

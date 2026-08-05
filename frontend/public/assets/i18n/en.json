@@ -998,6 +998,9 @@
   "transcript.academicStanding": "Academic Standing",
   "transcript.cumulativeGpa": "Cumulative GPA (4.2)",
   "transcript.gradingScale": "Grading Scale",
+  "transcript.tenPointScale": "10-point scale",
+  "transcript.letterGrade": "Letter grade",
+  "transcript.gpaScale": "4.2 GPA scale",
   "transcript.schoolOfficer": "School officer's name",
   "transcript.signatureDate": "Signature / Date",
   "transcript.noStudentData": "This student does not have transcript-ready Canvas course scores yet.",
@@ -1017,6 +1020,13 @@
   "transcript.select": "Select",
   "transcript.emptyStudentTitle": "Select a student to view their transcript",
   "transcript.emptyStudentBody": "Search by student name or ID above. No student data is loaded until you make a selection.",
+  "transcript.studentDirectory": "Student transcript directory",
+  "transcript.studentDirectoryHelp": "Select a student to open their complete academic transcript.",
+  "transcript.studentsLabel": "students",
+  "transcript.openTranscript": "View transcript",
+  "transcript.loadingStudents": "Loading students...",
+  "transcript.directoryPageSummary": "Page {page} of {pages} · {total} students",
+  "transcript.backToStudentDirectory": "Back to student transcripts",
   "transcript.academicYearFilter": "Academic years",
   "transcript.academicYearFilterHelp": "Choose one or more years. The latest two are selected initially."
 }

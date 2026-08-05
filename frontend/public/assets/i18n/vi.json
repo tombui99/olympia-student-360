@@ -998,6 +998,9 @@
   "transcript.academicStanding": "Kết quả học tập",
   "transcript.cumulativeGpa": "GPA tích lũy (4.2)",
   "transcript.gradingScale": "Thang điểm",
+  "transcript.tenPointScale": "Thang điểm 10",
+  "transcript.letterGrade": "Điểm chữ",
+  "transcript.gpaScale": "Thang GPA 4.2",
   "transcript.schoolOfficer": "Tên cán bộ nhà trường",
   "transcript.signatureDate": "Chữ ký / Ngày",
   "transcript.noStudentData": "Học sinh này chưa có điểm Canvas đủ điều kiện lập học bạ.",
@@ -1017,6 +1020,13 @@
   "transcript.select": "Chọn",
   "transcript.emptyStudentTitle": "Chọn học sinh để xem học bạ",
   "transcript.emptyStudentBody": "Tìm theo tên hoặc mã học sinh ở trên. Dữ liệu chỉ được tải sau khi chọn học sinh.",
+  "transcript.studentDirectory": "Danh sách học bạ học sinh",
+  "transcript.studentDirectoryHelp": "Chọn học sinh để mở toàn bộ học bạ của em.",
+  "transcript.studentsLabel": "học sinh",
+  "transcript.openTranscript": "Xem học bạ",
+  "transcript.loadingStudents": "Đang tải danh sách học sinh...",
+  "transcript.directoryPageSummary": "Trang {page}/{pages} · {total} học sinh",
+  "transcript.backToStudentDirectory": "Quay lại danh sách học bạ",
   "transcript.academicYearFilter": "Năm học",
   "transcript.academicYearFilterHelp": "Chọn một hoặc nhiều năm. Hai năm gần nhất được chọn mặc định."
 }

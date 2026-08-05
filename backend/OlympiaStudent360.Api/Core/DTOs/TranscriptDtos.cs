@@ -9,6 +9,15 @@ public class TranscriptStudentDto
     public string? Homeroom { get; set; }
 }
 
+public class TranscriptStudentsPageDto
+{
+    public List<TranscriptStudentDto> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+}
+
 public class SchoolTranscriptDto
 {
     public int? StudentProfileId { get; set; }
@@ -57,6 +66,7 @@ public class SchoolTranscriptGradeDetailDto
     public string AcademicYear { get; set; } = default!;
     public string GradeLevel { get; set; } = default!;
     public double? AverageScore { get; set; }
+    public double? Gpa { get; set; }
     public int TotalStudents { get; set; }
     public int TotalSubjects { get; set; }
     public int TotalRecords { get; set; }

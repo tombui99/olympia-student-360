@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, debounceTime, distinctUntilChanged, of, Subject, switchMap } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
@@ -6,6 +7,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
 
 @Component({
   selector: 'app-student-transcript',
+  imports: [RouterLink],
   template: `
     <section class="mx-auto max-w-[1500px]">
       <div class="no-print flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
@@ -116,6 +118,9 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
           <button type="button" class="mt-5 rounded-md bg-[#32124f] px-5 py-2.5 text-sm font-semibold text-white" (click)="reload()">{{ t('transcript.retry') }}</button>
         </div>
       } @else if (transcript(); as record) {
+        <a routerLink="/transcripts/student" class="no-print mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#6d3a91] hover:text-[#32124f]">
+          <span aria-hidden="true">←</span> {{ t('transcript.backToStudentDirectory') }}
+        </a>
         <article class="print-region transcript-sheet mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.07)]">
           <header class="transcript-header border-b border-[#d9cfdf] px-6 py-6 lg:px-9">
             <div class="flex items-center gap-5">
@@ -183,14 +188,29 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
             </div>
 
             <footer class="formal-footer mx-6 mb-6 border-t border-[#bfb2c7] pt-4 lg:mx-9 lg:mb-8">
-              <div class="grid gap-6 text-sm sm:grid-cols-2">
-                <div>
-                  <p class="font-bold text-[#32124f]">{{ t('transcript.academicStanding') }}</p>
-                  <p class="mt-2">{{ t('transcript.cumulativeGpa') }} <strong class="ml-3">{{ formatGpa(record.overallGpa) }}</strong></p>
-                </div>
-                <div>
-                  <p class="font-bold text-[#32124f]">{{ t('transcript.gradingScale') }}</p>
-                  <p class="mt-2 text-xs leading-5 text-[#63586a]">A+ 4.2 · A 4.0 · A- 3.7 · B+ 3.3 · B 3.0 · B- 2.7 · C+ 2.3 · C 2.0 · C- 1.7 · D+ 1.3 · D 1.0 · D- 0.7</p>
+              <div class="text-sm">
+                <p class="font-bold text-[#32124f]">{{ t('transcript.academicStanding') }}</p>
+                <p class="mt-2">{{ t('transcript.cumulativeGpa') }} <strong class="ml-3">{{ formatGpa(record.overallGpa) }}</strong></p>
+              </div>
+              <div class="grading-scale mt-5 break-inside-avoid">
+                <p class="mb-2 text-sm font-bold text-[#32124f]">{{ t('transcript.gradingScale') }}</p>
+                <div class="overflow-hidden rounded border border-[#bfb2c7]">
+                  <table class="w-full table-fixed border-collapse text-[0.62rem]">
+                    <tbody>
+                      <tr>
+                        <th class="w-24 border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.tenPointScale') }}</th>
+                        @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center last:border-r-0">{{ band.range }}</td> }
+                      </tr>
+                      <tr class="border-t border-[#d8cfdd]">
+                        <th class="border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.letterGrade') }}</th>
+                        @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center font-semibold last:border-r-0">{{ band.letter }}</td> }
+                      </tr>
+                      <tr class="border-t border-[#d8cfdd]">
+                        <th class="border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.gpaScale') }}</th>
+                        @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center last:border-r-0">{{ band.gpa }}</td> }
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
               <div class="mt-8 grid grid-cols-2 gap-12 text-xs">
@@ -207,11 +227,58 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
           }
         </article>
       } @else {
-        <div class="no-print mt-8 rounded-xl border border-dashed border-[#d7cddd] bg-white px-6 py-20 text-center">
-          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#f2eaf5] text-2xl text-[#6d3a91]" aria-hidden="true">⌕</div>
-          <h3 class="mt-4 text-lg font-semibold text-[#32124f]">{{ t('transcript.emptyStudentTitle') }}</h3>
-          <p class="mx-auto mt-2 max-w-lg text-sm text-[#766d7d]">{{ t('transcript.emptyStudentBody') }}</p>
-        </div>
+        <section class="no-print mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.06)]">
+          <header class="flex flex-wrap items-end justify-between gap-4 border-b border-[#e8e1eb] px-5 py-5 lg:px-7">
+            <div>
+              <h3 class="text-lg font-semibold text-[#32124f]">{{ t('transcript.studentDirectory') }}</h3>
+              <p class="mt-1 text-sm text-[#756b7c]">{{ t('transcript.studentDirectoryHelp') }}</p>
+            </div>
+            <p class="text-sm font-semibold text-[#6d3a91]">{{ directoryTotal() }} {{ t('transcript.studentsLabel') }}</p>
+          </header>
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[680px] border-collapse text-sm">
+              <thead class="bg-[#faf8fb] text-left text-xs uppercase tracking-[0.1em] text-[#756a7c]">
+                <tr>
+                  <th class="px-5 py-3 lg:px-7">{{ t('transcript.student') }}</th>
+                  <th class="px-4 py-3">{{ t('transcript.currentGrade') }}</th>
+                  <th class="px-4 py-3">{{ t('transcript.homeroom') }}</th>
+                  <th class="px-5 py-3 text-right lg:px-7"><span class="sr-only">{{ t('transcript.openTranscript') }}</span></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#ece6ef]">
+                @for (student of directoryStudents(); track student.id) {
+                  <tr class="transition hover:bg-[#fcfafc]">
+                    <td class="px-5 py-4 lg:px-7">
+                      <a [routerLink]="['/transcripts/student', student.id]" class="flex items-center gap-3">
+                        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1eaf4] text-xs font-bold text-[#5b287d]">{{ initials(student.fullName) }}</span>
+                        <span>
+                          <span class="block font-semibold text-[#32124f]">{{ student.fullName }}</span>
+                          <span class="mt-0.5 block text-xs text-[#817589]">{{ student.studentCode }}</span>
+                        </span>
+                      </a>
+                    </td>
+                    <td class="px-4 py-4 text-[#65596d]">{{ student.gradeLevel || '—' }}</td>
+                    <td class="px-4 py-4 text-[#65596d]">{{ student.homeroom || '—' }}</td>
+                    <td class="px-5 py-4 text-right lg:px-7">
+                      <a [routerLink]="['/transcripts/student', student.id]" class="font-semibold text-[#6d3a91] hover:underline">{{ t('transcript.openTranscript') }} →</a>
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr><td colspan="4" class="px-6 py-16 text-center text-[#766d7d]">{{ directoryLoading() ? t('transcript.loadingStudents') : t('transcript.noStudentMatches') }}</td></tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          @if (!directoryLoading() && directoryTotal() > 0) {
+            <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-[#e8e1eb] px-5 py-4 text-sm text-[#746a7b] lg:px-7">
+              <span>{{ directoryPageLabel() }}</span>
+              <div class="flex gap-2">
+                <button type="button" class="rounded-md border border-[#d8cede] px-4 py-2 font-semibold text-[#32124f] disabled:opacity-40" [disabled]="directoryPage() <= 1" (click)="loadDirectory(directoryPage() - 1)">{{ t('pagination.previous') }}</button>
+                <button type="button" class="rounded-md border border-[#d8cede] px-4 py-2 font-semibold text-[#32124f] disabled:opacity-40" [disabled]="directoryPage() >= directoryPages()" (click)="loadDirectory(directoryPage() + 1)">{{ t('pagination.next') }}</button>
+              </div>
+            </footer>
+          }
+        </section>
       }
     </section>
   `,
@@ -227,11 +294,15 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
       .grade-block th { padding-top: 1.5mm !important; padding-bottom: 1.5mm !important; }
       .grade-block td { padding-top: 1mm !important; padding-bottom: 1mm !important; }
       .formal-footer { margin: 2mm 0 0 !important; }
+      .grading-scale { break-inside: avoid; page-break-inside: avoid; }
+      .grading-scale table { font-size: 5.8pt !important; }
     }
   `,
 })
 export class StudentTranscriptComponent {
   private readonly service = inject(TranscriptsService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly searchTerms = new Subject<string>();
   readonly languageService = inject(LanguageService);
   readonly transcript = signal<SchoolTranscript | null>(null);
@@ -246,6 +317,25 @@ export class StudentTranscriptComponent {
   readonly activeResult = signal(-1);
   readonly loading = signal(false);
   readonly error = signal(false);
+  readonly directoryStudents = signal<TranscriptStudent[]>([]);
+  readonly directoryLoading = signal(false);
+  readonly directoryPage = signal(1);
+  readonly directoryPages = signal(0);
+  readonly directoryTotal = signal(0);
+  readonly gradingScale = [
+    { range: '9.5–10.0', letter: 'A+', gpa: '4.2' },
+    { range: '9.0–9.4', letter: 'A', gpa: '4.0' },
+    { range: '8.0–8.9', letter: 'A-', gpa: '3.7' },
+    { range: '7.5–7.9', letter: 'B+', gpa: '3.3' },
+    { range: '7.0–7.4', letter: 'B', gpa: '3.0' },
+    { range: '6.5–6.9', letter: 'B-', gpa: '2.7' },
+    { range: '6.0–6.4', letter: 'C+', gpa: '2.3' },
+    { range: '5.5–5.9', letter: 'C', gpa: '2.0' },
+    { range: '5.0–5.4', letter: 'C-', gpa: '1.7' },
+    { range: '4.5–4.9', letter: 'D+', gpa: '1.3' },
+    { range: '4.0–4.4', letter: 'D', gpa: '1.0' },
+    { range: '<4.0', letter: 'D-', gpa: '0.7' },
+  ];
 
   constructor() {
     this.searchTerms.pipe(
@@ -259,7 +349,22 @@ export class StudentTranscriptComponent {
         this.students.set(students);
         this.searching.set(false);
         this.activeResult.set(students.length ? 0 : -1);
+        if (!this.selectedStudentId()) this.loadDirectory(1);
       },
+    });
+
+    this.route.paramMap.subscribe((params) => {
+      const studentId = Number(params.get('studentId'));
+      if (Number.isInteger(studentId) && studentId > 0) {
+        this.selectedStudentId.set(studentId);
+        this.loadTranscript(studentId);
+      } else {
+        this.selectedStudentId.set(null);
+        this.transcript.set(null);
+        this.searchTerm.set('');
+        this.error.set(false);
+        this.loadDirectory(1);
+      }
     });
   }
 
@@ -269,6 +374,7 @@ export class StudentTranscriptComponent {
     this.service.getOverall(studentId).subscribe({
       next: (record) => {
         this.transcript.set(record);
+        this.searchTerm.set(`${record.studentName || ''} · ${record.studentCode || ''}`);
         this.selectedYears.set(record.years.slice(-2).map((year) => year.academicYear));
         this.loading.set(false);
       },
@@ -316,11 +422,37 @@ export class StudentTranscriptComponent {
   }
 
   selectStudent(student: TranscriptStudent): void {
-    this.selectedStudentId.set(student.id);
-    this.searchTerm.set(`${student.fullName} · ${student.studentCode}`);
     this.searchOpen.set(false);
     this.students.set([]);
-    this.loadTranscript(student.id);
+    void this.router.navigate(['/transcripts/student', student.id]);
+  }
+
+  loadDirectory(page: number): void {
+    this.directoryLoading.set(true);
+    this.service.getStudentDirectory(page, 20, this.searchTerm()).subscribe({
+      next: (response) => {
+        this.directoryStudents.set(response.items);
+        this.directoryPage.set(response.page);
+        this.directoryPages.set(response.totalPages);
+        this.directoryTotal.set(response.totalCount);
+        this.directoryLoading.set(false);
+      },
+      error: () => {
+        this.directoryStudents.set([]);
+        this.directoryLoading.set(false);
+      },
+    });
+  }
+
+  directoryPageLabel(): string {
+    return this.t('transcript.directoryPageSummary')
+      .replace('{page}', String(this.directoryPage()))
+      .replace('{pages}', String(this.directoryPages()))
+      .replace('{total}', String(this.directoryTotal()));
+  }
+
+  initials(name: string): string {
+    return name.trim().split(/\s+/).slice(-2).map((part) => part[0]?.toUpperCase()).join('') || 'S';
   }
 
   toggleYear(academicYear: string): void {

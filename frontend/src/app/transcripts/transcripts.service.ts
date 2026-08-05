@@ -10,6 +10,14 @@ export interface TranscriptStudent {
   homeroom?: string | null;
 }
 
+export interface TranscriptStudentsPage {
+  items: TranscriptStudent[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 export interface TranscriptSubject {
   subject: string;
   termScores: Record<string, number | null>;
@@ -66,6 +74,7 @@ export interface SchoolTranscriptGradeDetail {
   academicYear: string;
   gradeLevel: string;
   averageScore?: number | null;
+  gpa?: number | null;
   totalStudents: number;
   totalSubjects: number;
   totalRecords: number;
@@ -92,6 +101,16 @@ export class TranscriptsService {
   getStudents(search: string, limit = 10) {
     return this.http.get<TranscriptStudent[]>(`${this.basePath}/api/transcripts/students`, {
       params: { search, limit },
+    });
+  }
+
+  getStudentDirectory(page = 1, pageSize = 20, search = '') {
+    return this.http.get<TranscriptStudentsPage>(`${this.basePath}/api/transcripts/student-directory`, {
+      params: {
+        page,
+        pageSize,
+        ...(search.trim() ? { search: search.trim() } : {}),
+      },
     });
   }
 

@@ -56,6 +56,58 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
         return Ok(students);
     }
 
+    [HttpGet("student-directory")]
+    public async Task<ActionResult<TranscriptStudentsPageDto>> GetTranscriptStudentDirectory(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 10, 50);
+        var term = search?.Trim();
+        if (term?.Length > 100) term = term[..100];
+
+        var query = VisibleStudents()
+            .Where(student => context.CanvasCourseScores.Any(score =>
+                score.CourseScore && score.StudentProfileId == student.Id &&
+                score.AcademicYear != null && score.AcademicYear != "" &&
+                (score.OverrideScore != null || score.FinalScore != null || score.CurrentScore != null)));
+
+        if (!string.IsNullOrWhiteSpace(term))
+        {
+            var pattern = $"%{EscapeLikePattern(term)}%";
+            query = query.Where(student =>
+                EF.Functions.Like(student.FullName, pattern, "!") ||
+                EF.Functions.Like(student.StudentCode, pattern, "!") ||
+                student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!"));
+        }
+
+        var totalCount = await query.CountAsync();
+        var items = await query
+            .OrderBy(student => student.FullName)
+            .ThenBy(student => student.StudentCode)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(student => new TranscriptStudentDto
+            {
+                Id = student.Id,
+                StudentCode = student.StudentCode,
+                FullName = student.FullName,
+                GradeLevel = student.GradeLevel,
+                Homeroom = student.Homeroom
+            })
+            .ToListAsync();
+
+        return Ok(new TranscriptStudentsPageDto
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize)
+        });
+    }
+
     private static string EscapeLikePattern(string value) =>
         value.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
 
@@ -168,7 +220,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
                                     TermScores = termScores,
                                     Semester1Final = semester1Final,
                                     Semester2Final = semester2Final,
-                                    YearAverage = explicitYearFinal ?? AverageAvailable(semester1Final, semester2Final)
+                                    YearAverage = AnnualAverage(semester1Final, semester2Final, explicitYearFinal)
                                         ?? WeightedAverage(subjectGroup.Select(row => (row.Average, row.RecordCount))),
                                     Credit = CreditForSubject(subjectGroup.Key)
                                 };
@@ -268,20 +320,29 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
         var subjects = aggregateRows
             .GroupBy(row => row.Subject.Trim(), StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new TranscriptSubjectDto
+            .Select(group =>
             {
-                Subject = group.Key,
-                TermScores = terms.ToDictionary(
-                    item => item,
-                    item => WeightedAverage(group
-                        .Where(row => string.Equals(row.Term.Trim(), item, StringComparison.OrdinalIgnoreCase))
-                        .Select(row => (row.Average, row.RecordCount)))),
-                Semester1Final = WeightedAverage(group.Where(row => IsSemester(row.Term, 1))
-                    .Select(row => (row.Average, row.RecordCount))),
-                Semester2Final = WeightedAverage(group.Where(row => IsSemester(row.Term, 2))
-                    .Select(row => (row.Average, row.RecordCount))),
-                YearAverage = WeightedAverage(group.Select(row => (row.Average, row.RecordCount))),
-                Credit = CreditForSubject(group.Key)
+                var semester1Final = WeightedAverage(group.Where(row => IsSemester(row.Term, 1))
+                    .Select(row => (row.Average, row.RecordCount)));
+                var semester2Final = WeightedAverage(group.Where(row => IsSemester(row.Term, 2))
+                    .Select(row => (row.Average, row.RecordCount)));
+                var explicitYearFinal = WeightedAverage(group.Where(row => IsYear(row.Term))
+                    .Select(row => (row.Average, row.RecordCount)));
+
+                return new TranscriptSubjectDto
+                {
+                    Subject = group.Key,
+                    TermScores = terms.ToDictionary(
+                        item => item,
+                        item => WeightedAverage(group
+                            .Where(row => string.Equals(row.Term.Trim(), item, StringComparison.OrdinalIgnoreCase))
+                            .Select(row => (row.Average, row.RecordCount)))),
+                    Semester1Final = semester1Final,
+                    Semester2Final = semester2Final,
+                    YearAverage = AnnualAverage(semester1Final, semester2Final, explicitYearFinal)
+                        ?? WeightedAverage(group.Select(row => (row.Average, row.RecordCount))),
+                    Credit = CreditForSubject(group.Key)
+                };
             }).ToList();
 
         var recordsQuery = baseQuery;
@@ -319,6 +380,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             AcademicYear = academicYear,
             GradeLevel = gradeLevel,
             AverageScore = WeightedAverage(aggregateRows.Select(row => (row.Average, row.RecordCount))),
+            Gpa = WeightedGpa(subjects),
             TotalStudents = totalStudents,
             TotalSubjects = subjects.Count,
             TotalRecords = allRecordCount,
@@ -379,6 +441,15 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
         return available.Count == 0
             ? null
             : Math.Round(available.Average(), 1, MidpointRounding.AwayFromZero);
+    }
+
+    private static double? AnnualAverage(double? semester1, double? semester2, double? explicitYear)
+    {
+        if (semester1 != null && semester2 != null)
+            return Math.Round((semester1.Value + 2 * semester2.Value) / 3, 1,
+                MidpointRounding.AwayFromZero);
+
+        return explicitYear ?? AverageAvailable(semester1, semester2);
     }
 
     private static double CreditForSubject(string subject)

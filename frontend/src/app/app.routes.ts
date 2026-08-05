@@ -59,6 +59,11 @@ export const routes: Routes = [
               import('./transcripts/student-transcript.component').then((m) => m.StudentTranscriptComponent),
           },
           {
+            path: 'student/:studentId',
+            loadComponent: () =>
+              import('./transcripts/student-transcript.component').then((m) => m.StudentTranscriptComponent),
+          },
+          {
             path: ':academicYear/grades/:gradeLevel',
             loadComponent: () =>
               import('./transcripts/transcript-grade-detail.component').then((m) => m.TranscriptGradeDetailComponent),
