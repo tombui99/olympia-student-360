@@ -123,7 +123,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
         </a>
         <article class="print-region transcript-sheet mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.07)]">
           <header class="transcript-header border-b border-[#d9cfdf] px-6 py-6 lg:px-9">
-            <div class="flex items-center gap-5">
+            <div class="letterhead-content flex items-center gap-5">
               <img src="/assets/olympia_logo.png" alt="The Olympia Schools" class="h-20 w-20 object-contain" />
               <div class="min-w-0 flex-1">
                 <h1 class="text-2xl font-bold text-[#64266f] lg:text-3xl">The Olympia Schools</h1>
@@ -163,9 +163,9 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
                         <thead class="bg-[#eee7f1] text-[#382541]">
                           <tr>
                             <th class="w-[52%] px-3 py-2 text-left">{{ t('transcript.subject') }}</th>
-                            <th class="w-[12%] px-1 py-2 text-center">S1F</th>
-                            <th class="w-[12%] px-1 py-2 text-center">S2F</th>
-                            <th class="w-[12%] px-1 py-2 text-center">YR</th>
+                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s1fHelp')">S1F</abbr></th>
+                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s2fHelp')">S2F</abbr></th>
+                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.yrHelp')">YR</abbr></th>
                             <th class="w-[12%] px-1 py-2 text-center">{{ t('transcript.credit') }}</th>
                           </tr>
                         </thead>
@@ -217,7 +217,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
                 <div class="border-t border-[#8e8295] pt-2">{{ t('transcript.schoolOfficer') }}</div>
                 <div class="border-t border-[#8e8295] pt-2">{{ t('transcript.signatureDate') }}</div>
               </div>
-              <div class="mt-6 flex items-end justify-between gap-4 border-t border-[#e8e1eb] pt-3 text-[0.68rem] text-[#756b7c]">
+              <div class="letterhead-content mt-6 flex items-end justify-between gap-4 border-t border-[#e8e1eb] pt-3 text-[0.68rem] text-[#756b7c]">
                 <p>The Olympia Schools · Trung Van, Nam Tu Liem, Hanoi, Vietnam</p>
                 <p class="font-semibold">Official Transcript</p>
               </div>
@@ -226,6 +226,35 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
             <div class="px-8 py-20 text-center text-[#766d7d]">{{ t('transcript.noStudentData') }}</div>
           }
         </article>
+        <section class="no-print mt-6 rounded-xl border border-[#ddd3e2] bg-[#fbf8fc] p-5 lg:p-7" aria-labelledby="transcript-calculation-title">
+          <div class="max-w-3xl">
+            <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ t('transcript.calculationEyebrow') }}</p>
+            <h3 id="transcript-calculation-title" class="mt-1 text-xl font-semibold text-[#32124f]">{{ t('transcript.calculationTitle') }}</h3>
+            <p class="mt-2 text-sm text-[#6f6877]">{{ t('transcript.calculationDescription') }}</p>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-2">
+            <article class="rounded-lg border border-[#e2d9e6] bg-white p-4">
+              <h4 class="font-semibold text-[#32124f]">{{ t('transcript.yearResultCalculation') }}</h4>
+              <p class="mt-2 rounded bg-[#f4eef7] px-3 py-2 font-mono text-sm font-semibold text-[#4f226b]">YR = ROUND((S1F + 2 × S2F) ÷ 3, 1)</p>
+              <p class="mt-2 text-sm leading-6 text-[#706477]">{{ t('transcript.yearResultCalculationHelp') }}</p>
+            </article>
+            <article class="rounded-lg border border-[#e2d9e6] bg-white p-4">
+              <h4 class="font-semibold text-[#32124f]">{{ t('transcript.creditCalculation') }}</h4>
+              <p class="mt-2 rounded bg-[#f4eef7] px-3 py-2 font-mono text-sm font-semibold text-[#4f226b]">{{ t('transcript.creditFormula') }}</p>
+              <p class="mt-2 text-sm leading-6 text-[#706477]">{{ t('transcript.creditCalculationHelp') }}</p>
+            </article>
+            <article class="rounded-lg border border-[#e2d9e6] bg-white p-4">
+              <h4 class="font-semibold text-[#32124f]">{{ t('transcript.annualGpaCalculation') }}</h4>
+              <p class="mt-2 rounded bg-[#f4eef7] px-3 py-2 font-mono text-sm font-semibold text-[#4f226b]">GPA = ROUND(Σ(GPA(YR) × Credit) ÷ Σ(Credit), 2)</p>
+              <p class="mt-2 text-sm leading-6 text-[#706477]">{{ t('transcript.annualGpaCalculationHelp') }}</p>
+            </article>
+            <article class="rounded-lg border border-[#e2d9e6] bg-white p-4">
+              <h4 class="font-semibold text-[#32124f]">{{ t('transcript.academicGpaCalculation') }}</h4>
+              <p class="mt-2 rounded bg-[#f4eef7] px-3 py-2 font-mono text-sm font-semibold text-[#4f226b]">{{ academicGpaBreakdown(record) }}</p>
+              <p class="mt-2 text-sm leading-6 text-[#706477]">{{ t('transcript.academicGpaCalculationHelp') }}</p>
+            </article>
+          </div>
+        </section>
       } @else {
         <section class="no-print mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.06)]">
           <header class="flex flex-wrap items-end justify-between gap-4 border-b border-[#e8e1eb] px-5 py-5 lg:px-7">
@@ -287,6 +316,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
     @media print {
       :host { display: block; }
       .transcript-sheet { width: 100%; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+      .letterhead-content { display: none !important; }
       .transcript-header { padding: 0 0 4mm !important; }
       .grade-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 7mm !important; padding: 6mm 0 !important; }
       .grade-block { break-inside: avoid; page-break-inside: avoid; }
@@ -492,6 +522,18 @@ export class StudentTranscriptComponent {
 
   formatCredit(value: number): string {
     return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+  }
+
+  academicGpaBreakdown(record: SchoolTranscript): string {
+    const annualGpas = record.years
+      .flatMap((year) => year.grades)
+      .filter((grade) => {
+        const gradeLevel = Number(grade.gradeLevel);
+        return Number.isInteger(gradeLevel) && gradeLevel >= 9 && gradeLevel <= 12 && grade.gpa != null;
+      })
+      .map((grade) => grade.gpa!.toFixed(2));
+    if (!annualGpas.length) return this.t('transcript.notAvailable');
+    return `ROUND((${annualGpas.join(' + ')}) ÷ ${annualGpas.length}, 2) = ${this.formatGpa(record.overallGpa)}`;
   }
 
   ordinal(gradeLevel: string): string {

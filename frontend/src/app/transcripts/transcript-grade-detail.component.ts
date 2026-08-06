@@ -80,9 +80,9 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
                   <thead class="bg-[#eee5f2] text-[#4a3158]">
                     <tr>
                       <th class="px-4 py-2.5 text-left">{{ t('transcript.subject') }}</th>
-                      <th class="px-3 py-2.5 text-center">S1F</th>
-                      <th class="px-3 py-2.5 text-center">S2F</th>
-                      <th class="bg-[#e9dfed] px-3 py-2.5 text-center">YR</th>
+                      <th class="px-3 py-2.5 text-center"><abbr class="no-underline" [title]="t('transcript.s1fHelp')">S1F</abbr></th>
+                      <th class="px-3 py-2.5 text-center"><abbr class="no-underline" [title]="t('transcript.s2fHelp')">S2F</abbr></th>
+                      <th class="bg-[#e9dfed] px-3 py-2.5 text-center"><abbr class="no-underline" [title]="t('transcript.yrHelp')">YR</abbr></th>
                       <th class="px-3 py-2.5 text-center">{{ t('transcript.credit') }}</th>
                     </tr>
                   </thead>
@@ -109,19 +109,12 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
               <h3 class="text-xl font-semibold text-[#32124f]">{{ t('transcript.canvasRecords') }}</h3>
               <p class="mt-1 text-sm text-[#756b7c]">{{ t('transcript.canvasRecordsHelp') }}</p>
             </div>
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div>
               <label class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">
                 {{ t('transcript.subject') }}
                 <select class="mt-1 block min-w-48 rounded-md border border-[#d8cede] bg-white px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-[#32124f]" [value]="selectedSubject()" (change)="changeSubject($event)">
                   <option value="">{{ t('transcript.all') }}</option>
                   @for (subject of record.subjects; track subject.subject) { <option [value]="subject.subject">{{ subject.subject }}</option> }
-                </select>
-              </label>
-              <label class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">
-                {{ t('transcript.term') }}
-                <select class="mt-1 block min-w-40 rounded-md border border-[#d8cede] bg-white px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-[#32124f]" [value]="selectedTerm()" (change)="changeTerm($event)">
-                  <option value="">{{ t('transcript.all') }}</option>
-                  @for (term of record.terms; track term) { <option [value]="term">{{ term }}</option> }
                 </select>
               </label>
             </div>
@@ -183,7 +176,6 @@ export class TranscriptGradeDetailComponent {
   readonly loading = signal(true);
   readonly error = signal(false);
   readonly selectedSubject = signal('');
-  readonly selectedTerm = signal('');
   readonly scoreScale = signal<TranscriptScoreScale>('letter');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
@@ -193,7 +185,7 @@ export class TranscriptGradeDetailComponent {
     this.loading.set(true);
     this.error.set(false);
     this.service.getGradeDetails(this.academicYear, this.gradeLevel, page, 25,
-      this.selectedSubject(), this.selectedTerm()).subscribe({
+      this.selectedSubject()).subscribe({
       next: (record) => {
         this.detail.set(record);
         this.loading.set(false);
@@ -207,11 +199,6 @@ export class TranscriptGradeDetailComponent {
 
   changeSubject(event: Event): void {
     this.selectedSubject.set((event.target as HTMLSelectElement).value);
-    this.load(1);
-  }
-
-  changeTerm(event: Event): void {
-    this.selectedTerm.set((event.target as HTMLSelectElement).value);
     this.load(1);
   }
 

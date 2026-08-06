@@ -77,8 +77,8 @@ import { SchoolTranscript, SchoolTranscriptYear, TranscriptsService } from './tr
                         <table class="w-full min-w-[480px] border-collapse text-xs">
                           <thead class="bg-[#eee5f2] text-[#4a3158]"><tr>
                             <th class="px-3 py-2 text-left">{{ t('transcript.subject') }}</th>
-                            <th class="px-2 py-2 text-center">S1F</th><th class="px-2 py-2 text-center">S2F</th>
-                            <th class="px-2 py-2 text-center">YR</th><th class="px-2 py-2 text-center">{{ t('transcript.credit') }}</th>
+                            <th class="px-2 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s1fHelp')">S1F</abbr></th><th class="px-2 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s2fHelp')">S2F</abbr></th>
+                            <th class="px-2 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.yrHelp')">YR</abbr></th><th class="px-2 py-2 text-center">{{ t('transcript.credit') }}</th>
                           </tr></thead>
                           <tbody>
                             @for (subject of grade.subjects; track subject.subject) {

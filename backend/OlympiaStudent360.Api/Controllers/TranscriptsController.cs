@@ -222,7 +222,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
                                     Semester2Final = semester2Final,
                                     YearAverage = AnnualAverage(semester1Final, semester2Final, explicitYearFinal)
                                         ?? WeightedAverage(subjectGroup.Select(row => (row.Average, row.RecordCount))),
-                                    Credit = CreditForSubject(subjectGroup.Key)
+                                    Credit = CreditForSubject(semester1Final, semester2Final, explicitYearFinal)
                                 };
                             }).ToList();
                         return new SchoolTranscriptGradeDto
@@ -237,7 +237,6 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             }).ToList();
 
         var totalStudents = await scores.Select(score => score.StudentProfileId!.Value).Distinct().CountAsync();
-        var allSubjects = years.SelectMany(year => year.Grades).SelectMany(grade => grade.Subjects).ToList();
         return Ok(new SchoolTranscriptDto
         {
             StudentProfileId = selectedStudent?.Id,
@@ -252,7 +251,9 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
                 .Select(visit => visit.Gender)
                 .FirstOrDefault(),
             OverallAverage = WeightedAverage(derivedRows.Select(row => (row.Average, row.RecordCount))),
-            OverallGpa = WeightedGpa(allSubjects),
+            // The official Academic GPA is the simple average of the displayed
+            // annual GPAs (the spreadsheet's AVERAGE of the Grade 9-12 GPA cells).
+            OverallGpa = AcademicGpa(years),
             TotalAcademicYears = years.Count,
             TotalStudents = totalStudents,
             TotalSubjects = derivedRows.Select(row => row.Subject).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
@@ -341,7 +342,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
                     Semester2Final = semester2Final,
                     YearAverage = AnnualAverage(semester1Final, semester2Final, explicitYearFinal)
                         ?? WeightedAverage(group.Select(row => (row.Average, row.RecordCount))),
-                    Credit = CreditForSubject(group.Key)
+                    Credit = CreditForSubject(semester1Final, semester2Final, explicitYearFinal)
                 };
             }).ToList();
 
@@ -452,14 +453,12 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
         return explicitYear ?? AverageAvailable(semester1, semester2);
     }
 
-    private static double CreditForSubject(string subject)
+    private static double CreditForSubject(double? semester1, double? semester2, double? explicitYear)
     {
-        var normalized = subject.Trim().ToLowerInvariant();
-        return normalized.Contains("entrepreneurship") ||
-            normalized.Contains("travel and tourism") ||
-            normalized.Contains("ielts prep")
-            ? 0.5
-            : 1;
+        // A one-semester subject earns half a credit. A subject represented in
+        // both semesters (or only by an explicit full-year result) earns one.
+        if ((semester1 != null) != (semester2 != null)) return 0.5;
+        return explicitYear != null || semester1 != null || semester2 != null ? 1 : 0;
     }
 
     private static int SubjectOrder(string subject)
@@ -484,6 +483,19 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
         if (values.Count == 0) return null;
         return Math.Round(values.Sum(value => value.Gpa * value.Credit) /
             values.Sum(value => value.Credit), 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static double? AcademicGpa(IEnumerable<SchoolTranscriptYearDto> years)
+    {
+        var annualGpas = years
+            .SelectMany(year => year.Grades)
+            .Where(grade => int.TryParse(grade.GradeLevel, out var gradeLevel) && gradeLevel is >= 9 and <= 12)
+            .Where(grade => grade.Gpa != null)
+            .Select(grade => grade.Gpa!.Value)
+            .ToList();
+        return annualGpas.Count == 0
+            ? null
+            : Math.Round(annualGpas.Average(), 2, MidpointRounding.AwayFromZero);
     }
 
     private static double ToGpa(double score) =>
