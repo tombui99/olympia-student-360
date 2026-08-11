@@ -105,11 +105,31 @@ public sealed class CanvasSyncController : ControllerBase
         var sourceKey = $"canvas:{baseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";
         var state = await _db.CanvasSyncStates.SingleOrDefaultAsync(
             item => item.SourceKey == sourceKey, cancellationToken);
+
+        var run = new CanvasSyncRun
+        {
+            SourceKey = sourceKey,
+            Source = $"Canvas ({baseUri.Host}, account {request.AccountId.Trim()})",
+            Workflow = mode,
+            Status = "running",
+            StartedAtUtc = candidateWatermarkUtc,
+            WatermarkUtc = candidateWatermarkUtc,
+            CreatedAt = candidateWatermarkUtc
+        };
+        _db.CanvasSyncRuns.Add(run);
+
         if (mode == "incremental" && state?.LastSuccessfulWatermarkUtc is null)
         {
+            const string message =
+                "No successful Canvas watermark exists. Run sync-all once before incremental sync.";
+            run.Status = "failed";
+            run.CompletedAtUtc = DateTime.UtcNow;
+            run.Error = message;
+            run.UpdatedAt = run.CompletedAtUtc;
+            await _db.SaveChangesAsync(CancellationToken.None);
             return Conflict(new
             {
-                Message = "No successful Canvas watermark exists. Run sync-all once before incremental sync."
+                Message = message
             });
         }
 
@@ -121,6 +141,7 @@ public sealed class CanvasSyncController : ControllerBase
             "reconcile" => candidateWatermarkUtc.AddDays(-request.ReconciliationDays!.Value),
             _ => (DateTime?)null
         };
+        run.WindowStartUtc = sinceUtc;
 
         state ??= new CanvasSyncState { SourceKey = sourceKey, CreatedAt = candidateWatermarkUtc };
         if (state.Id == 0)
@@ -132,7 +153,9 @@ public sealed class CanvasSyncController : ControllerBase
         state.LastStatus = "running";
         state.LastError = null;
         state.UpdatedAt = candidateWatermarkUtc;
-        await _db.SaveChangesAsync(cancellationToken);
+
+        // Persist the audit row independently of client disconnects so every accepted run is visible.
+        await _db.SaveChangesAsync(CancellationToken.None);
 
         var options = new CanvasEtlOptions
         {
@@ -161,6 +184,15 @@ public sealed class CanvasSyncController : ControllerBase
             state.LastStatus = "completed";
             state.LastError = null;
             state.UpdatedAt = completedAtUtc;
+            run = await _db.CanvasSyncRuns.SingleAsync(item => item.Id == run.Id, CancellationToken.None);
+            run.Status = "completed";
+            run.CompletedAtUtc = completedAtUtc;
+            run.Courses = summary.Courses;
+            run.Assignments = summary.Assignments;
+            run.Enrollments = summary.Enrollments;
+            run.Scores = summary.Scores;
+            run.Submissions = summary.Submissions;
+            run.UpdatedAt = completedAtUtc;
             await _db.SaveChangesAsync(CancellationToken.None);
             return Ok(new CanvasSyncResultDto(
                 "completed", completedAtUtc, sinceUtc, candidateWatermarkUtc, summary));
@@ -171,9 +203,15 @@ public sealed class CanvasSyncController : ControllerBase
             state = await _db.CanvasSyncStates.SingleAsync(
                 item => item.SourceKey == sourceKey, CancellationToken.None);
             state.LastCompletedAtUtc = DateTime.UtcNow;
-            state.LastStatus = "failed";
+            state.LastStatus = exception is OperationCanceledException ? "cancelled" : "failed";
             state.LastError = Limit(exception.Message, 2000);
             state.UpdatedAt = DateTime.UtcNow;
+            run = await _db.CanvasSyncRuns.SingleAsync(
+                item => item.Id == run.Id, CancellationToken.None);
+            run.Status = exception is OperationCanceledException ? "cancelled" : "failed";
+            run.CompletedAtUtc = state.LastCompletedAtUtc;
+            run.Error = Limit(exception.Message, 2000);
+            run.UpdatedAt = state.UpdatedAt;
             await _db.SaveChangesAsync(CancellationToken.None);
             throw;
         }

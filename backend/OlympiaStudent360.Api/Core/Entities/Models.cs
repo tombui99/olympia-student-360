@@ -350,6 +350,25 @@ public class CanvasSyncState : BaseEntity
     public string? LastError { get; set; }
 }
 
+/// <summary>An append-only audit record for one Canvas ETL execution.</summary>
+public class CanvasSyncRun : BaseEntity
+{
+    public string SourceKey { get; set; } = default!;
+    public string Source { get; set; } = default!;
+    public string Workflow { get; set; } = default!;
+    public string Status { get; set; } = "running";
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public DateTime? WindowStartUtc { get; set; }
+    public DateTime WatermarkUtc { get; set; }
+    public string? Error { get; set; }
+    public int? Courses { get; set; }
+    public int? Assignments { get; set; }
+    public int? Enrollments { get; set; }
+    public int? Scores { get; set; }
+    public int? Submissions { get; set; }
+}
+
 /// <summary>
 /// An admin/school-administration-defined custom field on an import module. The field's values are
 /// stored per record in <c>CustomFieldsJson</c> rather than as dedicated columns, so any

@@ -568,6 +568,80 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("CanvasSubmissions");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasSyncRun", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Assignments")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("Courses")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseCreatedAt");
+
+                    b.Property<int?>("Enrollments")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<int?>("Scores")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("Submissions")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseUpdatedAt");
+
+                    b.Property<DateTime>("WatermarkUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("WindowStartUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Workflow")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedAtUtc");
+
+                    b.HasIndex("SourceKey", "StartedAtUtc");
+
+                    b.ToTable("CanvasSyncRuns");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasSyncState", b =>
                 {
                     b.Property<int>("Id")

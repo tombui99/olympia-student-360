@@ -31,6 +31,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CanvasCourseScore> CanvasCourseScores { get; set; }
     public DbSet<CanvasSubmission> CanvasSubmissions { get; set; }
     public DbSet<CanvasSyncState> CanvasSyncStates { get; set; }
+    public DbSet<CanvasSyncRun> CanvasSyncRuns { get; set; }
     public DbSet<StudentClassificationSetting> StudentClassificationSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -418,6 +419,19 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             state.Property(item => item.LastStatus).HasMaxLength(50);
             state.Property(item => item.LastError).HasMaxLength(2000);
             state.HasIndex(item => item.SourceKey).IsUnique();
+        });
+
+        modelBuilder.Entity<CanvasSyncRun>(run =>
+        {
+            run.Property(item => item.CreatedAt).HasColumnName("WarehouseCreatedAt");
+            run.Property(item => item.UpdatedAt).HasColumnName("WarehouseUpdatedAt");
+            run.Property(item => item.SourceKey).HasMaxLength(255);
+            run.Property(item => item.Source).HasMaxLength(255);
+            run.Property(item => item.Workflow).HasMaxLength(50);
+            run.Property(item => item.Status).HasMaxLength(50);
+            run.Property(item => item.Error).HasMaxLength(2000);
+            run.HasIndex(item => item.StartedAtUtc);
+            run.HasIndex(item => new { item.SourceKey, item.StartedAtUtc });
         });
 
     }
