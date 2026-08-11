@@ -10,6 +10,9 @@ export interface MetricVariable {
   label: string;
   category: string;
   source: string;
+  dataset: string;
+  sourceFields: string[];
+  definition?: string | null;
   value: number | null;
   unit: string;
   trend: number | null;
@@ -30,19 +33,13 @@ export interface MetricVariableGroup {
  * by two distinct warehouse datasets.
  */
 export function metricDataset(metric: MetricVariable): string {
-  if (metric.id === 'canvas-course-grade-avg') {
-    return 'CanvasCourseScores';
-  }
-  if (metric.source === 'Canvas') {
-    return 'CanvasSubmissions';
-  }
-  return metric.source;
+  return metric.dataset || metric.source;
 }
 
 export function groupMetricVariables(metrics: MetricVariable[]): MetricVariableGroup[] {
   const preferredOrder = [
-    'CanvasCourseScores',
-    'CanvasSubmissions',
+    'CanvasEnrollmentGrades',
+    'CanvasSubmissionsAndAssignments',
     'StudentBehaviours',
     'StudentProjects',
     'StudentMentalHealth',
@@ -73,7 +70,7 @@ export function groupMetricVariables(metrics: MetricVariable[]): MetricVariableG
 
 export interface MetricDrilldownRow {
   studentId: number;
-  studentCode: string;
+  sisUserId: string;
   fullName: string;
   gradeLevel?: string | null;
   homeroom?: string | null;
@@ -154,7 +151,7 @@ export interface CanvasExploreResult {
 
 export interface CanvasExploreDrilldownRow extends DrilldownRecord {
   studentId?: number | null;
-  studentCode?: string | null;
+  sisUserId?: string | null;
   fullName?: string | null;
   gradeLevel?: string | null;
   homeroom?: string | null;
@@ -345,7 +342,14 @@ export class ReportBuilderService {
       owner: report.ownerUsername,
       title: report.title,
       description: report.description,
-      charts: report.definition.charts ?? [],
+      charts: (report.definition.charts ?? []).map((chart) => ({
+        ...chart,
+        metrics: chart.metrics.map((id) => id === 'canvas-course-grade-avg'
+          ? 'canvas-final-score-avg'
+          : id === 'canvas-assignment-score-avg'
+            ? 'canvas-submission-score-percent-avg'
+            : id),
+      })),
 
       sharedWith: report.sharedWith ?? [],
       updatedAt: report.updatedAt ?? new Date().toISOString(),

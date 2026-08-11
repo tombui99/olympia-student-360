@@ -5,7 +5,7 @@ namespace OlympiaStudent360.Api.Core.DTOs;
 public class ManualEntryStudentDto
 {
     public int Id { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }

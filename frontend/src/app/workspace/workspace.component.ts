@@ -517,7 +517,7 @@ export class WorkspaceComponent implements OnInit {
       titleKey: 'workspace.templates.academic.title',
       descriptionKey: 'workspace.templates.academic.description',
       charts: [
-        { titleKey: 'workspace.templates.charts.academicScores', kind: 'line', metrics: ['canvas-course-grade-avg', 'canvas-assignment-score-avg'] },
+        { titleKey: 'workspace.templates.charts.academicScores', kind: 'line', metrics: ['canvas-final-score-avg', 'canvas-submission-score-percent-avg'] },
         { titleKey: 'workspace.templates.charts.assignmentWorkflow', kind: 'line', metrics: ['canvas-assignments-submitted', 'canvas-assignments-graded'] },
         { titleKey: 'workspace.templates.charts.assignmentAttention', kind: 'bar', metrics: ['canvas-assignments-missing', 'canvas-assignments-late'] },
       ],

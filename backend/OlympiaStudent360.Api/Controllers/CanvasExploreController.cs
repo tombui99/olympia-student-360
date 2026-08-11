@@ -149,17 +149,19 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Homeroom)) query = query.Where(item => item.Student!.Homeroom == f.Homeroom);
         if (f.Has(f.Program)) query = query.Where(item => item.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(item => item.StudentProfileId == f.StudentId);
-        if (f.Has(f.Subject)) query = query.Where(item => item.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(item => item.AcademicYear == f.Year);
-        if (f.Has(f.Term)) query = query.Where(item => item.Term == f.Term);
+        if (f.Has(f.Subject)) query = query.Where(item => item.Assignment!.Course!.Name == f.Subject);
+        if (f.Has(f.Year)) query = query.Where(item => item.Assignment!.Course!.EnrollmentTermName == f.Year);
+        if (f.Has(f.Term)) query = query.Where(item => item.Assignment!.Course!.EnrollmentTermName == f.Term);
 
         var rows = await query.Select(item => new
         {
-            item.StudentProfileId, item.Student!.StudentCode, item.Student.FullName,
-            item.Student.GradeLevel, item.Student.Homeroom, item.Subject, item.Term,
+            item.StudentProfileId, item.Student!.SISUserId, item.Student.FullName,
+            item.Student.GradeLevel, item.Student.Homeroom,
+            Subject = item.Assignment!.Course!.Name, Term = item.Assignment.Course.EnrollmentTermName,
             item.WorkflowState, item.Late, item.Missing, item.Excused, item.Score,
-            item.PointsPossible, item.SubmittedAt, item.DueAt,
-            AssignmentTitle = item.Assignment != null ? item.Assignment.Title : null
+            PointsPossible = item.Assignment.PointsPossible, item.SubmittedAt,
+            DueAt = item.CachedDueDate ?? item.Assignment.DueAt,
+            AssignmentTitle = item.Assignment.Name
         }).ToListAsync();
 
         string Dim(dynamic item) => dimension switch
@@ -181,7 +183,7 @@ public class CanvasExploreController : ControllerBase
         };
         return rows.Where(item => Dim(item) == groupKey && Value(item) != null)
             .OrderByDescending(item => item.SubmittedAt ?? item.DueAt)
-            .Select(item => ExplorerRecord(item.StudentProfileId, item.StudentCode, item.FullName,
+            .Select(item => ExplorerRecord(item.StudentProfileId, item.SISUserId, item.FullName,
                 item.GradeLevel, item.Homeroom, item.SubmittedAt ?? item.DueAt, Value(item),
                 ("Bài tập", item.AssignmentTitle), ("Môn học", item.Subject),
                 ("Trạng thái", SubmissionStatus(item.Missing, item.Excused, item.Late, item.SubmittedAt)),
@@ -192,26 +194,30 @@ public class CanvasExploreController : ControllerBase
     private async Task<List<CanvasExploreDrilldownRowDto>> ScoreDrilldownRows(
         Filters f, string dimension, string measure, string groupKey)
     {
-        var query = _context.CanvasCourseScores.AsNoTracking().Where(item => item.CourseScore && item.StudentProfileId != null);
+        var query = _context.CanvasCourseScores.AsNoTracking().Where(item => item.StudentProfileId != null);
         if (f.Has(f.Campus)) query = query.Where(item => item.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(item => item.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(item => item.Student!.GradeLevel == f.Grade);
         if (f.Has(f.Homeroom)) query = query.Where(item => item.Student!.Homeroom == f.Homeroom);
         if (f.Has(f.Program)) query = query.Where(item => item.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(item => item.StudentProfileId == f.StudentId);
-        if (f.Has(f.Subject)) query = query.Where(item => item.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(item => item.AcademicYear == f.Year);
-        if (f.Has(f.Term)) query = query.Where(item => item.Term == f.Term);
+        if (f.Has(f.Subject)) query = query.Where(item => item.Enrollment!.Course!.Name == f.Subject);
+        if (f.Has(f.Year)) query = query.Where(item => item.Enrollment!.Course!.EnrollmentTermName == f.Year);
+        if (f.Has(f.Term)) query = query.Where(item =>
+            (item.GradingPeriodTitle ?? item.Enrollment!.Course!.EnrollmentTermName) == f.Term);
         var rows = await query.Select(item => new
         {
-            item.StudentProfileId, item.Student!.StudentCode, item.Student.FullName,
-            item.Student.GradeLevel, item.Student.Homeroom, item.Subject, item.Term,
-            item.CourseName, item.GradingPeriodTitle, item.FinalScore, item.CurrentScore,
-            Date = item.UpdatedAt ?? item.CreatedAt
+            item.StudentProfileId, item.Student!.SISUserId, item.Student.FullName,
+            item.Student.GradeLevel, item.Student.Homeroom,
+            CourseName = item.Enrollment!.Course!.Name,
+            EnrollmentTermName = item.Enrollment.Course.EnrollmentTermName,
+            item.GradingPeriodTitle,
+            item.FinalScore, item.CurrentScore,
+            Date = item.GradingPeriodEndDate
         }).ToListAsync();
         string Dim(dynamic item) => dimension switch
         {
-            "subject" => Text(item.Subject), "term" => TermLabel(item.Term),
+            "subject" => Text(item.CourseName), "term" => Text(item.EnrollmentTermName),
             "gradingPeriod" => Text(item.GradingPeriodTitle), "courseName" => Text(item.CourseName),
             "gradeLevel" => Text(item.GradeLevel), "homeroom" => Text(item.Homeroom), _ => "—"
         };
@@ -222,12 +228,13 @@ public class CanvasExploreController : ControllerBase
         };
         return rows.Where(item => Dim(item) == groupKey && Value(item) != null)
             .OrderByDescending(item => item.Date)
-            .Select(item => ExplorerRecord(item.StudentProfileId, item.StudentCode, item.FullName,
+            .Select(item => ExplorerRecord(item.StudentProfileId, item.SISUserId, item.FullName,
                 item.GradeLevel, item.Homeroom, item.Date, Value(item),
-                ("Khóa học", item.CourseName), ("Môn học", item.Subject),
-                ("Kỳ chấm điểm", item.GradingPeriodTitle),
-                ("Điểm hiện tại", item.CurrentScore?.ToString("0.##")),
-                ("Điểm cuối kỳ", item.FinalScore?.ToString("0.##"))))
+                ("Canvas course name", item.CourseName),
+                ("Canvas enrollment term name", item.EnrollmentTermName),
+                ("Canvas grading_period.title", item.GradingPeriodTitle),
+                ("Canvas grades.current_score", item.CurrentScore?.ToString("0.##")),
+                ("Canvas grades.final_score", item.FinalScore?.ToString("0.##"))))
             .ToList();
     }
 
@@ -237,8 +244,10 @@ public class CanvasExploreController : ControllerBase
         var query = from assignment in _context.CanvasAssignments.AsNoTracking()
                     join course in _context.CanvasCourses.AsNoTracking()
                         on assignment.CanvasCourseId equals course.CanvasCourseId
-                    select new { assignment.Title, assignment.AssignmentGroupName, assignment.WorkflowState,
-                        assignment.DueAt, assignment.PointsPossible, course.Subject, course.AcademicYear };
+                    select new { assignment.Name, assignment.AssignmentGroupName, assignment.WorkflowState,
+                        assignment.DueAt, assignment.PointsPossible,
+                        Subject = course.Name,
+                        AcademicYear = course.EnrollmentTermName };
         if (f.Has(f.Subject)) query = query.Where(item => item.Subject == f.Subject);
         if (f.Has(f.Year)) query = query.Where(item => item.AcademicYear == f.Year);
         var rows = await query.ToListAsync();
@@ -251,7 +260,7 @@ public class CanvasExploreController : ControllerBase
         return rows.Where(item => Dim(item) == groupKey && Value(item) != null)
             .OrderByDescending(item => item.DueAt)
             .Select(item => ExplorerRecord(null, null, null, null, null, item.DueAt, Value(item),
-                ("Bài tập", item.Title), ("Môn học", item.Subject),
+                ("Bài tập", item.Name), ("Môn học", item.Subject),
                 ("Nhóm bài tập", item.AssignmentGroupName), ("Trạng thái", item.WorkflowState),
                 ("Điểm tối đa", item.PointsPossible?.ToString("0.##"))))
             .ToList();
@@ -261,19 +270,21 @@ public class CanvasExploreController : ControllerBase
         Filters f, string dimension, string measure, string groupKey)
     {
         var query = _context.CanvasCourses.AsNoTracking().AsQueryable();
-        if (f.Has(f.Subject)) query = query.Where(item => item.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(item => item.AcademicYear == f.Year);
+        if (f.Has(f.Subject)) query = query.Where(item => item.Name == f.Subject);
+        if (f.Has(f.Year)) query = query.Where(item => item.EnrollmentTermName == f.Year);
         var rows = await query.ToListAsync();
         string Dim(Core.Entities.CanvasCourse item) => dimension switch
         {
-            "subject" => Text(item.Subject), "term" => Text(item.Term ?? item.TermName),
+            "subject" => Text(item.Name),
+            "term" => Text(item.EnrollmentTermName),
             "workflowState" => Text(item.WorkflowState), _ => "—"
         };
         return rows.Where(item => Dim(item) == groupKey)
             .OrderBy(item => item.Name)
-            .Select(item => ExplorerRecord(null, null, null, null, null, item.UpdatedAt ?? item.CreatedAt,
+            .Select(item => ExplorerRecord(null, null, null, null, null, item.EndAt ?? item.StartAt,
                 measure == "count" ? 1 : null, ("Khóa học", item.Name), ("Mã khóa học", item.CourseCode),
-                ("Môn học", item.Subject), ("Học kỳ", item.Term ?? item.TermName),
+                ("Môn học", item.Name),
+                ("Học kỳ", item.EnrollmentTermName),
                 ("Trạng thái", item.WorkflowState)))
             .ToList();
     }
@@ -287,7 +298,7 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Grade)) query = query.Where(item => item.Student.GradeLevel == f.Grade);
         if (f.Has(f.Homeroom)) query = query.Where(item => item.Student.Homeroom == f.Homeroom);
         if (f.Has(f.Program)) query = query.Where(item => item.Student.Program == f.Program);
-        if (f.StudentId.HasValue) query = query.Where(item => item.StudentProfileId == f.StudentId);
+        if (f.StudentId.HasValue) query = query.Where(item => item.Student.Id == f.StudentId);
         var rows = await query.ToListAsync();
         string Dim(Core.Entities.SISStudentParent item) => dimension switch
         {
@@ -298,7 +309,7 @@ public class CanvasExploreController : ControllerBase
         };
         return rows.Where(item => Dim(item) == groupKey)
             .OrderBy(item => item.FullName)
-            .Select(item => ExplorerRecord(item.StudentProfileId, item.Student.StudentCode,
+            .Select(item => ExplorerRecord(item.Student.Id, item.SISUserId,
                 item.Student.FullName, item.Student.GradeLevel, item.Student.Homeroom,
                 item.UpdatedAt ?? item.CreatedAt, 1, ("Phụ huynh", item.FullName),
                 ("Quan hệ", item.Relationship), ("Nghề nghiệp", item.Occupation),
@@ -307,11 +318,11 @@ public class CanvasExploreController : ControllerBase
     }
 
     private static CanvasExploreDrilldownRowDto ExplorerRecord(
-        int? studentId, string? studentCode, string? fullName, string? gradeLevel,
+        int? studentId, string? sisUserId, string? fullName, string? gradeLevel,
         string? homeroom, DateTime? date, decimal? value,
         params (string Key, string? Value)[] fields) => new()
     {
-        StudentId = studentId, StudentCode = studentCode, FullName = fullName,
+        StudentId = studentId, SISUserId = sisUserId, FullName = fullName,
         GradeLevel = gradeLevel, Homeroom = homeroom, Date = date, Value = value,
         Fields = fields.Where(field => !string.IsNullOrWhiteSpace(field.Value))
             .ToDictionary(field => field.Key, field => field.Value)
@@ -320,7 +331,7 @@ public class CanvasExploreController : ControllerBase
     // ---- Dataset row builders. Each returns (dimension key, measure value?) tuples. ----
 
     private sealed record SubRow(
-        string? Subject, string? Term, string? WorkflowState, bool Late, bool Missing, bool Excused,
+        string? Subject, string? Term, string? WorkflowState, bool Late, bool Missing, bool? Excused,
         double? Score, double? PointsPossible, DateTime? SubmittedAt, DateTime? DueAt,
         string? GradeLevel, string? Homeroom);
 
@@ -333,13 +344,15 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Homeroom)) query = query.Where(s => s.Student!.Homeroom == f.Homeroom);
         if (f.Has(f.Program)) query = query.Where(s => s.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(s => s.StudentProfileId == f.StudentId);
-        if (f.Has(f.Subject)) query = query.Where(s => s.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(s => s.AcademicYear == f.Year);
-        if (f.Has(f.Term)) query = query.Where(s => s.Term == f.Term);
+        if (f.Has(f.Subject)) query = query.Where(s => s.Assignment!.Course!.Name == f.Subject);
+        if (f.Has(f.Year)) query = query.Where(s => s.Assignment!.Course!.EnrollmentTermName == f.Year);
+        if (f.Has(f.Term)) query = query.Where(s => s.Assignment!.Course!.EnrollmentTermName == f.Term);
 
         var data = await query.Select(s => new SubRow(
-            s.Subject, s.Term, s.WorkflowState, s.Late, s.Missing, s.Excused,
-            s.Score, s.PointsPossible, s.SubmittedAt, s.DueAt,
+            s.Assignment!.Course!.Name, s.Assignment.Course.EnrollmentTermName,
+            s.WorkflowState, s.Late, s.Missing, s.Excused,
+            s.Score, s.Assignment.PointsPossible, s.SubmittedAt,
+            s.CachedDueDate ?? s.Assignment.DueAt,
             s.Student!.GradeLevel, s.Student!.Homeroom)).ToListAsync();
 
         string Dim(SubRow s) => dimension switch
@@ -366,31 +379,35 @@ public class CanvasExploreController : ControllerBase
     }
 
     private sealed record ScoreRow(
-        string? Subject, string? Term, string? GradingPeriodTitle, string? CourseName,
+        string? CourseName, string? EnrollmentTermName, string? GradingPeriodTitle,
         double? FinalScore, double? CurrentScore, string? GradeLevel, string? Homeroom);
 
     private async Task<List<(string Key, double? Value)>> ScoreRows(Filters f, string dimension, string measure)
     {
         var query = _context.CanvasCourseScores.AsNoTracking()
-            .Where(s => s.CourseScore && s.StudentProfileId != null);
+            .Where(s => s.StudentProfileId != null);
         if (f.Has(f.Campus)) query = query.Where(s => s.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(s => s.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(s => s.Student!.GradeLevel == f.Grade);
         if (f.Has(f.Homeroom)) query = query.Where(s => s.Student!.Homeroom == f.Homeroom);
         if (f.Has(f.Program)) query = query.Where(s => s.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(s => s.StudentProfileId == f.StudentId);
-        if (f.Has(f.Subject)) query = query.Where(s => s.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(s => s.AcademicYear == f.Year);
-        if (f.Has(f.Term)) query = query.Where(s => s.Term == f.Term);
+        if (f.Has(f.Subject)) query = query.Where(s => s.Enrollment!.Course!.Name == f.Subject);
+        if (f.Has(f.Year)) query = query.Where(s => s.Enrollment!.Course!.EnrollmentTermName == f.Year);
+        if (f.Has(f.Term)) query = query.Where(s =>
+            (s.GradingPeriodTitle ?? s.Enrollment!.Course!.EnrollmentTermName) == f.Term);
 
         var data = await query.Select(s => new ScoreRow(
-            s.Subject, s.Term, s.GradingPeriodTitle, s.CourseName, s.FinalScore, s.CurrentScore,
+            s.Enrollment!.Course!.Name,
+            s.Enrollment.Course.EnrollmentTermName,
+            s.GradingPeriodTitle,
+            s.FinalScore, s.CurrentScore,
             s.Student!.GradeLevel, s.Student!.Homeroom)).ToListAsync();
 
         string Dim(ScoreRow s) => dimension switch
         {
-            "subject" => Text(s.Subject),
-            "term" => TermLabel(s.Term),
+            "subject" => Text(s.CourseName),
+            "term" => Text(s.EnrollmentTermName),
             "gradingPeriod" => Text(s.GradingPeriodTitle),
             "courseName" => Text(s.CourseName),
             "gradeLevel" => Text(s.GradeLevel),
@@ -417,8 +434,9 @@ public class CanvasExploreController : ControllerBase
         var query = from a in _context.CanvasAssignments.AsNoTracking()
                     join c in _context.CanvasCourses.AsNoTracking() on a.CanvasCourseId equals c.CanvasCourseId
                     select new AssignmentRow(
-                        c.Subject, c.Term ?? c.TermName, a.AssignmentGroupName,
-                        a.WorkflowState, a.DueAt, a.PointsPossible, c.AcademicYear);
+                        c.Name, c.EnrollmentTermName,
+                        a.AssignmentGroupName, a.WorkflowState, a.DueAt, a.PointsPossible,
+                        c.EnrollmentTermName);
         if (f.Has(f.Subject)) query = query.Where(a => a.Subject == f.Subject);
         if (f.Has(f.Year)) query = query.Where(a => a.AcademicYear == f.Year);
 
@@ -446,10 +464,11 @@ public class CanvasExploreController : ControllerBase
     private async Task<List<(string Key, double? Value)>> CourseRows(Filters f, string dimension, string measure)
     {
         var query = _context.CanvasCourses.AsNoTracking().AsQueryable();
-        if (f.Has(f.Subject)) query = query.Where(c => c.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(c => c.AcademicYear == f.Year);
+        if (f.Has(f.Subject)) query = query.Where(c => c.Name == f.Subject);
+        if (f.Has(f.Year)) query = query.Where(c => c.EnrollmentTermName == f.Year);
 
-        var data = await query.Select(c => new CourseRow(c.Subject, c.Term, c.TermName, c.WorkflowState)).ToListAsync();
+        var data = await query.Select(c => new CourseRow(
+            c.Name, c.EnrollmentTermName, c.EnrollmentTermName, c.WorkflowState)).ToListAsync();
 
         string Dim(CourseRow c) => dimension switch
         {
@@ -475,7 +494,7 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Grade)) query = query.Where(p => p.Student.GradeLevel == f.Grade);
         if (f.Has(f.Homeroom)) query = query.Where(p => p.Student.Homeroom == f.Homeroom);
         if (f.Has(f.Program)) query = query.Where(p => p.Student.Program == f.Program);
-        if (f.StudentId.HasValue) query = query.Where(p => p.StudentProfileId == f.StudentId);
+        if (f.StudentId.HasValue) query = query.Where(p => p.Student.Id == f.StudentId);
 
         var data = await query.Select(p => new ParentRow(
             p.Occupation, p.AgeGroup, p.EmploymentSector, p.Relationship,
@@ -507,9 +526,9 @@ public class CanvasExploreController : ControllerBase
     private static bool IsGraded(string? state) =>
         string.Equals(state, "graded", StringComparison.OrdinalIgnoreCase);
 
-    private static string SubmissionStatus(bool missing, bool excused, bool late, DateTime? submittedAt)
+    private static string SubmissionStatus(bool missing, bool? excused, bool late, DateTime? submittedAt)
     {
-        if (excused) return "Excused";
+        if (excused == true) return "Excused";
         if (missing) return "Missing";
         if (late) return "Late";
         return submittedAt != null ? "On time" : "Not submitted";
@@ -517,13 +536,7 @@ public class CanvasExploreController : ControllerBase
 
     private static string Text(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value!;
     private static string Month(DateTime? date) => date?.ToString("yyyy-MM") ?? "—";
-    private static string TermLabel(string? term) => term switch
-    {
-        "hk1" => "Semester 1",
-        "hk2" => "Semester 2",
-        null or "" => "—",
-        _ => term!
-    };
+    private static string TermLabel(string? term) => Text(term);
 
     private static CanvasExploreOptionsDto BuildOptions() => new()
     {
@@ -534,17 +547,17 @@ public class CanvasExploreController : ControllerBase
                 Key = "submissions", Label = "Assignment submissions",
                 Dimensions =
                 [
-                    Field("subject", "Subject"), Field("status", "Submission status"),
-                    Field("term", "Term"), Field("workflowState", "Workflow state"),
-                    Field("gradeLevel", "Grade level"), Field("homeroom", "Homeroom"),
-                    Field("month", "Month (due)")
+                    Field("subject", "Canvas course name"), Field("status", "Calculated status from Canvas flags"),
+                    Field("term", "Canvas enrollment term name"), Field("workflowState", "Canvas workflow_state"),
+                    Field("gradeLevel", "SIS grade level"), Field("homeroom", "SIS homeroom"),
+                    Field("month", "Month of Canvas due date")
                 ],
                 Measures =
                 [
                     Field("count", "Number of submissions", "submissions"),
-                    Field("avgScorePercent", "Average score", "%"),
-                    Field("avgScore", "Average points", "pts"),
-                    Field("sumPoints", "Total points possible", "pts")
+                    Field("avgScorePercent", "Average submission.score / assignment.points_possible", "%"),
+                    Field("avgScore", "Average Canvas submission.score", "pts"),
+                    Field("sumPoints", "Sum of related Canvas assignment.points_possible", "pts")
                 ]
             },
             new CanvasExploreDatasetDto
@@ -552,14 +565,14 @@ public class CanvasExploreController : ControllerBase
                 Key = "scores", Label = "Course grades",
                 Dimensions =
                 [
-                    Field("subject", "Subject"), Field("courseName", "Course"),
-                    Field("term", "Term"), Field("gradingPeriod", "Grading period"),
-                    Field("gradeLevel", "Grade level"), Field("homeroom", "Homeroom")
+                    Field("subject", "Canvas course name"), Field("courseName", "Canvas course name"),
+                    Field("term", "Canvas enrollment term name"), Field("gradingPeriod", "Canvas grading period title"),
+                    Field("gradeLevel", "SIS grade level"), Field("homeroom", "SIS homeroom")
                 ],
                 Measures =
                 [
-                    Field("avgFinalScore", "Average final grade", "%"),
-                    Field("avgCurrentScore", "Average current grade", "%"),
+                    Field("avgFinalScore", "Average Canvas grades.final_score", "%"),
+                    Field("avgCurrentScore", "Average Canvas grades.current_score", "%"),
                     Field("count", "Number of grade records", "records")
                 ]
             },
@@ -568,13 +581,13 @@ public class CanvasExploreController : ControllerBase
                 Key = "assignments", Label = "Assignments (catalogue)",
                 Dimensions =
                 [
-                    Field("subject", "Subject"), Field("assignmentGroup", "Assignment group"),
-                    Field("workflowState", "Workflow state"), Field("month", "Month (due)")
+                    Field("subject", "Canvas course name"), Field("assignmentGroup", "Canvas assignment-group name"),
+                    Field("workflowState", "Canvas workflow_state"), Field("month", "Month of Canvas due_at")
                 ],
                 Measures =
                 [
                     Field("count", "Number of assignments", "assignments"),
-                    Field("avgPointsPossible", "Average points possible", "pts")
+                    Field("avgPointsPossible", "Average Canvas points_possible", "pts")
                 ]
             },
             new CanvasExploreDatasetDto
@@ -582,7 +595,7 @@ public class CanvasExploreController : ControllerBase
                 Key = "courses", Label = "Courses (catalogue)",
                 Dimensions =
                 [
-                    Field("subject", "Subject"), Field("term", "Term"), Field("workflowState", "Workflow state")
+                    Field("subject", "Canvas course name"), Field("term", "Canvas enrollment term name"), Field("workflowState", "Canvas workflow_state")
                 ],
                 Measures = [Field("count", "Number of courses", "courses")]
             },

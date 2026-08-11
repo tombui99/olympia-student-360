@@ -11,6 +11,7 @@ using OlympiaStudent360.Api.Data;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
@@ -71,6 +72,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 builder.Services.AddHttpClient<GeminiService>();
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
 
 builder.Services.AddControllers()

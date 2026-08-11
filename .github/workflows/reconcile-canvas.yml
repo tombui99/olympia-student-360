@@ -1,0 +1,48 @@
+name: Reconcile recent Canvas data
+
+on:
+  # schedule:
+  # 02:00 Monday Asia/Ho_Chi_Minh (UTC+7). Reloads late corrections from 30 days.
+  # - cron: "0 19 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canvas-production-sync
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: production
+    env:
+      Canvas__BaseUrl: ${{ secrets.CANVAS_BASE_URL }}
+      Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
+      Canvas__AccountId: ${{ secrets.CANVAS_ACCOUNT_ID }}
+      Canvas__EnrollmentTermIds: ${{ secrets.CANVAS_ENROLLMENT_TERM_IDS }}
+      Canvas__SyncAllEnrollmentTermIds: "227,228,229,232"
+      Backend__BaseUrl: ${{ secrets.OLYMPIA_API_BASE_URL }}
+      Backend__SyncApiKey: ${{ secrets.CANVAS_SYNC_API_KEY }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore and build Canvas ETL
+        run: |
+          dotnet restore backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj
+          dotnet build backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
+            --configuration Release --no-restore
+
+      - name: Reconcile the last 30 days
+        run: |
+          dotnet run --project backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
+            --configuration Release --no-build -- --reconcile-days=30

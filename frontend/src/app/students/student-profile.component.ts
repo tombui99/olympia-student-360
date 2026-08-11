@@ -7,6 +7,10 @@ import { NgxEchartsDirective } from 'ngx-echarts';
 import { LanguageService } from '../core/language/language.service';
 import { RiskFlag, StudentProfileDetail, StudentsService } from './students.service';
 import { riskBadgeClass } from './risk.util';
+import {
+  CanvasSubmissionSheetKind,
+  StudentCanvasSubmissionSheetComponent,
+} from './student-canvas-submission-sheet.component';
 
 type ProfileSection =
   | 'overview'
@@ -19,7 +23,7 @@ type ProfileSection =
 
 @Component({
   selector: 'app-student-profile',
-  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink],
+  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -64,7 +68,7 @@ type ProfileSection =
                 {{ languageService.t('studentProfile.eyebrow') }}
               </p>
               <h2 class="mt-1 truncate text-3xl font-semibold text-[#32124f]">{{ profile.fullName }}</h2>
-              <p class="mt-1 text-sm text-[#6f6877]">{{ profile.studentCode }}</p>
+              <p class="mt-1 text-sm text-[#6f6877]">{{ profile.sisUserId }}</p>
             </div>
           </div>
           <dl class="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
@@ -75,12 +79,6 @@ type ProfileSection =
             <div>
               <dt class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.homeroom') }}</dt>
               <dd class="mt-1 font-semibold text-[#32124f]">{{ profile.homeroom || '-' }}</dd>
-            </div>
-            <div>
-              <dt class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.teacher') }}</dt>
-              <dd class="mt-1 font-semibold text-[#32124f]">
-                {{ profile.teacherName || languageService.t('studentProfile.noTeacher') }}
-              </dd>
             </div>
           </dl>
         </div>
@@ -554,57 +552,124 @@ type ProfileSection =
                 <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgAssignmentScore') }}</p>
                 <p class="mt-2 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageAssignmentScore ?? '—' }}{{ profile.canvas.averageAssignmentScore !== null ? '%' : '' }}</p>
               </div>
-              <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
-                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.assignmentsGraded') }}</p>
-                <p class="mt-2 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.assignmentsGraded }}<span class="text-base font-medium text-[#7c7284]"> / {{ profile.canvas.assignmentsSubmitted }}</span></p>
-                <p class="mt-1 text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.gradedHint') }}</p>
-              </div>
-              <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
-                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.attention') }}</p>
-                <p class="mt-2 text-2xl font-semibold text-[#32124f]">
-                  <span [ngClass]="profile.canvas.missingAssignments ? 'text-[#a9485d]' : 'text-[#32124f]'">{{ profile.canvas.missingAssignments }}</span>
-                  <span class="text-sm font-medium text-[#7c7284]"> {{ languageService.t('studentProfile.canvas.missing') }} · </span>
-                  <span [ngClass]="profile.canvas.lateSubmissions ? 'text-[#8a6811]' : 'text-[#32124f]'">{{ profile.canvas.lateSubmissions }}</span>
-                  <span class="text-sm font-medium text-[#7c7284]"> {{ languageService.t('studentProfile.canvas.late') }}</span>
-                </p>
-                <p class="mt-1 text-xs text-[#7c7284]">{{ profile.canvas.coursesEnrolled }} {{ languageService.t('studentProfile.canvas.coursesEnrolled') }}</p>
-              </div>
+              <button
+                class="group rounded-md border border-[#ded6e4] bg-[#faf9f6] p-4 text-left transition hover:border-[#bca9c8] hover:bg-white hover:shadow-[0_6px_18px_rgba(50,18,79,0.08)] focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
+                type="button"
+                (click)="openCanvasSubmissionSheet('assignmentActivity')"
+              >
+                <span class="flex items-center justify-between gap-3">
+                  <span class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.assignmentActivity') }}</span>
+                  <span class="text-[#6d3a91] transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+                </span>
+                <span class="mt-3 grid grid-cols-2 gap-3">
+                  <span>
+                    <span class="block text-2xl font-semibold text-[#32124f]">{{ profile.canvas.assignmentsGraded }}</span>
+                    <span class="mt-0.5 block text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.gradedCountLabel') }}</span>
+                  </span>
+                  <span class="border-l border-[#ded6e4] pl-3">
+                    <span class="block text-2xl font-semibold text-[#32124f]">{{ profile.canvas.assignmentsSubmitted }}</span>
+                    <span class="mt-0.5 block text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.submittedCountLabel') }}</span>
+                  </span>
+                </span>
+                <span class="mt-3 block text-xs font-semibold text-[#6d3a91]">{{ languageService.t('studentProfile.canvas.viewDetails') }}</span>
+              </button>
+              <button
+                class="group rounded-md border border-[#ded6e4] bg-[#faf9f6] p-4 text-left transition hover:border-[#bca9c8] hover:bg-white hover:shadow-[0_6px_18px_rgba(50,18,79,0.08)] focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
+                type="button"
+                (click)="openCanvasSubmissionSheet('needsAttention')"
+              >
+                <span class="flex items-center justify-between gap-3">
+                  <span class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.attention') }}</span>
+                  <span class="text-[#6d3a91] transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+                </span>
+                <span class="mt-3 grid grid-cols-2 gap-3">
+                  <span>
+                    <span class="block text-2xl font-semibold" [ngClass]="profile.canvas.missingAssignments ? 'text-[#a9485d]' : 'text-[#32124f]'">{{ profile.canvas.missingAssignments }}</span>
+                    <span class="mt-0.5 block text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.missing') }}</span>
+                  </span>
+                  <span class="border-l border-[#ded6e4] pl-3">
+                    <span class="block text-2xl font-semibold" [ngClass]="profile.canvas.lateSubmissions ? 'text-[#8a6811]' : 'text-[#32124f]'">{{ profile.canvas.lateSubmissions }}</span>
+                    <span class="mt-0.5 block text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.late') }}</span>
+                  </span>
+                </span>
+                <span class="mt-3 flex items-center justify-between gap-3 text-xs">
+                  <span class="text-[#7c7284]">{{ profile.canvas.coursesEnrolled }} {{ languageService.t('studentProfile.canvas.coursesEnrolled') }}</span>
+                  <span class="font-semibold text-[#6d3a91]">{{ languageService.t('studentProfile.canvas.viewDetails') }}</span>
+                </span>
+              </button>
             </div>
 
-            <div class="grid gap-5 border-t border-[#ebe6ef] p-6 xl:grid-cols-2">
-              <div>
+            <div class="grid items-stretch gap-5 border-t border-[#ebe6ef] p-6 xl:grid-cols-2">
+              <div class="flex min-w-0 flex-col">
                 <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.courseGrades') }}</h4>
-                <div class="mt-3 overflow-x-auto rounded-md border border-[#ebe6ef]">
-                  <table class="w-full text-left">
-                    <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284]">
-                      <tr>
-                        <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.course') }}</th>
-                        <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.term') }}</th>
-                        <th class="px-4 py-3 text-right font-semibold">{{ languageService.t('studentProfile.canvas.grade') }}</th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-[#ebe6ef]">
-                      @for (course of profile.canvas.courses; track $index) {
-                        <tr class="text-sm">
-                          <td class="px-4 py-3 font-semibold text-[#32124f]">{{ course.subject || course.courseName }}</td>
-                          <td class="px-4 py-3 text-[#6f6877]">{{ course.gradingPeriodTitle || course.term || '—' }}</td>
-                          <td class="px-4 py-3 text-right font-semibold text-[#32124f]">{{ course.finalScore ?? course.currentScore ?? '—' }}{{ (course.finalScore ?? course.currentScore) !== null ? '%' : '' }}</td>
-                        </tr>
-                      } @empty {
-                        <tr>
-                          <td class="px-4 py-8 text-center text-sm text-[#7c7284]" colspan="3">{{ languageService.t('studentProfile.canvas.noCourses') }}</td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
+                <div class="mt-3 flex-1 overflow-hidden rounded-md border border-[#ebe6ef]">
+                  <div class="hidden grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284] md:grid">
+                    <span class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.course') }}</span>
+                    <span class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.enrollmentTerm') }}</span>
+                    <span class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.gradingPeriod') }}</span>
+                  </div>
+                  <div class="space-y-2 p-2">
+                    @for (course of profile.canvas.courses; track $index) {
+                      <article class="rounded-md border border-[#ebe6ef] bg-white p-3 text-sm shadow-[0_1px_2px_rgba(50,18,79,0.04)] xl:flex xl:h-[8.5rem] xl:flex-col xl:justify-between">
+                        <div class="grid gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
+                          <div class="min-w-0 text-[#32124f]">
+                            <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.course') }}</span>
+                            <span class="block font-semibold">{{ course.courseName }}</span>
+                            <span class="mt-0.5 block text-xs font-normal text-[#8a808f]">{{ course.courseCode || '—' }} · {{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.canvasCourseId }}</span>
+                          </div>
+                          <div class="min-w-0 text-[#6f6877]">
+                            <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.enrollmentTerm') }}</span>
+                            <span class="block">{{ course.enrollmentTermName || '—' }}</span>
+                            @if (course.enrollmentTermId) { <span class="mt-0.5 block text-xs text-[#8a808f]">{{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.enrollmentTermId }}</span> }
+                          </div>
+                          <div class="min-w-0 text-[#6f6877]">
+                            <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.gradingPeriod') }}</span>
+                            <span class="block">{{ course.gradingPeriodTitle || '—' }}</span>
+                            @if (course.gradingPeriodId) { <span class="mt-0.5 block text-xs text-[#8a808f]">{{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.gradingPeriodId }}</span> }
+                          </div>
+                        </div>
+                        <div class="mt-3 flex flex-wrap items-center justify-end gap-x-8 gap-y-2 border-t border-[#ebe6ef] pt-3">
+                          <div class="flex items-baseline gap-2">
+                            <span class="text-xs font-semibold uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.currentScore') }}</span>
+                            <span class="font-semibold text-[#32124f]">{{ course.currentScore ?? '—' }}{{ course.currentScore !== null ? '%' : '' }}</span>
+                          </div>
+                          <div class="flex items-baseline gap-2">
+                            <span class="text-xs font-semibold uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.finalScore') }}</span>
+                            <span class="font-semibold text-[#32124f]">{{ course.finalScore ?? '—' }}{{ course.finalScore !== null ? '%' : '' }}</span>
+                          </div>
+                        </div>
+                      </article>
+                    } @empty {
+                      <p class="px-4 py-8 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noCourses') }}</p>
+                    }
+                  </div>
                 </div>
+                @if (profile.canvas.courseGradesTotalPages > 1) {
+                  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[#7c7284]">
+                    <span>{{ paginationSummary(profile.canvas.courseGradesPage, profile.canvas.courseGradesTotalPages, profile.canvas.courseGradesTotalCount) }}</span>
+                    <div class="flex gap-2">
+                      <button
+                        type="button"
+                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                        [disabled]="courseGradesLoading() || profile.canvas.courseGradesPage <= 1"
+                        (click)="loadCourseGradesPage(profile.canvas.courseGradesPage - 1)"
+                      >{{ languageService.t('pagination.previous') }}</button>
+                      <button
+                        type="button"
+                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                        [disabled]="courseGradesLoading() || profile.canvas.courseGradesPage >= profile.canvas.courseGradesTotalPages"
+                        (click)="loadCourseGradesPage(profile.canvas.courseGradesPage + 1)"
+                      >{{ languageService.t('pagination.next') }}</button>
+                    </div>
+                  </div>
+                }
               </div>
 
-              <div>
+              <div class="flex min-w-0 flex-col">
                 <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.recentSubmissions') }}</h4>
-                <div class="mt-3 space-y-2 rounded-md border border-[#ebe6ef] p-2">
+                <div class="mt-3 flex-1 space-y-2 rounded-md border border-[#ebe6ef] p-2">
                   @for (submission of profile.canvas.recentSubmissions; track $index) {
-                    <div class="rounded-md border border-[#ebe6ef] p-3">
+                    <div class="rounded-md border border-[#ebe6ef] p-3 xl:flex xl:h-[8.5rem] xl:flex-col xl:justify-center">
                       <div class="flex flex-wrap items-start justify-between gap-2">
                         <div class="min-w-0">
                           <p class="truncate text-sm font-semibold text-[#32124f]">{{ submission.assignmentTitle }}</p>
@@ -626,6 +691,25 @@ type ProfileSection =
                     <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-6 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noSubmissions') }}</p>
                   }
                 </div>
+                @if (profile.canvas.recentSubmissionsTotalPages > 1) {
+                  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[#7c7284]">
+                    <span>{{ paginationSummary(profile.canvas.recentSubmissionsPage, profile.canvas.recentSubmissionsTotalPages, profile.canvas.recentSubmissionsTotalCount) }}</span>
+                    <div class="flex gap-2">
+                      <button
+                        type="button"
+                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                        [disabled]="recentSubmissionsLoading() || profile.canvas.recentSubmissionsPage <= 1"
+                        (click)="loadRecentSubmissionsPage(profile.canvas.recentSubmissionsPage - 1)"
+                      >{{ languageService.t('pagination.previous') }}</button>
+                      <button
+                        type="button"
+                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                        [disabled]="recentSubmissionsLoading() || profile.canvas.recentSubmissionsPage >= profile.canvas.recentSubmissionsTotalPages"
+                        (click)="loadRecentSubmissionsPage(profile.canvas.recentSubmissionsPage + 1)"
+                      >{{ languageService.t('pagination.next') }}</button>
+                    </div>
+                  </div>
+                }
               </div>
             </div>
           } @else {
@@ -634,6 +718,20 @@ type ProfileSection =
         </section>
         }
         </main>
+
+        @if (canvasSheetKind(); as sheetKind) {
+          <app-student-canvas-submission-sheet
+            [studentId]="profile.id"
+            [studentName]="profile.fullName"
+            [academicYear]="profile.canvas.academicYear"
+            [kind]="sheetKind"
+            [gradedCount]="profile.canvas.assignmentsGraded"
+            [submittedCount]="profile.canvas.assignmentsSubmitted"
+            [missingCount]="profile.canvas.missingAssignments"
+            [lateCount]="profile.canvas.lateSubmissions"
+            (close)="closeCanvasSubmissionSheet()"
+          />
+        }
       }
     </section>
   `,
@@ -647,6 +745,9 @@ export class StudentProfileComponent implements OnInit {
   readonly student = signal<StudentProfileDetail | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  readonly courseGradesLoading = signal(false);
+  readonly recentSubmissionsLoading = signal(false);
+  readonly canvasSheetKind = signal<CanvasSubmissionSheetKind | null>(null);
   readonly activeSection = signal<ProfileSection>('overview');
 
   readonly profileSections = computed<{ id: ProfileSection; label: string; count: number | null }[]>(
@@ -838,6 +939,76 @@ export class StudentProfileComponent implements OnInit {
   onYearChange(year: string): void {
     this.selectedYear.set(year);
     this.loadStudent();
+  }
+
+  loadCourseGradesPage(page: number): void {
+    const profile = this.student();
+    if (!profile || this.courseGradesLoading() || page < 1 || page > profile.canvas.courseGradesTotalPages) return;
+    this.courseGradesLoading.set(true);
+    this.studentsService.canvasCourseGrades(
+      this.studentId,
+      page,
+      profile.canvas.courseGradesPageSize,
+      this.selectedYear() || undefined,
+    ).subscribe({
+      next: (result) => {
+        this.student.update((current) => current ? {
+          ...current,
+          canvas: {
+            ...current.canvas,
+            courses: result.items,
+            courseGradesPage: result.page,
+            courseGradesPageSize: result.pageSize,
+            courseGradesTotalCount: result.totalCount,
+            courseGradesTotalPages: result.totalPages,
+          },
+        } : current);
+        this.courseGradesLoading.set(false);
+      },
+      error: () => this.courseGradesLoading.set(false),
+    });
+  }
+
+  loadRecentSubmissionsPage(page: number): void {
+    const profile = this.student();
+    if (!profile || this.recentSubmissionsLoading() || page < 1 || page > profile.canvas.recentSubmissionsTotalPages) return;
+    this.recentSubmissionsLoading.set(true);
+    this.studentsService.canvasRecentSubmissions(
+      this.studentId,
+      page,
+      profile.canvas.recentSubmissionsPageSize,
+    ).subscribe({
+      next: (result) => {
+        this.student.update((current) => current ? {
+          ...current,
+          canvas: {
+            ...current.canvas,
+            recentSubmissions: result.items,
+            recentSubmissionsPage: result.page,
+            recentSubmissionsPageSize: result.pageSize,
+            recentSubmissionsTotalCount: result.totalCount,
+            recentSubmissionsTotalPages: result.totalPages,
+          },
+        } : current);
+        this.recentSubmissionsLoading.set(false);
+      },
+      error: () => this.recentSubmissionsLoading.set(false),
+    });
+  }
+
+  openCanvasSubmissionSheet(kind: CanvasSubmissionSheetKind): void {
+    this.canvasSheetKind.set(kind);
+  }
+
+  closeCanvasSubmissionSheet(): void {
+    this.canvasSheetKind.set(null);
+  }
+
+  paginationSummary(page: number, pages: number, total: number): string {
+    return this.languageService.t('pagination.pageOf')
+      .replace('{page}', String(page))
+      .replace('{pages}', String(pages))
+      .replace('{total}', String(total));
   }
 
   private isProfileSection(value: string | null): value is ProfileSection {

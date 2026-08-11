@@ -89,7 +89,12 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
                   <tbody>
                     @for (subject of record.subjects; track subject.subject) {
                       <tr class="border-t border-[#ece6ef]">
-                        <td class="px-4 py-2.5 font-semibold text-[#32124f]">{{ subject.subject }}</td>
+                        <td class="px-4 py-2.5 text-[#32124f]">
+                          <span class="block font-semibold">{{ subject.subject }}</span>
+                          @if (subject.courseNames.length) {
+                            <span class="mt-0.5 block text-xs font-normal leading-snug text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
+                          }
+                        </td>
                         <td class="px-3 py-2.5 text-center">{{ score(subject.semester1Final) }}</td>
                         <td class="px-3 py-2.5 text-center">{{ score(subject.semester2Final) }}</td>
                         <td class="bg-[#fcf8fd] px-3 py-2.5 text-center font-bold text-[#32124f]">{{ score(subject.yearAverage) }}</td>
@@ -99,6 +104,21 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
                   </tbody>
                 </table>
               </div>
+              @if (record.totalSubjectPages > 1) {
+                <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-[#e8e1eb] px-4 py-3 text-sm text-[#746a7b]">
+                  <span>{{ subjectPageLabel(record) }}</span>
+                  <div class="flex gap-2">
+                    <button type="button" class="rounded-md border border-[#d8cede] px-4 py-2 font-semibold text-[#32124f] disabled:opacity-40"
+                      [disabled]="record.subjectPage <= 1 || loading()" (click)="load(record.page, record.subjectPage - 1)">
+                      {{ t('pagination.previous') }}
+                    </button>
+                    <button type="button" class="rounded-md border border-[#d8cede] px-4 py-2 font-semibold text-[#32124f] disabled:opacity-40"
+                      [disabled]="record.subjectPage >= record.totalSubjectPages || loading()" (click)="load(record.page, record.subjectPage + 1)">
+                      {{ t('pagination.next') }}
+                    </button>
+                  </div>
+                </footer>
+              }
             </article>
           </div>
         </div>
@@ -111,41 +131,50 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
             </div>
             <div>
               <label class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">
-                {{ t('transcript.subject') }}
+                {{ t('transcript.course') }}
                 <select class="mt-1 block min-w-48 rounded-md border border-[#d8cede] bg-white px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-[#32124f]" [value]="selectedSubject()" (change)="changeSubject($event)">
                   <option value="">{{ t('transcript.all') }}</option>
-                  @for (subject of record.subjects; track subject.subject) { <option [value]="subject.subject">{{ subject.subject }}</option> }
+                  @for (subject of record.subjectOptions; track subject) { <option [value]="subject">{{ subject }}</option> }
                 </select>
               </label>
             </div>
           </div>
 
           <div class="overflow-x-auto">
-            <table class="min-w-[1050px] w-full border-collapse text-sm">
+            <table class="min-w-[1320px] w-full border-collapse text-sm">
               <thead class="bg-[#faf8fb] text-left text-[0.68rem] uppercase tracking-[0.1em] text-[#756a7c]">
                 <tr>
                   <th class="px-5 py-3 lg:px-8">{{ t('transcript.student') }}</th>
-                  <th class="px-4 py-3">{{ t('transcript.subject') }}</th>
                   <th class="px-4 py-3">{{ t('transcript.course') }}</th>
-                  <th class="px-4 py-3">{{ t('transcript.term') }}</th>
+                  <th class="px-4 py-3">{{ t('transcript.enrollmentTerm') }}</th>
+                  <th class="px-4 py-3">{{ t('transcript.scoreScope') }}</th>
+                  <th class="px-4 py-3">{{ t('transcript.gradingPeriod') }}</th>
                   <th class="px-4 py-3 text-right">{{ t('transcript.score') }}</th>
                   <th class="px-4 py-3">{{ t('transcript.scoreSource') }}</th>
-                  <th class="px-5 py-3 text-right lg:px-8">{{ t('transcript.recordedAt') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-[#ece6ef]" [class.opacity-50]="loading()">
-                @for (item of record.records; track item.canvasScoreId) {
+                @for (item of record.records; track item.warehouseScoreFactId) {
                   <tr class="hover:bg-[#fcfafc]">
                     <td class="px-5 py-4 lg:px-8">
                       <a [routerLink]="['/transcripts/student', item.studentProfileId]" class="font-semibold text-[#32124f] hover:underline">{{ item.studentName }}</a>
-                      <p class="mt-0.5 text-xs text-[#8a808f]">{{ item.studentCode }}</p>
+                      <p class="mt-0.5 text-xs text-[#8a808f]">{{ item.sisUserId }} · {{ t('transcript.canvasId') }} {{ item.canvasUserId }}</p>
                     </td>
-                    <td class="px-4 py-4 font-medium text-[#4b3d53]">{{ item.subject }}</td>
-                    <td class="px-4 py-4 text-[#6f6475]">{{ item.courseName }}</td>
-                    <td class="px-4 py-4 text-[#6f6475]">{{ item.term }}</td>
+                    <td class="px-4 py-4 text-[#4b3d53]">
+                      <span class="block font-medium">{{ item.courseName }}</span>
+                      <span class="mt-0.5 block text-xs text-[#8a808f]">{{ item.courseCode || '—' }} · {{ t('transcript.canvasId') }} {{ item.canvasCourseId }}</span>
+                    </td>
+                    <td class="px-4 py-4 text-[#6f6475]">
+                      <span class="block">{{ item.enrollmentTermName || '—' }}</span>
+                      @if (item.enrollmentTermId) { <span class="mt-0.5 block text-xs text-[#8a808f]">{{ t('transcript.canvasId') }} {{ item.enrollmentTermId }}</span> }
+                    </td>
+                    <td class="px-4 py-4"><span class="rounded-full bg-[#edf5f4] px-2.5 py-1 text-xs font-semibold text-[#286768]">{{ t('transcript.scoreScopes.' + item.scoreScope) }}</span></td>
+                    <td class="px-4 py-4 text-[#6f6475]">
+                      <span class="block">{{ item.gradingPeriodTitle || '—' }}</span>
+                      @if (item.gradingPeriodId) { <span class="mt-0.5 block text-xs text-[#8a808f]">{{ t('transcript.canvasId') }} {{ item.gradingPeriodId }}</span> }
+                    </td>
                     <td class="px-4 py-4 text-right text-base font-bold text-[#32124f]">{{ score(item.score) }}</td>
                     <td class="px-4 py-4"><span class="rounded-full bg-[#f1eaf4] px-2.5 py-1 text-xs font-semibold text-[#694078]">{{ t('transcript.scoreSources.' + item.scoreSource) }}</span></td>
-                    <td class="px-5 py-4 text-right text-[#756b7c] lg:px-8">{{ date(item.recordedAt) }}</td>
                   </tr>
                 } @empty {
                   <tr><td colspan="7" class="px-6 py-16 text-center text-[#766d7d]">{{ t('transcript.noDetailRecords') }}</td></tr>
@@ -181,11 +210,11 @@ export class TranscriptGradeDetailComponent {
 
   constructor() { this.load(1); }
 
-  load(page: number): void {
+  load(page: number, subjectPage = this.detail()?.subjectPage ?? 1): void {
     this.loading.set(true);
     this.error.set(false);
     this.service.getGradeDetails(this.academicYear, this.gradeLevel, page, 25,
-      this.selectedSubject()).subscribe({
+      this.selectedSubject(), '', subjectPage, 10).subscribe({
       next: (record) => {
         this.detail.set(record);
         this.loading.set(false);
@@ -207,6 +236,13 @@ export class TranscriptGradeDetailComponent {
       .replace('{page}', String(record.page))
       .replace('{pages}', String(record.totalPages))
       .replace('{total}', String(record.matchingRecords));
+  }
+
+  subjectPageLabel(record: SchoolTranscriptGradeDetail): string {
+    return this.t('pagination.pageOf')
+      .replace('{page}', String(record.subjectPage))
+      .replace('{pages}', String(record.totalSubjectPages))
+      .replace('{total}', String(record.totalSubjects));
   }
 
   score(value?: number | null): string { return formatTranscriptScore(value, this.scoreScale()); }

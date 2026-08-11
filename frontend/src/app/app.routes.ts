@@ -34,16 +34,6 @@ export const routes: Routes = [
           import('./students/commendations.component').then((m) => m.CommendationsComponent),
       },
       {
-        path: 'cohorts',
-        loadComponent: () =>
-          import('./students/cohorts.component').then((m) => m.CohortsComponent),
-      },
-      {
-        path: 'classes',
-        loadComponent: () =>
-          import('./classes/classes.component').then((m) => m.ClassesComponent),
-      },
-      {
         path: 'transcripts',
         loadComponent: () =>
           import('./transcripts/transcripts-layout.component').then((m) => m.TranscriptsLayoutComponent),

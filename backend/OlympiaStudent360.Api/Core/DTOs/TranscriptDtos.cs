@@ -3,7 +3,7 @@ namespace OlympiaStudent360.Api.Core.DTOs;
 public class TranscriptStudentDto
 {
     public int Id { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
@@ -21,7 +21,7 @@ public class TranscriptStudentsPageDto
 public class SchoolTranscriptDto
 {
     public int? StudentProfileId { get; set; }
-    public string? StudentCode { get; set; }
+    public string? SISUserId { get; set; }
     public string? StudentName { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? GradeLevel { get; set; }
@@ -49,11 +49,16 @@ public class SchoolTranscriptGradeDto
     public double? Gpa { get; set; }
     public List<string> Terms { get; set; } = [];
     public List<TranscriptSubjectDto> Subjects { get; set; } = [];
+    public int SubjectPage { get; set; }
+    public int SubjectPageSize { get; set; }
+    public int TotalSubjects { get; set; }
+    public int TotalSubjectPages { get; set; }
 }
 
 public class TranscriptSubjectDto
 {
     public string Subject { get; set; } = default!;
+    public List<string> CourseNames { get; set; } = [];
     public Dictionary<string, double?> TermScores { get; set; } = [];
     public double? Semester1Final { get; set; }
     public double? Semester2Final { get; set; }
@@ -72,7 +77,11 @@ public class SchoolTranscriptGradeDetailDto
     public int TotalRecords { get; set; }
     public int MatchingRecords { get; set; }
     public List<string> Terms { get; set; } = [];
+    public List<string> SubjectOptions { get; set; } = [];
     public List<TranscriptSubjectDto> Subjects { get; set; } = [];
+    public int SubjectPage { get; set; }
+    public int SubjectPageSize { get; set; }
+    public int TotalSubjectPages { get; set; }
     public List<TranscriptScoreRecordDto> Records { get; set; } = [];
     public int Page { get; set; }
     public int PageSize { get; set; }
@@ -81,14 +90,21 @@ public class SchoolTranscriptGradeDetailDto
 
 public class TranscriptScoreRecordDto
 {
-    public long CanvasScoreId { get; set; }
+    public long WarehouseScoreFactId { get; set; }
+    public long CanvasEnrollmentId { get; set; }
+    public long CanvasUserId { get; set; }
+    public long CanvasCourseId { get; set; }
     public int StudentProfileId { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string StudentName { get; set; } = default!;
     public string Subject { get; set; } = default!;
     public string CourseName { get; set; } = default!;
-    public string Term { get; set; } = default!;
+    public string? CourseCode { get; set; }
+    public long? EnrollmentTermId { get; set; }
+    public string? EnrollmentTermName { get; set; }
+    public long? GradingPeriodId { get; set; }
+    public string? GradingPeriodTitle { get; set; }
+    public string ScoreScope { get; set; } = default!;
     public double Score { get; set; }
     public string ScoreSource { get; set; } = default!;
-    public DateTime RecordedAt { get; set; }
 }

@@ -6,7 +6,7 @@ import { BASE_PATH } from '../api/variables';
 export interface HealthVisit {
   id: number;
   studentProfileId?: number | null;
-  studentCode?: string | null;
+  sisUserId?: string | null;
   examTime: string;
   fullName: string;
   gender?: string | null;

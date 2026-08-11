@@ -70,7 +70,7 @@ import { riskBadgeClass } from './risk.util';
                 {{ languageService.t('digest.student') }}
               </p>
               <p class="mt-1 text-lg font-semibold text-[#32124f]">{{ profile.fullName }}</p>
-              <p class="text-sm text-[#6f6877]">{{ profile.studentCode }}</p>
+              <p class="text-sm text-[#6f6877]">{{ profile.sisUserId }}</p>
             </div>
             <div class="grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -84,14 +84,6 @@ import { riskBadgeClass } from './risk.util';
                   {{ languageService.t('digest.homeroom') }}
                 </p>
                 <p class="mt-1 font-semibold text-[#32124f]">{{ profile.homeroom || '-' }}</p>
-              </div>
-              <div class="col-span-2">
-                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">
-                  {{ languageService.t('digest.teacher') }}
-                </p>
-                <p class="mt-1 font-semibold text-[#32124f]">
-                  {{ profile.teacherName || languageService.t('digest.noTeacher') }}
-                </p>
               </div>
             </div>
           </section>
@@ -213,10 +205,14 @@ import { riskBadgeClass } from './risk.util';
                   @for (course of profile.canvas.courses; track $index) {
                     <li class="flex items-start justify-between gap-3 px-4 py-2.5 text-sm">
                       <span>
-                        <span class="font-semibold text-[#32124f]">{{ course.subject || course.courseName }}</span>
-                        <span class="block text-xs text-[#7c7284]">{{ course.gradingPeriodTitle || course.term || '—' }}</span>
+                        <span class="font-semibold text-[#32124f]">{{ course.courseName }}</span>
+                        <span class="block text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.enrollmentTerm') }}: {{ course.enrollmentTermName || '—' }}</span>
+                        <span class="block text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.scoreScopes.' + course.scoreScope) }}{{ course.gradingPeriodTitle ? ': ' + course.gradingPeriodTitle : '' }}</span>
                       </span>
-                      <span class="shrink-0 text-xs font-semibold text-[#5b287d]">{{ course.finalScore ?? course.currentScore ?? '—' }}{{ (course.finalScore ?? course.currentScore) !== null ? '%' : '' }}</span>
+                      <span class="shrink-0 text-right text-xs font-semibold text-[#5b287d]">
+                        {{ languageService.t('studentProfile.canvas.currentScore') }}: {{ course.currentScore ?? '—' }}{{ course.currentScore !== null ? '%' : '' }}<br />
+                        {{ languageService.t('studentProfile.canvas.finalScore') }}: {{ course.finalScore ?? '—' }}{{ course.finalScore !== null ? '%' : '' }}
+                      </span>
                     </li>
                   }
                 </ul>

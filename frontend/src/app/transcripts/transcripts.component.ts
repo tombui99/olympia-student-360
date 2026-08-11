@@ -83,7 +83,12 @@ import { SchoolTranscript, SchoolTranscriptYear, TranscriptsService } from './tr
                           <tbody>
                             @for (subject of grade.subjects; track subject.subject) {
                               <tr class="border-t border-[#ece6ef]">
-                                <td class="px-3 py-2 font-semibold text-[#32124f]">{{ subject.subject }}</td>
+                                <td class="px-3 py-2 text-[#32124f]">
+                                  <span class="block font-semibold">{{ subject.subject }}</span>
+                                  @if (subject.courseNames.length) {
+                                    <span class="mt-0.5 block text-[0.68rem] font-normal leading-snug text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
+                                  }
+                                </td>
                                 <td class="px-2 py-2 text-center">{{ score(subject.semester1Final) }}</td>
                                 <td class="px-2 py-2 text-center">{{ score(subject.semester2Final) }}</td>
                                 <td class="bg-[#fcf8fd] px-2 py-2 text-center font-bold">{{ score(subject.yearAverage) }}</td>
@@ -93,7 +98,24 @@ import { SchoolTranscript, SchoolTranscriptYear, TranscriptsService } from './tr
                           </tbody>
                         </table>
                       </div>
-                      <footer class="flex items-center justify-end border-t border-[#e8e1eb] px-4 py-3">
+                      <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-[#e8e1eb] px-4 py-3">
+                        @if (grade.totalSubjectPages > 1) {
+                          <div class="flex items-center gap-2 text-xs text-[#746a7b]">
+                            <span>{{ subjectPageLabel(grade) }}</span>
+                            <button type="button" class="rounded-md border border-[#d8cede] px-2.5 py-1.5 font-semibold text-[#32124f] disabled:opacity-40"
+                              [disabled]="grade.subjectPage <= 1 || subjectPageLoading(year.academicYear, grade.gradeLevel)"
+                              (click)="loadSubjectPage(year.academicYear, grade.gradeLevel, grade.subjectPage - 1)">
+                              {{ t('pagination.previous') }}
+                            </button>
+                            <button type="button" class="rounded-md border border-[#d8cede] px-2.5 py-1.5 font-semibold text-[#32124f] disabled:opacity-40"
+                              [disabled]="grade.subjectPage >= grade.totalSubjectPages || subjectPageLoading(year.academicYear, grade.gradeLevel)"
+                              (click)="loadSubjectPage(year.academicYear, grade.gradeLevel, grade.subjectPage + 1)">
+                              {{ t('pagination.next') }}
+                            </button>
+                          </div>
+                        } @else {
+                          <span></span>
+                        }
                         <a [routerLink]="['/transcripts', year.academicYear, 'grades', grade.gradeLevel]" class="text-sm font-semibold text-[#6d3a91] hover:underline">{{ t('transcript.viewGradeDetails') }} →</a>
                       </footer>
                     </article>
@@ -102,7 +124,9 @@ import { SchoolTranscript, SchoolTranscriptYear, TranscriptsService } from './tr
               </div>
             }
           } @else {
-            <div class="px-8 py-20 text-center text-[#766d7d]">{{ t('transcript.noCanvasDataOverall') }}</div>
+            <div class="px-6 py-12 lg:px-8">
+              <p class="text-center text-[#766d7d]">{{ t('transcript.noCanvasDataOverall') }}</p>
+            </div>
           }
         </div>
       }
@@ -120,6 +144,7 @@ export class TranscriptsComponent {
   readonly selectedYear = signal('');
   readonly loading = signal(true);
   readonly error = signal(false);
+  readonly loadingSubjectPage = signal('');
   readonly scoreScale = signal<TranscriptScoreScale>('letter');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
@@ -127,7 +152,7 @@ export class TranscriptsComponent {
   load(): void {
     this.loading.set(true);
     this.error.set(false);
-    this.service.getOverall().subscribe({
+    this.service.getOverall(undefined, 1).subscribe({
       next: (record) => {
         this.transcript.set(record);
         this.selectedYear.set(this.latestYear(record)?.academicYear ?? '');
@@ -149,6 +174,40 @@ export class TranscriptsComponent {
     return Number(value.match(/\d{4}/)?.[0] ?? 0);
   }
   changeYear(event: Event): void { this.selectedYear.set((event.target as HTMLSelectElement).value); }
+  loadSubjectPage(academicYear: string, gradeLevel: string, page: number): void {
+    const key = this.subjectPageKey(academicYear, gradeLevel);
+    this.loadingSubjectPage.set(key);
+    this.service.getOverall(undefined, page).subscribe({
+      next: (response) => {
+        const updatedGrade = response.years
+          .find((year) => year.academicYear === academicYear)?.grades
+          .find((grade) => grade.gradeLevel === gradeLevel);
+        if (updatedGrade) {
+          this.transcript.update((record) => record ? {
+            ...record,
+            years: record.years.map((year) => year.academicYear !== academicYear ? year : {
+              ...year,
+              grades: year.grades.map((grade) => grade.gradeLevel === gradeLevel ? updatedGrade : grade),
+            }),
+          } : record);
+        }
+        this.loadingSubjectPage.set('');
+      },
+      error: () => this.loadingSubjectPage.set(''),
+    });
+  }
+  subjectPageLoading(academicYear: string, gradeLevel: string): boolean {
+    return this.loadingSubjectPage() === this.subjectPageKey(academicYear, gradeLevel);
+  }
+  subjectPageLabel(grade: SchoolTranscriptYear['grades'][number]): string {
+    return this.t('pagination.pageOf')
+      .replace('{page}', String(grade.subjectPage))
+      .replace('{pages}', String(grade.totalSubjectPages))
+      .replace('{total}', String(grade.totalSubjects));
+  }
+  private subjectPageKey(academicYear: string, gradeLevel: string): string {
+    return `${academicYear}\u0000${gradeLevel}`;
+  }
   score(value?: number | null): string { return formatTranscriptScore(value, this.scoreScale()); }
   formatGpa(value?: number | null): string { return value == null ? '—' : value.toFixed(2); }
   credit(value: number): string { return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1); }

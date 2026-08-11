@@ -89,7 +89,7 @@ import { ClassificationSettingsModalComponent } from './classification-settings-
                   </span>
                 </div>
                 <p class="mt-1 text-xs text-[#7c7284]">
-                  {{ commendation.studentCode }} · {{ languageService.t('commendations.grade') }} {{ commendation.gradeLevel || '-' }} · {{ commendation.homeroom || '-' }}
+                  {{ commendation.sisUserId }} · {{ languageService.t('commendations.grade') }} {{ commendation.gradeLevel || '-' }} · {{ commendation.homeroom || '-' }}
                 </p>
                 @if (commendation.notes) {
                   <p class="mt-3 text-sm leading-6 text-[#4f4756]">{{ commendation.notes }}</p>

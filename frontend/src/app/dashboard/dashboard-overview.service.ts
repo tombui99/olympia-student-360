@@ -17,7 +17,7 @@ export interface DashboardGrade {
 
 export interface DashboardAttentionStudent {
   id: number;
-  studentCode: string;
+  sisUserId: string;
   fullName: string;
   gradeLevel: string | null;
   homeroom: string | null;

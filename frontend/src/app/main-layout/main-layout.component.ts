@@ -9,9 +9,7 @@ import {
   faBars,
   faRightFromBracket,
   faUserGraduate,
-  faSchool,
   faTriangleExclamation,
-  faLayerGroup,
   faAward,
   faUsersGear,
   faFileLines,
@@ -360,12 +358,10 @@ export class MainLayoutComponent {
       titleKey: 'navSection.students',
       items: [
         { path: '/students', labelKey: 'nav.students', icon: faUserGraduate },
-        { path: '/classes', labelKey: 'nav.classes', icon: faSchool },
         { path: '/transcripts', labelKey: 'nav.transcripts', icon: faFileLines },
         { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical },
         { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation },
         { path: '/commendations', labelKey: 'nav.commendations', icon: faAward },
-        { path: '/cohorts', labelKey: 'nav.cohorts', icon: faLayerGroup },
       ],
     },
     {

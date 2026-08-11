@@ -102,7 +102,7 @@ import { ImportModuleField, ImportModuleFieldsService } from './import-module-fi
                         (click)="selectStudent(student)"
                       >
                         <span class="block text-sm font-semibold text-[#32124f]">{{ student.fullName }}</span>
-                        <span class="mt-0.5 block text-xs text-[#7c7284]">{{ student.studentCode }} · {{ languageService.t('imports.manual.grade') }} {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}</span>
+                        <span class="mt-0.5 block text-xs text-[#7c7284]">{{ student.sisUserId }} · {{ languageService.t('imports.manual.grade') }} {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}</span>
                       </button>
                     }
                   }
@@ -497,7 +497,7 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
   }
 
   private studentLabel(student: ManualEntryStudent): string {
-    return `${student.fullName} (${student.studentCode})`;
+    return `${student.fullName} (${student.sisUserId})`;
   }
 
   /** Collects custom field values as strings for the request payload. */

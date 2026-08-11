@@ -56,7 +56,7 @@ public class HealthVisitsController : ControllerBase
             var value = search.Trim();
             query = query.Where(visit =>
                 visit.FullName.Contains(value) ||
-                visit.Student != null && visit.Student.StudentCode.Contains(value) ||
+                visit.SISUserId != null && visit.SISUserId.Contains(value) ||
                 visit.ClassName != null && visit.ClassName.Contains(value) ||
                 visit.Symptoms != null && visit.Symptoms.Contains(value) ||
                 visit.Diagnosis != null && visit.Diagnosis.Contains(value) ||
@@ -99,8 +99,8 @@ public class HealthVisitsController : ControllerBase
             .Select(visit => new SISHealthVisitDto
             {
                 Id = visit.Id,
-                StudentProfileId = visit.StudentProfileId,
-                StudentCode = visit.Student != null ? visit.Student.StudentCode : null,
+                StudentProfileId = visit.Student != null ? visit.Student.Id : null,
+                SISUserId = visit.SISUserId,
                 ExamTime = visit.ExamTime,
                 FullName = visit.FullName,
                 Gender = visit.Gender,

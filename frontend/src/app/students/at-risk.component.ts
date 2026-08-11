@@ -76,11 +76,8 @@ import { ClassificationSettingsModalComponent } from './classification-settings-
                   </span>
                 </span>
                 <span class="mt-1 block text-xs text-[#7c7284]">
-                  {{ student.studentCode }} · {{ languageService.t('atRisk.grade') }}
+                  {{ student.sisUserId }} · {{ languageService.t('atRisk.grade') }}
                   {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
-                  @if (student.teacherName) {
-                    · {{ student.teacherName }}
-                  }
                 </span>
                 <span class="mt-3 flex flex-wrap gap-2">
                   @for (flag of student.flags; track flag.code) {

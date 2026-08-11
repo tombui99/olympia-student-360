@@ -1,0 +1,213 @@
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Data;
+using OlympiaStudent360.CanvasEtl;
+
+namespace OlympiaStudent360.Api.Controllers;
+
+[Route("api/canvas-sync")]
+[ApiController]
+public sealed class CanvasSyncController : ControllerBase
+{
+    private const string SyncKeyHeader = "X-Olympia-Sync-Key";
+    private const string CanvasTokenHeader = "X-Canvas-Access-Token";
+    private readonly AppDbContext _db;
+    private readonly IConfiguration _configuration;
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    public CanvasSyncController(
+        AppDbContext db,
+        IConfiguration configuration,
+        IHttpClientFactory httpClientFactory)
+    {
+        _db = db;
+        _configuration = configuration;
+        _httpClientFactory = httpClientFactory;
+    }
+
+    [HttpPost]
+    [AllowAnonymous]
+    [RequestSizeLimit(16 * 1024)]
+    public async Task<ActionResult<CanvasSyncResultDto>> Sync(
+        CanvasSyncRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var configuredSyncKey = _configuration["CanvasSync:ApiKey"];
+        if (string.IsNullOrWhiteSpace(configuredSyncKey))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                detail: "Canvas sync API authentication is not configured.");
+        }
+
+        if (!Request.Headers.TryGetValue(SyncKeyHeader, out var suppliedSyncKey) ||
+            !FixedTimeEquals(configuredSyncKey, suppliedSyncKey.ToString()))
+        {
+            return Unauthorized();
+        }
+
+        if (!Request.Headers.TryGetValue(CanvasTokenHeader, out var suppliedCanvasToken) ||
+            string.IsNullOrWhiteSpace(suppliedCanvasToken))
+        {
+            return BadRequest(new { Message = $"Required header {CanvasTokenHeader} is missing." });
+        }
+
+        var baseUrl = request.BaseUrl?.TrimEnd('/') + "/";
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri) ||
+            (baseUri.Scheme != Uri.UriSchemeHttps && !baseUri.IsLoopback))
+        {
+            return BadRequest(new { Message = "baseUrl must be HTTPS, except for loopback testing." });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.AccountId))
+        {
+            return BadRequest(new { Message = "accountId is required." });
+        }
+        if (request.EnrollmentTermIds?.Any(id => id <= 0) == true)
+        {
+            return BadRequest(new { Message = "enrollmentTermIds must contain only positive ids." });
+        }
+        var mode = request.Mode?.Trim().ToLowerInvariant();
+        if (mode is not ("sync-all" or "incremental" or "reconcile"))
+        {
+            return BadRequest(new { Message = "mode must be sync-all, incremental, or reconcile." });
+        }
+        if ((request.EnrollmentTermIds?.Count ?? 0) == 0)
+        {
+            return BadRequest(new
+            {
+                Message = "Canvas sync requires enrollmentTermIds to avoid importing nonacademic courses."
+            });
+        }
+        if (request.OverlapMinutes is < 0 or > 1440)
+        {
+            return BadRequest(new { Message = "overlapMinutes must be from 0 through 1440." });
+        }
+        if (mode == "reconcile" && request.ReconciliationDays is not (>= 1 and <= 90))
+        {
+            return BadRequest(new { Message = "reconciliationDays must be from 1 through 90." });
+        }
+        if (mode != "reconcile" && request.ReconciliationDays is not null)
+        {
+            return BadRequest(new { Message = "reconciliationDays is valid only in reconcile mode." });
+        }
+        if (request.ReplaceExisting && mode != "sync-all")
+        {
+            return BadRequest(new { Message = "replaceExisting is valid only in sync-all mode." });
+        }
+
+        await _db.Database.MigrateAsync(cancellationToken);
+        var candidateWatermarkUtc = DateTime.UtcNow;
+        var sourceKey = $"canvas:{baseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";
+        var state = await _db.CanvasSyncStates.SingleOrDefaultAsync(
+            item => item.SourceKey == sourceKey, cancellationToken);
+        if (mode == "incremental" && state?.LastSuccessfulWatermarkUtc is null)
+        {
+            return Conflict(new
+            {
+                Message = "No successful Canvas watermark exists. Run sync-all once before incremental sync."
+            });
+        }
+
+        var sinceUtc = mode switch
+        {
+            "incremental" => DateTime.SpecifyKind(
+                state!.LastSuccessfulWatermarkUtc!.Value, DateTimeKind.Utc)
+                .AddMinutes(-request.OverlapMinutes),
+            "reconcile" => candidateWatermarkUtc.AddDays(-request.ReconciliationDays!.Value),
+            _ => (DateTime?)null
+        };
+
+        state ??= new CanvasSyncState { SourceKey = sourceKey, CreatedAt = candidateWatermarkUtc };
+        if (state.Id == 0)
+        {
+            _db.CanvasSyncStates.Add(state);
+        }
+        state.LastStartedAtUtc = candidateWatermarkUtc;
+        state.LastRunMode = mode;
+        state.LastStatus = "running";
+        state.LastError = null;
+        state.UpdatedAt = candidateWatermarkUtc;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var options = new CanvasEtlOptions
+        {
+            BaseUri = baseUri,
+            AccessToken = suppliedCanvasToken.ToString(),
+            AccountId = request.AccountId.Trim(),
+            PerPage = 100,
+            AllowEmptyCourses = request.AllowEmptyCourses,
+            AllowEmptyStudents = request.AllowEmptyStudents,
+            IncludeAllCourses = request.IncludeAllCourses,
+            IncludeCompletedCourses = mode is "sync-all" or "reconcile",
+            EnrollmentTermIds = request.EnrollmentTermIds ?? [],
+            SinceUtc = sinceUtc is null ? null : new DateTimeOffset(sinceUtc.Value, TimeSpan.Zero)
+        };
+        using var canvasClient = _httpClientFactory.CreateClient();
+        var sync = new CanvasSyncService(_db, new CanvasApiClient(canvasClient, options), options);
+
+        try
+        {
+            var summary = await sync.Run(request.ReplaceExisting, cancellationToken);
+            var completedAtUtc = DateTime.UtcNow;
+            state = await _db.CanvasSyncStates.SingleAsync(
+                item => item.SourceKey == sourceKey, CancellationToken.None);
+            state.LastSuccessfulWatermarkUtc = candidateWatermarkUtc;
+            state.LastCompletedAtUtc = completedAtUtc;
+            state.LastStatus = "completed";
+            state.LastError = null;
+            state.UpdatedAt = completedAtUtc;
+            await _db.SaveChangesAsync(CancellationToken.None);
+            return Ok(new CanvasSyncResultDto(
+                "completed", completedAtUtc, sinceUtc, candidateWatermarkUtc, summary));
+        }
+        catch (Exception exception)
+        {
+            _db.ChangeTracker.Clear();
+            state = await _db.CanvasSyncStates.SingleAsync(
+                item => item.SourceKey == sourceKey, CancellationToken.None);
+            state.LastCompletedAtUtc = DateTime.UtcNow;
+            state.LastStatus = "failed";
+            state.LastError = Limit(exception.Message, 2000);
+            state.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    private static bool FixedTimeEquals(string expected, string supplied)
+    {
+        var expectedBytes = Encoding.UTF8.GetBytes(expected);
+        var suppliedBytes = Encoding.UTF8.GetBytes(supplied);
+        return expectedBytes.Length == suppliedBytes.Length &&
+            CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes);
+    }
+
+    private static string Limit(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength];
+}
+
+public sealed class CanvasSyncRequestDto
+{
+    public string? BaseUrl { get; init; }
+    public string? AccountId { get; init; }
+    public bool ReplaceExisting { get; init; }
+    public bool AllowEmptyCourses { get; init; }
+    public bool AllowEmptyStudents { get; init; }
+    public bool IncludeAllCourses { get; init; }
+    public IReadOnlyList<long>? EnrollmentTermIds { get; init; }
+    public string? Mode { get; init; }
+    public int OverlapMinutes { get; init; } = 120;
+    public int? ReconciliationDays { get; init; }
+}
+
+public sealed record CanvasSyncResultDto(
+    string Status,
+    DateTime CompletedAtUtc,
+    DateTime? WindowStartUtc,
+    DateTime WatermarkUtc,
+    CanvasSyncSummary Summary);

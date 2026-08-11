@@ -52,7 +52,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
                       (click)="selectStudent(student)">
                       <span class="min-w-0">
                         <span class="block truncate text-sm font-semibold text-[#32124f]">{{ student.fullName }}</span>
-                        <span class="mt-0.5 block text-xs text-[#817589]">{{ student.studentCode }} · {{ student.homeroom || (t('transcript.grade') + ' ' + (student.gradeLevel || '—')) }}</span>
+                        <span class="mt-0.5 block text-xs text-[#817589]">{{ student.sisUserId }} · {{ student.homeroom || (t('transcript.grade') + ' ' + (student.gradeLevel || '—')) }}</span>
                       </span>
                       <span class="shrink-0 text-xs font-semibold text-[#8a6811]">{{ t('transcript.select') }}</span>
                     </button>
@@ -137,7 +137,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
 
             <div class="mt-5 grid gap-x-8 gap-y-3 border-t border-[#e8e1eb] pt-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
               <div><span class="meta-label">{{ t('transcript.student') }}</span><strong>{{ record.studentName || '—' }}</strong></div>
-              <div><span class="meta-label">{{ t('transcript.studentCode') }}</span><strong>{{ record.studentCode || '—' }}</strong></div>
+              <div><span class="meta-label">{{ t('transcript.sisUserId') }}</span><strong>{{ record.sisUserId || '—' }}</strong></div>
               <div><span class="meta-label">{{ t('transcript.dateOfBirth') }}</span><strong>{{ dateOfBirth(record.dateOfBirth) }}</strong></div>
               <div><span class="meta-label">{{ t('transcript.gender') }}</span><strong>{{ record.gender || '—' }}</strong></div>
               <div><span class="meta-label">{{ t('transcript.currentGrade') }}</span><strong>{{ record.gradeLevel || '—' }}</strong></div>
@@ -172,7 +172,12 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
                         <tbody>
                           @for (subject of grade.subjects; track subject.subject) {
                             <tr class="border-t border-[#e7e0ea]">
-                              <td class="px-3 py-1.5 font-medium text-[#35293b]">{{ subject.subject }}</td>
+                              <td class="px-3 py-1.5 text-[#35293b]">
+                                <span class="block font-medium">{{ subject.subject }}</span>
+                                @if (subject.courseNames.length) {
+                                  <span class="mt-0.5 block text-[0.62rem] leading-tight text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
+                                }
+                              </td>
                               <td class="px-1 py-1.5 text-center">{{ score(subject.semester1Final) }}</td>
                               <td class="px-1 py-1.5 text-center">{{ score(subject.semester2Final) }}</td>
                               <td class="bg-[#fbf8fc] px-1 py-1.5 text-center font-semibold">{{ score(subject.yearAverage) }}</td>
@@ -223,7 +228,9 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
               </div>
             </footer>
           } @else {
-            <div class="px-8 py-20 text-center text-[#766d7d]">{{ t('transcript.noStudentData') }}</div>
+            <div class="px-8 py-16 text-center text-[#766d7d]">
+              <p>{{ t('transcript.noStudentData') }}</p>
+            </div>
           }
         </article>
         <section class="no-print mt-6 rounded-xl border border-[#ddd3e2] bg-[#fbf8fc] p-5 lg:p-7" aria-labelledby="transcript-calculation-title">
@@ -282,7 +289,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
                         <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1eaf4] text-xs font-bold text-[#5b287d]">{{ initials(student.fullName) }}</span>
                         <span>
                           <span class="block font-semibold text-[#32124f]">{{ student.fullName }}</span>
-                          <span class="mt-0.5 block text-xs text-[#817589]">{{ student.studentCode }}</span>
+                          <span class="mt-0.5 block text-xs text-[#817589]">{{ student.sisUserId }}</span>
                         </span>
                       </a>
                     </td>
@@ -404,7 +411,7 @@ export class StudentTranscriptComponent {
     this.service.getOverall(studentId).subscribe({
       next: (record) => {
         this.transcript.set(record);
-        this.searchTerm.set(`${record.studentName || ''} · ${record.studentCode || ''}`);
+        this.searchTerm.set(`${record.studentName || ''} · ${record.sisUserId || ''}`);
         this.selectedYears.set(record.years.slice(-2).map((year) => year.academicYear));
         this.loading.set(false);
       },
@@ -507,7 +514,7 @@ export class StudentTranscriptComponent {
   exportPdf(): void {
     const currentTitle = document.title;
     const record = this.transcript();
-    document.title = `${record?.studentCode || 'student'}-official-transcript`;
+    document.title = `${record?.sisUserId || 'student'}-official-transcript`;
     window.print();
     setTimeout(() => (document.title = currentTitle), 250);
   }

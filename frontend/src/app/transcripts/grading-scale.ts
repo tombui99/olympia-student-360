@@ -29,7 +29,7 @@ export function formatTranscriptScore(value: number | null | undefined, scale: T
   }
 
   if (scale === 'percentage') {
-    return `${value.toFixed(1)}%`;
+    return `${value.toFixed(2)}%`;
   }
 
   const band = GRADE_BANDS.find((item) => value >= item.minimum) ?? GRADE_BANDS[GRADE_BANDS.length - 1];

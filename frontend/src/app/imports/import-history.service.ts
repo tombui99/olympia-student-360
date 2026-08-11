@@ -18,7 +18,7 @@ type ImportHistoryResponse = {
 
 export type ImportHistoryRecordResponse = {
   id: number;
-  studentCode: string;
+  sisUserId: string;
   studentName: string;
   values: Record<string, string | null>;
 };

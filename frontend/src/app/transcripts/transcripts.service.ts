@@ -4,7 +4,7 @@ import { BASE_PATH } from '../api/variables';
 
 export interface TranscriptStudent {
   id: number;
-  studentCode: string;
+  sisUserId: string;
   fullName: string;
   gradeLevel?: string | null;
   homeroom?: string | null;
@@ -20,6 +20,7 @@ export interface TranscriptStudentsPage {
 
 export interface TranscriptSubject {
   subject: string;
+  courseNames: string[];
   termScores: Record<string, number | null>;
   semester1Final?: number | null;
   semester2Final?: number | null;
@@ -33,6 +34,10 @@ export interface SchoolTranscriptGrade {
   gpa?: number | null;
   terms: string[];
   subjects: TranscriptSubject[];
+  subjectPage: number;
+  subjectPageSize: number;
+  totalSubjects: number;
+  totalSubjectPages: number;
 }
 
 export interface SchoolTranscriptYear {
@@ -43,7 +48,7 @@ export interface SchoolTranscriptYear {
 
 export interface SchoolTranscript {
   studentProfileId?: number | null;
-  studentCode?: string | null;
+  sisUserId?: string | null;
   studentName?: string | null;
   dateOfBirth?: string | null;
   gradeLevel?: string | null;
@@ -58,16 +63,23 @@ export interface SchoolTranscript {
 }
 
 export interface TranscriptScoreRecord {
-  canvasScoreId: number;
+  warehouseScoreFactId: number;
+  canvasEnrollmentId: number;
+  canvasUserId: number;
+  canvasCourseId: number;
   studentProfileId: number;
-  studentCode: string;
+  sisUserId: string;
   studentName: string;
   subject: string;
   courseName: string;
-  term: string;
+  courseCode?: string | null;
+  enrollmentTermId?: number | null;
+  enrollmentTermName?: string | null;
+  gradingPeriodId?: number | null;
+  gradingPeriodTitle?: string | null;
+  scoreScope: 'course_total' | 'grading_period';
   score: number;
-  scoreSource: 'override' | 'final' | 'current';
-  recordedAt: string;
+  scoreSource: 'enrollment_override' | 'grades_override' | 'final' | 'current';
 }
 
 export interface SchoolTranscriptGradeDetail {
@@ -80,7 +92,11 @@ export interface SchoolTranscriptGradeDetail {
   totalRecords: number;
   matchingRecords: number;
   terms: string[];
+  subjectOptions: string[];
   subjects: TranscriptSubject[];
+  subjectPage: number;
+  subjectPageSize: number;
+  totalSubjectPages: number;
   records: TranscriptScoreRecord[];
   page: number;
   pageSize: number;
@@ -92,9 +108,12 @@ export class TranscriptsService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  getOverall(studentId?: number) {
+  getOverall(studentId?: number, subjectPage?: number, subjectPageSize = 10) {
     return this.http.get<SchoolTranscript>(`${this.basePath}/api/transcripts/overall`, {
-      params: studentId ? { studentId } : {},
+      params: {
+        ...(studentId ? { studentId } : {}),
+        ...(subjectPage ? { subjectPage, subjectPageSize } : {}),
+      },
     });
   }
 
@@ -115,12 +134,14 @@ export class TranscriptsService {
   }
 
   getGradeDetails(academicYear: string, gradeLevel: string, page = 1, pageSize = 25,
-    subject = '', term = '') {
+    subject = '', term = '', subjectPage = 1, subjectPageSize = 10) {
     return this.http.get<SchoolTranscriptGradeDetail>(
       `${this.basePath}/api/transcripts/${encodeURIComponent(academicYear)}/grades/${encodeURIComponent(gradeLevel)}`,
       { params: {
         page,
         pageSize,
+        subjectPage,
+        subjectPageSize,
         ...(subject ? { subject } : {}),
         ...(term ? { term } : {}),
       } },

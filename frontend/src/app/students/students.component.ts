@@ -74,13 +74,12 @@ import { riskBadgeClass } from './risk.util';
         </div>
 
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[980px] text-left">
+          <table class="w-full min-w-[860px] text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284]">
               <tr>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('students.student') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('students.grade') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('students.homeroom') }}</th>
-                <th class="px-6 py-4 font-semibold">{{ languageService.t('students.teacher') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('students.behaviours') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('students.projects') }}</th>
                 <th class="px-6 py-4 font-semibold">{{ languageService.t('students.risk') }}</th>
@@ -97,13 +96,12 @@ import { riskBadgeClass } from './risk.util';
                       </span>
                       <span class="min-w-0">
                         <span class="block truncate font-semibold text-[#32124f]">{{ student.fullName }}</span>
-                        <span class="mt-0.5 block text-xs text-[#7c7284]">{{ student.studentCode }}</span>
+                        <span class="mt-0.5 block text-xs text-[#7c7284]">{{ student.sisUserId }}</span>
                       </span>
                     </a>
                   </td>
                   <td class="px-6 py-4 text-[#6f6877]">{{ student.gradeLevel || '-' }}</td>
                   <td class="px-6 py-4 text-[#6f6877]">{{ student.homeroom || '-' }}</td>
-                  <td class="px-6 py-4 text-[#6f6877]">{{ student.teacherName || '-' }}</td>
                   <td class="px-6 py-4">
                     <div class="flex flex-wrap gap-1.5">
                       <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">

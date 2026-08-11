@@ -53,10 +53,8 @@ public class StudentsController : ControllerBase
             var pattern = $"%{EscapeLikePattern(term)}%";
             query = query.Where(student =>
                 EF.Functions.Like(student.FullName, pattern, "!") ||
-                EF.Functions.Like(student.StudentCode, pattern, "!") ||
-                student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!") ||
-                student.SISClassMemberships.Any(membership => membership.SISClass.Teachers.Any(
-                    assignment => EF.Functions.Like(assignment.Teacher.FullName, pattern, "!"))));
+                EF.Functions.Like(student.SISUserId, pattern, "!") ||
+                student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!"));
         }
         if (!string.IsNullOrWhiteSpace(grade))
         {
@@ -77,15 +75,13 @@ public class StudentsController : ControllerBase
         var rows = query.Select(student => new
         {
             student.Id,
-            student.StudentCode,
+            student.SISUserId,
             student.FullName,
             student.GradeLevel,
             student.Homeroom,
             student.Campus,
             student.EducationLevel,
             student.Program,
-            TeacherName = student.SISClassMemberships.SelectMany(membership => membership.SISClass.Teachers)
-                .Select(assignment => assignment.Teacher.FullName).FirstOrDefault(),
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
             MentalHealthCount = student.MentalHealthRecords.Count,
@@ -96,7 +92,7 @@ public class StudentsController : ControllerBase
         page = Math.Min(page, Math.Max(1, totalPages));
         var pageRows = await rows
             .OrderBy(student => student.FullName)
-            .ThenBy(student => student.StudentCode)
+            .ThenBy(student => student.SISUserId)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
@@ -130,10 +126,10 @@ public class StudentsController : ControllerBase
                     settings);
                 return new StudentListItemDto
                 {
-                    Id = student.Id, StudentCode = student.StudentCode, FullName = student.FullName,
+                    Id = student.Id, SISUserId = student.SISUserId, FullName = student.FullName,
                     GradeLevel = student.GradeLevel, Homeroom = student.Homeroom,
                     Campus = student.Campus, EducationLevel = student.EducationLevel, Program = student.Program,
-                    TeacherName = student.TeacherName, BehaviourCount = student.BehaviourCount,
+                    BehaviourCount = student.BehaviourCount,
                     PositiveBehaviourCount = counts?.Positive ?? 0,
                     ConcerningBehaviourCount = counts?.Concerning ?? 0,
                     ProjectCount = student.ProjectCount, MentalHealthCount = student.MentalHealthCount,
@@ -177,11 +173,10 @@ public class StudentsController : ControllerBase
                 .Select(entry => new AtRiskStudentDto
                 {
                     Id = entry.Student.Id,
-                    StudentCode = entry.Student.StudentCode,
+                    SISUserId = entry.Student.SISUserId,
                     FullName = entry.Student.FullName,
                     GradeLevel = entry.Student.GradeLevel,
                     Homeroom = entry.Student.Homeroom,
-                    TeacherName = SISClassVisibility.TeacherNames(entry.Student),
                     BehaviourCount = entry.Student.Behaviours.Count,
                     PositiveBehaviourCount = entry.Student.Behaviours.Count(StudentClassificationService.IsCommendationBehaviour),
                     ConcerningBehaviourCount = entry.Student.Behaviours.Count(StudentClassificationService.IsConcerningBehaviour),
@@ -261,11 +256,10 @@ public class StudentsController : ControllerBase
             {
                 Id = entry.Student.Id,
                 StudentId = entry.Student.Id,
-                StudentCode = entry.Student.StudentCode,
+                SISUserId = entry.Student.SISUserId,
                 StudentName = entry.Student.FullName,
                 GradeLevel = entry.Student.GradeLevel,
                 Homeroom = entry.Student.Homeroom,
-                TeacherName = SISClassVisibility.TeacherNames(entry.Student),
                 IncidentDate = new[]
                     {
                         entry.PositiveBehaviours.FirstOrDefault()?.IncidentDate,
@@ -292,7 +286,7 @@ public class StudentsController : ControllerBase
         var filtered = commendations.Where(commendation =>
             (string.IsNullOrWhiteSpace(search) ||
              commendation.StudentName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-             commendation.StudentCode.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+             commendation.SISUserId.Contains(search, StringComparison.OrdinalIgnoreCase) ||
              commendation.CommendationType.Contains(search, StringComparison.OrdinalIgnoreCase)) &&
             (string.IsNullOrWhiteSpace(grade) || string.Equals(commendation.GradeLevel, grade, StringComparison.OrdinalIgnoreCase)))
             .OrderByDescending(commendation => commendation.IncidentDate)
@@ -351,16 +345,16 @@ public class StudentsController : ControllerBase
         var pattern = $"%{EscapeLikePattern(term)}%";
         var students = await VisibleStudents()
             .Where(student =>
-                EF.Functions.Like(student.StudentCode, pattern, "!") ||
+                EF.Functions.Like(student.SISUserId, pattern, "!") ||
                 EF.Functions.Like(student.FullName, pattern, "!") ||
                 student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!"))
             .OrderBy(student => student.FullName)
-            .ThenBy(student => student.StudentCode)
+            .ThenBy(student => student.SISUserId)
             .Take(resultLimit)
             .Select(student => new ManualEntryStudentDto
             {
                 Id = student.Id,
-                StudentCode = student.StudentCode,
+                SISUserId = student.SISUserId,
                 FullName = student.FullName,
                 GradeLevel = student.GradeLevel,
                 Homeroom = student.Homeroom
@@ -593,48 +587,12 @@ public class StudentsController : ControllerBase
         });
     }
 
-    [HttpGet("cohorts")]
-    public async Task<ActionResult<CohortsResponseDto>> GetCohorts()
-    {
-        var settings = await ClassificationSettings();
-        var evaluated = (await LoadVisibleSignals(settings))
-            .Select(entry =>
-            {
-                var student = entry.Student;
-                var risk = StudentClassificationService.ClassifyRisk(entry.Signals, settings);
-                return new CohortEntry(
-                    string.IsNullOrWhiteSpace(student.GradeLevel) ? "—" : student.GradeLevel!,
-                    string.IsNullOrWhiteSpace(student.Homeroom) ? "—" : student.Homeroom!,
-                    risk.Level,
-                    student.Behaviours.Count,
-                    student.Projects.Count);
-            })
-            .ToList();
-
-        return Ok(new CohortsResponseDto
-        {
-            Grades = BuildCohorts(evaluated.GroupBy(entry => entry.Grade), key => $"Grade {key}"),
-            Homerooms = BuildCohorts(evaluated.GroupBy(entry => entry.Homeroom), key => key)
-        });
-    }
-
-    private record CohortEntry(
-        string Grade,
-        string Homeroom,
-        string Level,
-        int BehaviourCount,
-        int ProjectCount);
-
     [HttpGet("{id:int}")]
     public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(int id, [FromQuery] string? academicYear)
     {
         var hasYearFilter = !string.IsNullOrWhiteSpace(academicYear) && academicYear != "all";
         var student = await VisibleStudents()
             .AsSplitQuery()
-            .Include(candidate => candidate.SISClassMemberships)
-                .ThenInclude(membership => membership.SISClass)
-                .ThenInclude(sisClass => sisClass.Teachers)
-                .ThenInclude(assignment => assignment.Teacher)
             .Include(candidate => candidate.Behaviours)
             .Include(candidate => candidate.Projects)
             .Include(candidate => candidate.Parents)
@@ -679,14 +637,13 @@ public class StudentsController : ControllerBase
         var detail = new StudentProfileDetailDto
         {
             Id = student.Id,
-            StudentCode = student.StudentCode,
+            SISUserId = student.SISUserId,
             FullName = student.FullName,
             GradeLevel = student.GradeLevel,
             Homeroom = student.Homeroom,
             Campus = student.Campus,
             EducationLevel = student.EducationLevel,
             Program = student.Program,
-            TeacherName = SISClassVisibility.TeacherNames(student),
             RiskLevel = risk.Level,
             Flags = risk.Flags,
             Summary = new StudentSummaryDto
@@ -759,7 +716,7 @@ public class StudentsController : ControllerBase
                 .OrderByDescending(visit => visit.ExamTime)
                 .Select(ToSISHealthVisitDto)
                 .ToList(),
-            Canvas = await BuildCanvasSummary(student.Id, student.GradeLevel,
+            Canvas = await BuildCanvasSummary(student.Id,
                 hasYearFilter ? academicYear : null)
         };
 
@@ -799,163 +756,366 @@ public class StudentsController : ControllerBase
             .ToList();
     }
 
-    private async Task<StudentCanvasDto> BuildCanvasSummary(
-        int studentProfileId, string? currentGradeLevel, string? focusYear = null)
+    [HttpGet("{id:int}/canvas/course-grades")]
+    public async Task<ActionResult<StudentCanvasCoursesPageDto>> GetCanvasCourseGrades(
+        int id,
+        [FromQuery] string? academicYear,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
     {
-        var courseScores = await _context.CanvasCourseScores.AsNoTracking()
-            .Where(score => score.StudentProfileId == studentProfileId && score.CourseScore)
-            .Select(score => new
-            {
-                score.CourseName, score.Subject, score.Term, score.GradingPeriodTitle,
-                score.CurrentScore, score.FinalScore, score.AcademicYear
-            })
-            .ToListAsync();
+        if (!await VisibleStudents().AnyAsync(student => student.Id == id))
+        {
+            return NotFound(new { Message = "Student was not found." });
+        }
 
-        var submissions = await _context.CanvasSubmissions.AsNoTracking()
-            .Where(submission => submission.StudentProfileId == studentProfileId)
-            .Select(submission => new
-            {
-                submission.WorkflowState, submission.Score, submission.PointsPossible,
-                submission.Late, submission.Missing, submission.Excused,
-                submission.DueAt, submission.SubmittedAt,
-                submission.Subject, submission.CanvasAssignmentId, submission.AcademicYear
-            })
-            .ToListAsync();
+        var year = await ResolveCanvasYear(id, academicYear);
+        return Ok(await LoadCanvasCourseGrades(id, year, page, pageSize));
+    }
 
-        if (courseScores.Count == 0 && submissions.Count == 0)
+    [HttpGet("{id:int}/canvas/recent-submissions")]
+    public async Task<ActionResult<StudentCanvasSubmissionsPageDto>> GetCanvasRecentSubmissions(
+        int id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
+    {
+        if (!await VisibleStudents().AnyAsync(student => student.Id == id))
+        {
+            return NotFound(new { Message = "Student was not found." });
+        }
+
+        return Ok(await LoadCanvasRecentSubmissions(id, page, pageSize));
+    }
+
+    [HttpGet("{id:int}/canvas/submissions")]
+    public async Task<ActionResult<StudentCanvasSubmissionsPageDto>> GetCanvasSubmissions(
+        int id,
+        [FromQuery] string? category,
+        [FromQuery] string? academicYear,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (!await VisibleStudents().AnyAsync(student => student.Id == id))
+        {
+            return NotFound(new { Message = "Student was not found." });
+        }
+
+        var normalizedCategory = category?.Trim().ToLowerInvariant();
+        if (normalizedCategory is not ("graded" or "submitted" or "missing" or "late"))
+        {
+            return BadRequest(new { Message = "Category must be graded, submitted, missing, or late." });
+        }
+
+        var year = await ResolveCanvasYear(id, academicYear);
+        return Ok(await LoadCanvasSubmissions(id, year, normalizedCategory!, page, pageSize));
+    }
+
+    private async Task<StudentCanvasDto> BuildCanvasSummary(
+        int studentProfileId, string? focusYear = null)
+    {
+        var scoreQuery = _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.StudentProfileId == studentProfileId);
+        var submissionQuery = _context.CanvasSubmissions.AsNoTracking()
+            .Where(submission => submission.StudentProfileId == studentProfileId);
+        if (!await scoreQuery.AnyAsync() && !await submissionQuery.AnyAsync())
         {
             return new StudentCanvasDto { HasData = false };
         }
 
         // Headline tiles/courses reflect one focus year (the selected year, or the latest on
         // record by default); the journey below always spans every year.
-        var latestYear = courseScores.Select(item => item.AcademicYear)
-            .Concat(submissions.Select(item => item.AcademicYear))
-            .Where(year => year != null)
-            .OrderByDescending(year => year)
-            .FirstOrDefault();
-        var yearOnRecord = focusYear != null
-            && (courseScores.Any(item => item.AcademicYear == focusYear)
-                || submissions.Any(item => item.AcademicYear == focusYear));
-        var year = yearOnRecord ? focusYear : latestYear;
+        var year = await ResolveCanvasYear(studentProfileId, focusYear);
+        var latestScores = scoreQuery.Where(score =>
+            score.Enrollment!.Course!.EnrollmentTermName == year);
+        var latestSubmissions = submissionQuery.Where(submission =>
+            submission.Assignment!.Course!.EnrollmentTermName == year);
+        var gradedSubmissions = latestSubmissions.Where(submission => submission.WorkflowState == "graded");
 
-        var latestScores = courseScores.Where(item => item.AcademicYear == year).ToList();
-        var latestSubmissions = submissions.Where(item => item.AcademicYear == year).ToList();
+        var enrolledCourses = await latestScores
+            .Select(score => score.Enrollment!.CanvasCourseId)
+            .Distinct()
+            .CountAsync();
+        var averageCourseGrade = await latestScores
+            // A course average must use one whole-course fact per enrollment. Mixing in
+            // grading-period facts would count the same Canvas course multiple times.
+            .Where(score => score.GradingPeriodId == null && score.FinalScore != null)
+            .Select(score => score.FinalScore)
+            .AverageAsync();
+        var averageAssignmentScore = await gradedSubmissions
+            .Where(submission => submission.Score != null && submission.Assignment!.PointsPossible > 0)
+            .Select(submission => (double?)(submission.Score!.Value /
+                submission.Assignment!.PointsPossible!.Value * 100))
+            .AverageAsync();
+        var assignmentsSubmitted = await latestSubmissions.CountAsync(submission => submission.SubmittedAt != null);
+        var assignmentsGraded = await gradedSubmissions.CountAsync();
+        var missingAssignments = await latestSubmissions.CountAsync(submission =>
+            submission.Missing && submission.Excused != true);
+        var lateSubmissions = await latestSubmissions.CountAsync(submission => submission.Late);
 
-        var enrolledCourses = latestScores.Select(item => item.CourseName).Distinct().Count();
-        var graded = latestSubmissions
-            .Where(item => string.Equals(item.WorkflowState, "graded", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        var scoredPercentages = graded
-            .Where(item => item.Score != null && item.PointsPossible is > 0)
-            .Select(item => item.Score!.Value / item.PointsPossible!.Value * 100)
-            .ToList();
-        var finalScores = latestScores.Where(item => item.FinalScore != null)
-            .Select(item => item.FinalScore!.Value).ToList();
-
-        // Grade trajectory: average final grade per academic year + term, in chronological order.
-        // Derive the grade level the student was in each year, assuming one grade per year with
-        // their current grade anchored to the latest year — so the journey reads as a
-        // primary-through-high-school arc (Grade 1 … Grade 12).
-        int StartYear(string yr) => int.TryParse(yr.Split('-')[0], out var value) ? value : 0;
-        var hasGrade = int.TryParse(currentGradeLevel, out var currentGrade);
-        var latestStartYear = courseScores
-            .Where(item => item.AcademicYear != null)
-            .Select(item => StartYear(item.AcademicYear!))
-            .DefaultIfEmpty(0)
-            .Max();
-
-        var journey = courseScores
-            .Where(item => item.FinalScore != null && item.AcademicYear != null)
-            .GroupBy(item => new { item.AcademicYear, item.Term })
-            .Select(group =>
+        // Grade trajectory: a reporting average of Canvas final_score grouped only by the exact
+        // Canvas enrollment-term name and grading-period title. Historical grade level is not
+        // inferred because neither Canvas nor SIS supplied it for that historical period.
+        var journeyRows = await scoreQuery
+            .Where(score => score.FinalScore != null &&
+                score.Enrollment!.Course!.EnrollmentTermName != null)
+            .GroupBy(score => new
             {
-                string? gradeThatYear = null;
-                if (hasGrade)
-                {
-                    var derived = currentGrade - (latestStartYear - StartYear(group.Key.AcademicYear!));
-                    if (derived is >= 1 and <= 12)
-                    {
-                        gradeThatYear = derived.ToString();
-                    }
-                }
-                var label = gradeThatYear != null
-                    ? $"G{gradeThatYear} {TermShort(group.Key.Term)}".Trim()
-                    : $"{group.Key.AcademicYear} {TermShort(group.Key.Term)}".Trim();
+                AcademicYear = score.Enrollment!.Course!.EnrollmentTermName,
+                Term = score.GradingPeriodTitle ?? score.Enrollment.Course.EnrollmentTermName
+            })
+            .Select(group => new
+            {
+                group.Key.AcademicYear,
+                group.Key.Term,
+                AverageGrade = group.Average(score => score.FinalScore!.Value),
+                CourseCount = group.Select(score => score.Enrollment!.CanvasCourseId).Distinct().Count()
+            })
+            .ToListAsync();
+        var journey = journeyRows
+            .Select(item =>
+            {
+                var label = $"{item.AcademicYear} {item.Term}".Trim();
                 return new StudentCanvasJourneyPointDto
                 {
-                    AcademicYear = group.Key.AcademicYear!,
-                    Term = group.Key.Term,
-                    GradeLevel = gradeThatYear,
+                    AcademicYear = item.AcademicYear!,
+                    Term = item.Term,
+                    GradeLevel = null,
                     Label = label,
-                    AverageGrade = Math.Round((decimal)group.Average(item => item.FinalScore!.Value), 1),
-                    CourseCount = group.Select(item => item.CourseName).Distinct().Count()
+                    AverageGrade = Math.Round((decimal)item.AverageGrade, 1),
+                    CourseCount = item.CourseCount
                 };
             })
             .OrderBy(point => point.AcademicYear)
             .ThenBy(point => point.Term)
             .ToList();
 
-        // Join titles/course names for the recent-submissions list.
-        var assignmentIds = submissions.Select(item => item.CanvasAssignmentId).Distinct().ToList();
-        var assignments = await _context.CanvasAssignments.AsNoTracking()
-            .Where(assignment => assignmentIds.Contains(assignment.CanvasAssignmentId))
-            .Select(assignment => new { assignment.CanvasAssignmentId, assignment.Title, assignment.CanvasCourseId })
-            .ToListAsync();
-        var courseIds = assignments.Select(item => item.CanvasCourseId).Distinct().ToList();
-        var courseNames = await _context.CanvasCourses.AsNoTracking()
-            .Where(course => courseIds.Contains(course.CanvasCourseId))
-            .ToDictionaryAsync(course => course.CanvasCourseId, course => course.Name);
-        var assignmentLookup = assignments.ToDictionary(item => item.CanvasAssignmentId);
+        var courseGradesPage = await LoadCanvasCourseGrades(studentProfileId, year, 1, 10);
+        var submissionsPage = await LoadCanvasRecentSubmissions(studentProfileId, 1, 10);
 
         return new StudentCanvasDto
         {
             HasData = true,
             AcademicYear = year,
             CoursesEnrolled = enrolledCourses,
-            AverageCourseGrade = finalScores.Count == 0
-                ? null : Math.Round((decimal)finalScores.Average(), 1),
-            AverageAssignmentScore = scoredPercentages.Count == 0
-                ? null : Math.Round((decimal)scoredPercentages.Average(), 1),
-            AssignmentsSubmitted = latestSubmissions.Count(item => item.SubmittedAt != null),
-            AssignmentsGraded = graded.Count,
-            MissingAssignments = latestSubmissions.Count(item => item.Missing && !item.Excused),
-            LateSubmissions = latestSubmissions.Count(item => item.Late),
+            AverageCourseGrade = averageCourseGrade == null
+                ? null : Math.Round((decimal)averageCourseGrade.Value, 1),
+            AverageAssignmentScore = averageAssignmentScore == null
+                ? null : Math.Round((decimal)averageAssignmentScore.Value, 1),
+            AssignmentsSubmitted = assignmentsSubmitted,
+            AssignmentsGraded = assignmentsGraded,
+            MissingAssignments = missingAssignments,
+            LateSubmissions = lateSubmissions,
             Journey = journey,
-            Courses = latestScores
-                .OrderBy(item => item.Subject).ThenBy(item => item.Term)
-                .Select(item => new StudentCanvasCourseDto
-                {
-                    CourseName = item.CourseName ?? "—",
-                    Subject = item.Subject,
-                    Term = item.Term,
-                    GradingPeriodTitle = item.GradingPeriodTitle,
-                    CurrentScore = item.CurrentScore == null ? null : Math.Round((decimal)item.CurrentScore.Value, 1),
-                    FinalScore = item.FinalScore == null ? null : Math.Round((decimal)item.FinalScore.Value, 1)
-                })
-                .ToList(),
-            RecentSubmissions = submissions
-                .OrderByDescending(item => item.DueAt ?? item.SubmittedAt ?? DateTime.MinValue)
-                .Take(15)
-                .Select(item => new StudentCanvasSubmissionDto
-                {
-                    AssignmentTitle = assignmentLookup.TryGetValue(item.CanvasAssignmentId, out var assignment)
-                        ? assignment.Title : "—",
-                    CourseName = assignmentLookup.TryGetValue(item.CanvasAssignmentId, out var course)
-                        && courseNames.TryGetValue(course.CanvasCourseId, out var name) ? name : null,
-                    Subject = item.Subject,
-                    WorkflowState = item.WorkflowState,
-                    Score = item.Score == null ? null : Math.Round((decimal)item.Score.Value, 1),
-                    PointsPossible = item.PointsPossible == null ? null : Math.Round((decimal)item.PointsPossible.Value, 1),
-                    DueAt = item.DueAt,
-                    SubmittedAt = item.SubmittedAt,
-                    Late = item.Late,
-                    Missing = item.Missing,
-                    Excused = item.Excused
-                })
-                .ToList()
+            Courses = courseGradesPage.Items,
+            CourseGradesPage = courseGradesPage.Page,
+            CourseGradesPageSize = courseGradesPage.PageSize,
+            CourseGradesTotalCount = courseGradesPage.TotalCount,
+            CourseGradesTotalPages = courseGradesPage.TotalPages,
+            RecentSubmissions = submissionsPage.Items,
+            RecentSubmissionsPage = submissionsPage.Page,
+            RecentSubmissionsPageSize = submissionsPage.PageSize,
+            RecentSubmissionsTotalCount = submissionsPage.TotalCount,
+            RecentSubmissionsTotalPages = submissionsPage.TotalPages
         };
     }
+
+    private async Task<string?> ResolveCanvasYear(int studentProfileId, string? requestedYear)
+    {
+        var requested = string.IsNullOrWhiteSpace(requestedYear) || requestedYear == "all"
+            ? null
+            : requestedYear.Trim();
+        if (requested is not null)
+        {
+            var requestedExists = await _context.CanvasCourseScores.AsNoTracking().AnyAsync(score =>
+                    score.StudentProfileId == studentProfileId &&
+                    score.Enrollment!.Course!.EnrollmentTermName == requested)
+                || await _context.CanvasSubmissions.AsNoTracking().AnyAsync(submission =>
+                    submission.StudentProfileId == studentProfileId &&
+                    submission.Assignment!.Course!.EnrollmentTermName == requested);
+            if (requestedExists)
+            {
+                return requested;
+            }
+        }
+
+        var scoreYear = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.StudentProfileId == studentProfileId &&
+                score.Enrollment!.Course!.EnrollmentTermName != null)
+            .Select(score => score.Enrollment!.Course!.EnrollmentTermName)
+            .OrderByDescending(year => year)
+            .FirstOrDefaultAsync();
+        var submissionYear = await _context.CanvasSubmissions.AsNoTracking()
+            .Where(submission => submission.StudentProfileId == studentProfileId &&
+                submission.Assignment!.Course!.EnrollmentTermName != null)
+            .Select(submission => submission.Assignment!.Course!.EnrollmentTermName)
+            .OrderByDescending(year => year)
+            .FirstOrDefaultAsync();
+
+        return new[] { scoreYear, submissionYear }
+            .Where(year => year is not null)
+            .OrderByDescending(year => year)
+            .FirstOrDefault();
+    }
+
+    private async Task<StudentCanvasCoursesPageDto> LoadCanvasCourseGrades(
+        int studentProfileId, string? academicYear, int page, int pageSize)
+    {
+        (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
+        var query = _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.StudentProfileId == studentProfileId &&
+                score.Enrollment!.Course!.EnrollmentTermName == academicYear);
+        var totalCount = await query.CountAsync();
+        var totalPages = TotalPages(totalCount, pageSize);
+        page = ClampPage(page, totalPages);
+        var items = await query
+            .OrderBy(score => score.Enrollment!.Course!.Name)
+            .ThenBy(score => score.GradingPeriodId == null ? 0 : 1)
+            .ThenBy(score => score.GradingPeriodStartDate)
+            .ThenBy(score => score.GradingPeriodId)
+            .ThenBy(score => score.WarehouseScoreFactId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(score => new StudentCanvasCourseDto
+            {
+                CanvasCourseId = score.Enrollment!.CanvasCourseId,
+                CourseName = score.Enrollment!.Course!.Name ?? "—",
+                CourseCode = score.Enrollment.Course.CourseCode,
+                EnrollmentTermId = score.Enrollment.Course.EnrollmentTermId,
+                EnrollmentTermName = score.Enrollment.Course.EnrollmentTermName,
+                GradingPeriodId = score.GradingPeriodId,
+                GradingPeriodTitle = score.GradingPeriodTitle,
+                ScoreScope = score.GradingPeriodId == null ? "course_total" : "grading_period",
+                CurrentScore = score.CurrentScore == null
+                    ? null : (decimal)score.CurrentScore.Value,
+                FinalScore = score.FinalScore == null
+                    ? null : (decimal)score.FinalScore.Value
+            })
+            .ToListAsync();
+
+        return new StudentCanvasCoursesPageDto
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = totalPages
+        };
+    }
+
+    private async Task<StudentCanvasSubmissionsPageDto> LoadCanvasRecentSubmissions(
+        int studentProfileId, int page, int pageSize)
+    {
+        (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
+        var query = _context.CanvasSubmissions.AsNoTracking()
+            .Where(submission => submission.StudentProfileId == studentProfileId);
+        var totalCount = await query.CountAsync();
+        var totalPages = TotalPages(totalCount, pageSize);
+        page = ClampPage(page, totalPages);
+        var items = await query
+            .OrderByDescending(submission =>
+                submission.CachedDueDate ?? submission.Assignment!.DueAt ?? submission.SubmittedAt)
+            .ThenByDescending(submission => submission.CanvasSubmissionId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(submission => new StudentCanvasSubmissionDto
+            {
+                CanvasSubmissionId = submission.CanvasSubmissionId,
+                CanvasAssignmentId = submission.CanvasAssignmentId,
+                CanvasCourseId = submission.CanvasCourseId,
+                AssignmentTitle = submission.Assignment!.Name ?? "—",
+                CourseName = submission.Assignment.Course!.Name,
+                Subject = submission.Assignment.Course.Name,
+                WorkflowState = submission.WorkflowState ?? "",
+                Grade = submission.Grade,
+                SubmissionType = submission.SubmissionType,
+                Score = submission.Score == null
+                    ? null : Math.Round((decimal)submission.Score.Value, 1),
+                PointsPossible = submission.Assignment.PointsPossible == null
+                    ? null : Math.Round((decimal)submission.Assignment.PointsPossible.Value, 1),
+                DueAt = submission.CachedDueDate ?? submission.Assignment.DueAt,
+                SubmittedAt = submission.SubmittedAt,
+                GradedAt = submission.GradedAt,
+                Late = submission.Late,
+                Missing = submission.Missing,
+                Excused = submission.Excused
+            })
+            .ToListAsync();
+
+        return new StudentCanvasSubmissionsPageDto
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = totalPages
+        };
+    }
+
+    private async Task<StudentCanvasSubmissionsPageDto> LoadCanvasSubmissions(
+        int studentProfileId, string? academicYear, string category, int page, int pageSize)
+    {
+        (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
+        var query = _context.CanvasSubmissions.AsNoTracking()
+            .Where(submission => submission.StudentProfileId == studentProfileId
+                && submission.Assignment!.Course!.EnrollmentTermName == academicYear);
+        query = category switch
+        {
+            "graded" => query.Where(submission => submission.WorkflowState == "graded"),
+            "submitted" => query.Where(submission => submission.SubmittedAt != null),
+            "missing" => query.Where(submission => submission.Missing && submission.Excused != true),
+            "late" => query.Where(submission => submission.Late),
+            _ => query.Where(_ => false)
+        };
+
+        var totalCount = await query.CountAsync();
+        var totalPages = TotalPages(totalCount, pageSize);
+        page = ClampPage(page, totalPages);
+        var items = await query
+            .OrderByDescending(submission => submission.GradedAt
+                ?? submission.SubmittedAt
+                ?? submission.CachedDueDate
+                ?? submission.Assignment!.DueAt)
+            .ThenByDescending(submission => submission.CanvasSubmissionId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(submission => new StudentCanvasSubmissionDto
+            {
+                CanvasSubmissionId = submission.CanvasSubmissionId,
+                CanvasAssignmentId = submission.CanvasAssignmentId,
+                CanvasCourseId = submission.CanvasCourseId,
+                AssignmentTitle = submission.Assignment!.Name ?? "—",
+                CourseName = submission.Assignment.Course!.Name,
+                Subject = submission.Assignment.Course.Name,
+                WorkflowState = submission.WorkflowState ?? "",
+                Grade = submission.Grade,
+                SubmissionType = submission.SubmissionType,
+                Score = submission.Score == null
+                    ? null : Math.Round((decimal)submission.Score.Value, 1),
+                PointsPossible = submission.Assignment.PointsPossible == null
+                    ? null : Math.Round((decimal)submission.Assignment.PointsPossible.Value, 1),
+                DueAt = submission.CachedDueDate ?? submission.Assignment.DueAt,
+                SubmittedAt = submission.SubmittedAt,
+                GradedAt = submission.GradedAt,
+                Late = submission.Late,
+                Missing = submission.Missing,
+                Excused = submission.Excused
+            })
+            .ToListAsync();
+
+        return new StudentCanvasSubmissionsPageDto
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = totalPages
+        };
+    }
+
+    private static (int Page, int PageSize) NormalizeCanvasPaging(int page, int pageSize) =>
+        (Math.Max(1, page), Math.Clamp(pageSize, 1, 50));
+
+    private static int ClampPage(int page, int totalPages) =>
+        totalPages == 0 ? 1 : Math.Min(page, totalPages);
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -1005,14 +1165,6 @@ public class StudentsController : ControllerBase
         return (new DateTime(startYear, 8, 1), new DateTime(startYear + 1, 8, 1));
     }
 
-    private static string TermShort(string? term) => term switch
-    {
-        "hk1" => "S1",
-        "hk2" => "S2",
-        null or "" => "",
-        _ => term!
-    };
-
     private static StudentMentalHealthRecordDto ToMentalHealthDto(StudentMentalHealthRecord record) => new()
     {
         Id = record.Id,
@@ -1028,8 +1180,8 @@ public class StudentsController : ControllerBase
     private static SISHealthVisitDto ToSISHealthVisitDto(SISHealthVisit visit) => new()
     {
         Id = visit.Id,
-        StudentProfileId = visit.StudentProfileId,
-        StudentCode = visit.Student?.StudentCode,
+        StudentProfileId = visit.Student?.Id,
+        SISUserId = visit.SISUserId,
         ExamTime = visit.ExamTime,
         FullName = visit.FullName,
         Gender = visit.Gender,
@@ -1057,40 +1209,10 @@ public class StudentsController : ControllerBase
         CustomFields = ImportCustomFieldService.Parse(record.CustomFieldsJson)
     };
 
-    private static List<CohortStatsDto> BuildCohorts(
-        IEnumerable<IGrouping<string, CohortEntry>> groups,
-        Func<string, string> labelFactory)
-    {
-        return groups
-            .Select(group =>
-            {
-                var entries = group.ToList();
-                var studentCount = entries.Count;
-                var totalBehaviours = entries.Sum(entry => entry.BehaviourCount);
-                return new CohortStatsDto
-                {
-                    Key = group.Key,
-                    Label = labelFactory(group.Key),
-                    StudentCount = studentCount,
-                    AtRiskCount = entries.Count(entry => entry.Level != "None"),
-                    HighRiskCount = entries.Count(entry => entry.Level == "High"),
-                    TotalBehaviours = totalBehaviours,
-                    TotalProjects = entries.Sum(entry => entry.ProjectCount),
-                    AvgBehaviours = studentCount == 0 ? 0 : Math.Round((double)totalBehaviours / studentCount, 1)
-                };
-            })
-            .OrderBy(cohort => cohort.Key, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
     private async Task<List<StudentProfile>> LoadVisibleWithActivity()
     {
         return await VisibleStudents()
             .AsSplitQuery()
-            .Include(student => student.SISClassMemberships)
-                .ThenInclude(membership => membership.SISClass)
-                .ThenInclude(sisClass => sisClass.Teachers)
-                .ThenInclude(assignment => assignment.Teacher)
             .Include(student => student.Behaviours)
             .Include(student => student.Projects)
             .Include(student => student.MentalHealthRecords)
@@ -1106,8 +1228,12 @@ public class StudentsController : ControllerBase
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);
         var studentIds = students.Select(student => student.Id).ToList();
         var scoreRows = await _context.CanvasCourseScores.AsNoTracking()
-            .Where(score => score.CourseScore && score.StudentProfileId != null
+            .Where(score => score.StudentProfileId != null
                 && studentIds.Contains(score.StudentProfileId.Value)
+                // The former CourseScore flag is represented by a null grading period in the
+                // consolidated Canvas warehouse. Exclude semester facts so each course is
+                // counted once in configurable risk/recognition averages.
+                && score.GradingPeriodId == null
                 && (score.FinalScore ?? score.CurrentScore) != null)
             .Select(score => new
             {
@@ -1120,7 +1246,11 @@ public class StudentsController : ControllerBase
             .GroupBy(score => score.StudentId)
             .ToDictionary(
                 group => group.Key,
-                group => new { Average = Math.Round(group.Average(score => score.Value), 1), Latest = group.Max(score => score.Date) });
+                group => new
+                {
+                    Average = Math.Round(group.Average(score => score.Value), 1),
+                    Latest = group.Max(score => score.Date)
+                });
 
         return students.Select(student =>
         {
@@ -1143,8 +1273,9 @@ public class StudentsController : ControllerBase
     {
         if (studentIds.Count == 0) return [];
         var scores = await _context.CanvasCourseScores.AsNoTracking()
-            .Where(score => score.CourseScore && score.StudentProfileId != null
+            .Where(score => score.StudentProfileId != null
                 && studentIds.Contains(score.StudentProfileId.Value)
+                && score.GradingPeriodId == null
                 && (score.FinalScore ?? score.CurrentScore) != null)
             .Select(score => new
             {

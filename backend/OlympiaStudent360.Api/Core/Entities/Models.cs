@@ -7,7 +7,6 @@ public class ApplicationUser : IdentityUser
     public string FullName { get; set; } = default!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
-    public ICollection<SISClassTeacher> SISClassAssignments { get; set; } = [];
 }
 
 public abstract class BaseEntity
@@ -19,7 +18,8 @@ public abstract class BaseEntity
 
 public class StudentProfile : BaseEntity
 {
-    public string StudentCode { get; set; } = default!;
+    public long? CanvasUserId { get; set; }
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
@@ -28,7 +28,6 @@ public class StudentProfile : BaseEntity
     public string? Campus { get; set; }
     public string? EducationLevel { get; set; }
     public string? Program { get; set; }
-    public ICollection<SISClassStudent> SISClassMemberships { get; set; } = [];
     public ICollection<StudentBehaviour> Behaviours { get; set; } = [];
     public ICollection<StudentProject> Projects { get; set; } = [];
     public ICollection<SISStudentParent> Parents { get; set; } = [];
@@ -51,40 +50,6 @@ public class StudentClassificationSetting : BaseEntity
     public decimal CommendationCanvasAverageAtLeast { get; set; } = 85;
     public int CommendationMaxBusViolations { get; set; } = 0;
     public string? UpdatedByUserId { get; set; }
-}
-
-/// <summary>
-/// A class synchronised from SIS. SIS is the source of truth for class identity and membership.
-/// </summary>
-public class SISClass : BaseEntity
-{
-    public string SISClassCode { get; set; } = default!;
-    public string ClassName { get; set; } = default!;
-    public string AcademicYear { get; set; } = default!;
-    public string? Term { get; set; }
-    public string? GradeLevel { get; set; }
-    public string? Homeroom { get; set; }
-    public string? Campus { get; set; }
-    public bool IsActive { get; set; } = true;
-    public ICollection<SISClassTeacher> Teachers { get; set; } = [];
-    public ICollection<SISClassStudent> Students { get; set; } = [];
-}
-
-public class SISClassTeacher : BaseEntity
-{
-    public int SISClassId { get; set; }
-    public SISClass SISClass { get; set; } = default!;
-    public string TeacherUserId { get; set; } = default!;
-    public ApplicationUser Teacher { get; set; } = default!;
-    public string? AssignmentRole { get; set; }
-}
-
-public class SISClassStudent : BaseEntity
-{
-    public int SISClassId { get; set; }
-    public SISClass SISClass { get; set; } = default!;
-    public int StudentProfileId { get; set; }
-    public StudentProfile Student { get; set; } = default!;
 }
 
 /// <summary>
@@ -115,7 +80,7 @@ public class StudentMentalHealthRecord : BaseEntity
 /// </summary>
 public class SISHealthVisit : BaseEntity
 {
-    public int? StudentProfileId { get; set; }
+    public string? SISUserId { get; set; }
     public StudentProfile? Student { get; set; }
     /// <summary>Thời gian khám.</summary>
     public DateTime ExamTime { get; set; }
@@ -165,7 +130,7 @@ public class StudentBusAttendanceRecord : BaseEntity
 /// <summary>Parent demographic data synchronised from SIS.</summary>
 public class SISStudentParent : BaseEntity
 {
-    public int StudentProfileId { get; set; }
+    public string SISUserId { get; set; } = default!;
     public StudentProfile Student { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? Relationship { get; set; }
@@ -274,30 +239,24 @@ public class DashboardPreference : BaseEntity
 // ---------------------------------------------------------------------------
 // Canvas LMS warehouse tables.
 //
-// These mirror the parts of the Canvas Data 2 (DAP/CD2) schema we care about for
-// student grades and assignments. They are the landing/warehouse tables that a
-// future ETL job will populate from Canvas. Canvas surrogate ids are kept
-// (bigint) alongside a link to our
-// own StudentProfile, resolved through the SIS id (StudentProfile.StudentCode ==
-// Canvas pseudonyms.sis_user_id). Fact rows also carry the academic dimensions
-// (AcademicYear/Term/Subject) so they participate in the dashboard filters exactly
-// like the other imported sources.
+// These are Olympia-shaped warehouse facts populated from the Canvas REST API. They
+// deliberately do not mirror every Canvas resource. Canvas ids are retained for
+// idempotent upserts, while student identity and reporting dimensions are translated
+// into Olympia's StudentProfile/AcademicYear/Term/Subject vocabulary.
 // ---------------------------------------------------------------------------
 
 public class CanvasCourse : BaseEntity
 {
     /// <summary>Canvas courses.id.</summary>
     public long CanvasCourseId { get; set; }
-    public string? SisSourceId { get; set; }
-    public string Name { get; set; } = default!;
+    public string? SisCourseId { get; set; }
+    public string? Name { get; set; }
     public string? CourseCode { get; set; }
-    public string WorkflowState { get; set; } = "available";
+    public string? WorkflowState { get; set; }
     public long? EnrollmentTermId { get; set; }
-    public string? TermName { get; set; }
-    /// <summary>Subject the course maps to, aligned with our Subject dimension.</summary>
-    public string? Subject { get; set; }
-    public string? AcademicYear { get; set; }
-    public string? Term { get; set; }
+    public string? EnrollmentTermName { get; set; }
+    public DateTime? StartAt { get; set; }
+    public DateTime? EndAt { get; set; }
     public ICollection<CanvasAssignment> Assignments { get; set; } = [];
     public ICollection<CanvasEnrollment> Enrollments { get; set; } = [];
 }
@@ -308,10 +267,11 @@ public class CanvasAssignment : BaseEntity
     public long CanvasAssignmentId { get; set; }
     public long CanvasCourseId { get; set; }
     public CanvasCourse? Course { get; set; }
-    public string Title { get; set; } = default!;
+    public string? Name { get; set; }
     public double? PointsPossible { get; set; }
     public DateTime? DueAt { get; set; }
-    public string WorkflowState { get; set; } = "published";
+    public string? WorkflowState { get; set; }
+    public long? AssignmentGroupId { get; set; }
     public string? AssignmentGroupName { get; set; }
     public string? GradingType { get; set; }
     public ICollection<CanvasSubmission> Submissions { get; set; } = [];
@@ -325,8 +285,8 @@ public class CanvasEnrollment : BaseEntity
     public long CanvasCourseId { get; set; }
     public CanvasCourse? Course { get; set; }
     /// <summary>Canvas enrollment type, e.g. StudentEnrollment, TeacherEnrollment.</summary>
-    public string Type { get; set; } = "StudentEnrollment";
-    public string WorkflowState { get; set; } = "active";
+    public string? Type { get; set; }
+    public string? EnrollmentState { get; set; }
     public string? SisUserId { get; set; }
     public int? StudentProfileId { get; set; }
     public StudentProfile? Student { get; set; }
@@ -335,23 +295,22 @@ public class CanvasEnrollment : BaseEntity
 
 public class CanvasCourseScore : BaseEntity
 {
-    /// <summary>Canvas scores.id.</summary>
-    public long CanvasScoreId { get; set; }
+    /// <summary>Warehouse key; Canvas exposes these values inside an enrollment, not as a score resource ID.</summary>
+    public long WarehouseScoreFactId { get; set; }
     public long CanvasEnrollmentId { get; set; }
     public CanvasEnrollment? Enrollment { get; set; }
+    /// <summary>Warehouse relationship to the SIS-owned student profile.</summary>
     public int? StudentProfileId { get; set; }
     public StudentProfile? Student { get; set; }
-    /// <summary>True for the overall course score row (as opposed to an assignment-group score).</summary>
-    public bool CourseScore { get; set; } = true;
     public long? GradingPeriodId { get; set; }
     public string? GradingPeriodTitle { get; set; }
+    public DateTime? GradingPeriodStartDate { get; set; }
+    public DateTime? GradingPeriodEndDate { get; set; }
+    public double? GradingPeriodWeight { get; set; }
     public double? CurrentScore { get; set; }
     public double? FinalScore { get; set; }
-    public double? OverrideScore { get; set; }
-    public string? CourseName { get; set; }
-    public string? Subject { get; set; }
-    public string? AcademicYear { get; set; }
-    public string? Term { get; set; }
+    public double? EnrollmentOverrideScore { get; set; }
+    public double? GradesOverrideScore { get; set; }
 }
 
 public class CanvasSubmission : BaseEntity
@@ -362,25 +321,33 @@ public class CanvasSubmission : BaseEntity
     public CanvasAssignment? Assignment { get; set; }
     public long CanvasCourseId { get; set; }
     public long CanvasUserId { get; set; }
-    public string? SisUserId { get; set; }
     public int? StudentProfileId { get; set; }
     public StudentProfile? Student { get; set; }
     public double? Score { get; set; }
     public string? Grade { get; set; }
-    public double? PointsPossible { get; set; }
     /// <summary>Canvas submissions.workflow_state, e.g. submitted, graded, unsubmitted, pending_review.</summary>
-    public string WorkflowState { get; set; } = "unsubmitted";
+    public string? WorkflowState { get; set; }
     public string? SubmissionType { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public DateTime? GradedAt { get; set; }
-    public DateTime? DueAt { get; set; }
+    /// <summary>Canvas submissions.cached_due_date exactly as returned.</summary>
+    public DateTime? CachedDueDate { get; set; }
     public bool Late { get; set; }
     public bool Missing { get; set; }
-    public bool Excused { get; set; }
+    public bool? Excused { get; set; }
     public long? SecondsLate { get; set; }
-    public string? Subject { get; set; }
-    public string? AcademicYear { get; set; }
-    public string? Term { get; set; }
+}
+
+/// <summary>Durable high-water mark and last-run status for one Canvas account.</summary>
+public class CanvasSyncState : BaseEntity
+{
+    public string SourceKey { get; set; } = default!;
+    public DateTime? LastSuccessfulWatermarkUtc { get; set; }
+    public DateTime? LastStartedAtUtc { get; set; }
+    public DateTime? LastCompletedAtUtc { get; set; }
+    public string? LastRunMode { get; set; }
+    public string? LastStatus { get; set; }
+    public string? LastError { get; set; }
 }
 
 /// <summary>

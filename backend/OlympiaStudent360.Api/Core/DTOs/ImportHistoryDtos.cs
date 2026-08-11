@@ -32,7 +32,7 @@ public class ImportHistoryDetailDto : ImportHistoryDto
 public class ImportHistoryRecordDto
 {
     public int Id { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string StudentName { get; set; } = default!;
     public Dictionary<string, string?> Values { get; set; } = [];
 }

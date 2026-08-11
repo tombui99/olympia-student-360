@@ -134,7 +134,7 @@ interface RiskRow {
               <span class="min-w-0 flex-1">
                 <span class="block truncate text-sm font-semibold text-[#32124f]">{{ student.fullName }}</span>
                 <span class="mt-0.5 block truncate text-xs text-[#7c7284]">
-                  {{ student.studentCode }} · {{ languageService.t('dashboard.grade') }}
+                  {{ student.sisUserId }} · {{ languageService.t('dashboard.grade') }}
                   {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
                 </span>
               </span>

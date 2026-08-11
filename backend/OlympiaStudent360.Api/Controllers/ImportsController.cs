@@ -24,7 +24,7 @@ public class ImportsController : ControllerBase
     [HttpPost("student-behaviours")]
     public async Task<ActionResult<ImportHistoryDto>> ImportBehaviours([FromBody] ExcelBehaviourImportDto model)
     {
-        var students = await VisibleStudents().ToDictionaryAsync(student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+        var students = await VisibleStudents().ToDictionaryAsync(student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
         var customFields = await ModuleFields("student-behaviours");
         var errors = new List<string>();
         var behaviours = new List<StudentBehaviour>();
@@ -77,7 +77,7 @@ public class ImportsController : ControllerBase
     [HttpPost("student-projects")]
     public async Task<ActionResult<ImportHistoryDto>> ImportProjects([FromBody] ExcelProjectImportDto model)
     {
-        var students = await VisibleStudents().ToDictionaryAsync(student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+        var students = await VisibleStudents().ToDictionaryAsync(student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
         var customFields = await ModuleFields("student-projects");
         var errors = new List<string>();
         var projects = new List<StudentProject>();
@@ -136,7 +136,7 @@ public class ImportsController : ControllerBase
     public async Task<ActionResult<ImportHistoryDto>> ImportMentalHealth(
         [FromBody] ExcelMentalHealthImportDto model)
     {
-        var students = await VisibleStudents().ToDictionaryAsync(student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+        var students = await VisibleStudents().ToDictionaryAsync(student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
         var academicYears = await _context.AcademicPeriods.AsNoTracking()
             .Select(period => period.AcademicYear)
             .Distinct()
@@ -204,7 +204,7 @@ public class ImportsController : ControllerBase
         [FromBody] ExcelBusAttendanceImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(
-            student => student.StudentCode, StringComparer.OrdinalIgnoreCase);
+            student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
         var customFields = await ModuleFields("student-bus-attendance");
         var errors = new List<string>();
         var records = new List<StudentBusAttendanceRecord>();
@@ -270,21 +270,21 @@ public class ImportsController : ControllerBase
 
     private static bool TryGetStudent(
         IReadOnlyDictionary<string, StudentProfile> students,
-        string studentCode,
+        string sisUserId,
         string studentName,
         int rowNumber,
         List<string> errors,
         out StudentProfile? student)
     {
-        if (!students.TryGetValue(studentCode.Trim(), out student))
+        if (!students.TryGetValue(sisUserId.Trim(), out student))
         {
-            errors.Add($"Row {rowNumber}: student_id '{studentCode}' is invalid.");
+            errors.Add($"Row {rowNumber}: student_id '{sisUserId}' is invalid.");
             return false;
         }
 
         if (!string.Equals(student.FullName.Trim(), studentName.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            errors.Add($"Row {rowNumber}: student_name does not match student_id '{studentCode}'.");
+            errors.Add($"Row {rowNumber}: student_name does not match student_id '{sisUserId}'.");
             return false;
         }
 

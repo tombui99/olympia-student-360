@@ -4,7 +4,7 @@ import { BASE_PATH } from '../api/variables';
 
 export interface ManualEntryStudent {
   id: number;
-  studentCode: string;
+  sisUserId: string;
   fullName: string;
   gradeLevel?: string | null;
   homeroom?: string | null;

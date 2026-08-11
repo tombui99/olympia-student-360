@@ -180,7 +180,7 @@ import {
                       <span class="font-semibold text-[#32124f]">{{ visit.fullName }}</span>
                     }
                     <span class="mt-1 block text-xs text-[#8b8193]">
-                      {{ visit.studentCode || languageService.t('healthVisits.noStudentCode') }}
+                      {{ visit.sisUserId || languageService.t('healthVisits.noSISUserId') }}
                       @if (visit.className) { · {{ visit.className }} }
                     </span>
                   </td>

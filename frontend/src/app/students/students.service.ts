@@ -13,11 +13,10 @@ export interface RiskFlag {
 
 export interface StudentListItem {
   id: number;
-  studentCode: string;
+  sisUserId: string;
   fullName: string;
   gradeLevel?: string | null;
   homeroom?: string | null;
-  teacherName?: string | null;
   behaviourCount: number;
   positiveBehaviourCount: number;
   concerningBehaviourCount: number;
@@ -64,11 +63,10 @@ export interface AtRiskStudentsPage {
 export interface StudentCommendation {
   id: number;
   studentId: number;
-  studentCode: string;
+  sisUserId: string;
   studentName: string;
   gradeLevel?: string | null;
   homeroom?: string | null;
-  teacherName?: string | null;
   incidentDate: string;
   commendationType: string;
   notes?: string | null;
@@ -88,22 +86,6 @@ export interface StudentCommendationsPage {
   studentsRecognisedCount: number;
   recentCount: number;
   availableGrades: string[];
-}
-
-export interface CohortStats {
-  key: string;
-  label: string;
-  studentCount: number;
-  atRiskCount: number;
-  highRiskCount: number;
-  totalBehaviours: number;
-  totalProjects: number;
-  avgBehaviours: number;
-}
-
-export interface CohortsResponse {
-  grades: CohortStats[];
-  homerooms: CohortStats[];
 }
 
 export interface StudentSummary {
@@ -191,26 +173,36 @@ export interface StudentParent {
 }
 
 export interface StudentCanvasCourse {
+  canvasCourseId: number;
   courseName: string;
-  subject?: string | null;
-  term?: string | null;
+  courseCode?: string | null;
+  enrollmentTermId?: number | null;
+  enrollmentTermName?: string | null;
+  gradingPeriodId?: number | null;
   gradingPeriodTitle?: string | null;
+  scoreScope: 'course_total' | 'grading_period';
   currentScore?: number | null;
   finalScore?: number | null;
 }
 
 export interface StudentCanvasSubmission {
+  canvasSubmissionId: number;
+  canvasAssignmentId: number;
+  canvasCourseId: number;
   assignmentTitle: string;
   courseName?: string | null;
   subject?: string | null;
   workflowState: string;
+  grade?: string | null;
+  submissionType?: string | null;
   score?: number | null;
   pointsPossible?: number | null;
   dueAt?: string | null;
   submittedAt?: string | null;
+  gradedAt?: string | null;
   late: boolean;
   missing: boolean;
-  excused: boolean;
+  excused: boolean | null;
 }
 
 export interface StudentCanvasJourneyPoint {
@@ -233,17 +225,42 @@ export interface StudentCanvas {
   missingAssignments: number;
   lateSubmissions: number;
   courses: StudentCanvasCourse[];
+  courseGradesPage: number;
+  courseGradesPageSize: number;
+  courseGradesTotalCount: number;
+  courseGradesTotalPages: number;
   recentSubmissions: StudentCanvasSubmission[];
+  recentSubmissionsPage: number;
+  recentSubmissionsPageSize: number;
+  recentSubmissionsTotalCount: number;
+  recentSubmissionsTotalPages: number;
   journey: StudentCanvasJourneyPoint[];
 }
 
+export interface StudentCanvasCoursesPage {
+  items: StudentCanvasCourse[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+export interface StudentCanvasSubmissionsPage {
+  items: StudentCanvasSubmission[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+export type CanvasSubmissionCategory = 'graded' | 'submitted' | 'missing' | 'late';
+
 export interface StudentProfileDetail {
   id: number;
-  studentCode: string;
+  sisUserId: string;
   fullName: string;
   gradeLevel?: string | null;
   homeroom?: string | null;
-  teacherName?: string | null;
   riskLevel: RiskLevel;
   flags: RiskFlag[];
   summary: StudentSummary;
@@ -313,12 +330,52 @@ export class StudentsService {
     );
   }
 
-  cohorts(): Observable<CohortsResponse> {
-    return this.http.get<CohortsResponse>(`${this.basePath}/api/students/cohorts`);
-  }
-
   get(id: number, academicYear?: string): Observable<StudentProfileDetail> {
     const params = academicYear ? new HttpParams().set('academicYear', academicYear) : undefined;
     return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
+  }
+
+  canvasCourseGrades(
+    id: number,
+    page: number,
+    pageSize: number,
+    academicYear?: string,
+  ): Observable<StudentCanvasCoursesPage> {
+    let params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    if (academicYear) params = params.set('academicYear', academicYear);
+    return this.http.get<StudentCanvasCoursesPage>(
+      `${this.basePath}/api/students/${id}/canvas/course-grades`,
+      { params },
+    );
+  }
+
+  canvasRecentSubmissions(
+    id: number,
+    page: number,
+    pageSize: number,
+  ): Observable<StudentCanvasSubmissionsPage> {
+    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    return this.http.get<StudentCanvasSubmissionsPage>(
+      `${this.basePath}/api/students/${id}/canvas/recent-submissions`,
+      { params },
+    );
+  }
+
+  canvasSubmissions(
+    id: number,
+    category: CanvasSubmissionCategory,
+    page: number,
+    pageSize: number,
+    academicYear?: string | null,
+  ): Observable<StudentCanvasSubmissionsPage> {
+    let params = new HttpParams()
+      .set('category', category)
+      .set('page', page)
+      .set('pageSize', pageSize);
+    if (academicYear) params = params.set('academicYear', academicYear);
+    return this.http.get<StudentCanvasSubmissionsPage>(
+      `${this.basePath}/api/students/${id}/canvas/submissions`,
+      { params },
+    );
   }
 }

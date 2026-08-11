@@ -29,4 +29,11 @@
     <Content Include="Assets/olympia_logo.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\OlympiaStudent360.CanvasEtl\CanvasApiClient.cs" Link="CanvasSync\CanvasApiClient.cs" />
+    <Compile Include="..\OlympiaStudent360.CanvasEtl\CanvasDtos.cs" Link="CanvasSync\CanvasDtos.cs" />
+    <Compile Include="..\OlympiaStudent360.CanvasEtl\CanvasEtlOptions.cs" Link="CanvasSync\CanvasEtlOptions.cs" />
+    <Compile Include="..\OlympiaStudent360.CanvasEtl\CanvasSyncService.cs" Link="CanvasSync\CanvasSyncService.cs" />
+  </ItemGroup>
+
 </Project>

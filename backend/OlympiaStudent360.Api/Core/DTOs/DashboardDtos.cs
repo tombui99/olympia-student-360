@@ -33,7 +33,7 @@ public class DashboardOverviewDto
 public class DashboardAttentionStudentDto
 {
     public int Id { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
@@ -71,7 +71,7 @@ public class DashboardFilterOptionsDto
 public class DashboardStudentOptionDto
 {
     public int Id { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
@@ -112,6 +112,11 @@ public class DashboardMetricDto
     public string Label { get; set; } = default!;
     public string Category { get; set; } = default!;
     public string Source { get; set; } = default!;
+    public string Dataset { get; set; } = default!;
+    /// <summary>Canvas/API fields or SIS fields used to produce this reporting metric.</summary>
+    public List<string> SourceFields { get; set; } = [];
+    /// <summary>Human-readable reporting calculation; empty for stored observation metrics.</summary>
+    public string? Definition { get; set; }
     public string Unit { get; set; } = "";
     public decimal? Value { get; set; }
     public decimal? Trend { get; set; }
@@ -145,7 +150,7 @@ public class MetricDrilldownDto
 public class MetricDrilldownRowDto
 {
     public int StudentId { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
@@ -214,7 +219,7 @@ public class CanvasExploreDrilldownDto
 public class CanvasExploreDrilldownRowDto
 {
     public int? StudentId { get; set; }
-    public string? StudentCode { get; set; }
+    public string? SISUserId { get; set; }
     public string? FullName { get; set; }
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }

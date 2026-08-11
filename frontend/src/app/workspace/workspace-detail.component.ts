@@ -272,7 +272,7 @@ interface ChartImageExporter {
                 <select class="filter-select" [ngModel]="filters().studentId" (ngModelChange)="setFilter('studentId', $event)">
                   <option value="">{{ languageService.t('workspace.filters.allStudents') }}</option>
                   <option *ngFor="let student of studentOptions()" [value]="student.id">
-                    {{ student.fullName }} ({{ student.studentCode }})
+                    {{ student.fullName }} ({{ student.sisUserId }})
                   </option>
                 </select>
               </label>
@@ -813,6 +813,12 @@ interface ChartImageExporter {
                           <span>
                             <span class="block text-sm font-semibold text-[#32124f]">{{ metricLabel(metric.id) }}</span>
                             <span class="mt-1 block text-xs text-[#7c7284]">{{ sourceLabel(metric.source) }}</span>
+                            <span *ngIf="metric.definition" class="mt-1 block max-w-xl text-xs leading-relaxed text-[#7c7284]">
+                              {{ metric.definition }}
+                            </span>
+                            <span *ngIf="metric.sourceFields.length" class="mt-1 block font-mono text-[11px] text-[#8a6811]">
+                              {{ metric.sourceFields.join(' · ') }}
+                            </span>
                           </span>
                           <input
                             class="mt-1"
@@ -1072,7 +1078,7 @@ interface ChartImageExporter {
                       student.fullName
                     }}</span>
                     <span class="mt-0.5 block truncate text-xs text-[#7c7284]">
-                      {{ student.studentCode }} ·
+                      {{ student.sisUserId }} ·
                       {{ languageService.t('workspace.drilldown.grade') }}
                       {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
                     </span>
@@ -1132,8 +1138,8 @@ interface ChartImageExporter {
                     <ng-template #catalogueRecord>
                       <span class="font-semibold text-[#32124f]">{{ languageService.t('workspace.drilldown.sourceRecord') }}</span>
                     </ng-template>
-                    <p *ngIf="record.studentCode" class="mt-0.5 text-xs text-[#7c7284]">
-                      {{ record.studentCode }} · {{ record.gradeLevel || '-' }} · {{ record.homeroom || '-' }}
+                    <p *ngIf="record.sisUserId" class="mt-0.5 text-xs text-[#7c7284]">
+                      {{ record.sisUserId }} · {{ record.gradeLevel || '-' }} · {{ record.homeroom || '-' }}
                     </p>
                   </div>
                   <span *ngIf="record.value !== null && record.value !== undefined" class="rounded-full bg-[#f1edf4] px-3 py-1 text-sm font-bold text-[#5b287d]">
@@ -1388,7 +1394,7 @@ export class WorkspaceDetailComponent implements OnInit {
     if (filters.studentId) {
       const student = this.studentOptions().find((item) => String(item.id) === String(filters.studentId));
       push('workspace.filters.fields.student',
-        student ? `${student.fullName} (${student.studentCode})` : filters.studentId);
+        student ? `${student.fullName} (${student.sisUserId})` : filters.studentId);
     }
     push('workspace.filters.fields.program', filters.program);
     push('workspace.filters.fields.subject', filters.subject);

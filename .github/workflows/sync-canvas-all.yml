@@ -1,0 +1,45 @@
+name: Sync all Canvas data from 2026
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canvas-production-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-all:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    environment: production
+    env:
+      Canvas__BaseUrl: ${{ secrets.CANVAS_BASE_URL }}
+      Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
+      Canvas__AccountId: ${{ secrets.CANVAS_ACCOUNT_ID }}
+      # Olympia academic terms beginning in 2026. Club, extracurricular, and administrative terms are excluded.
+      Canvas__SyncAllEnrollmentTermIds: "333,334,335,337,338"
+      Backend__BaseUrl: ${{ secrets.OLYMPIA_API_BASE_URL }}
+      Backend__SyncApiKey: ${{ secrets.CANVAS_SYNC_API_KEY }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore and build Canvas ETL
+        run: |
+          dotnet restore backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj
+          dotnet build backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
+            --configuration Release --no-restore
+
+      - name: Upsert all Canvas history from 2026
+        run: |
+          dotnet run --project backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
+            --configuration Release --no-build -- --sync-all

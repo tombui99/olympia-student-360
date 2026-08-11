@@ -3,14 +3,13 @@ namespace OlympiaStudent360.Api.Core.DTOs;
 public class StudentListItemDto
 {
     public int Id { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
     public string? Campus { get; set; }
     public string? EducationLevel { get; set; }
     public string? Program { get; set; }
-    public string? TeacherName { get; set; }
     public int BehaviourCount { get; set; }
     public int PositiveBehaviourCount { get; set; }
     public int ConcerningBehaviourCount { get; set; }
@@ -69,11 +68,10 @@ public class StudentCommendationDto
 {
     public int Id { get; set; }
     public int StudentId { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string StudentName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
-    public string? TeacherName { get; set; }
     public DateTime IncidentDate { get; set; }
     public string CommendationType { get; set; } = default!;
     public string? Notes { get; set; }
@@ -96,35 +94,16 @@ public class StudentCommendationsPageDto
     public List<string> AvailableGrades { get; set; } = [];
 }
 
-public class CohortStatsDto
-{
-    public string Key { get; set; } = default!;
-    public string Label { get; set; } = default!;
-    public int StudentCount { get; set; }
-    public int AtRiskCount { get; set; }
-    public int HighRiskCount { get; set; }
-    public int TotalBehaviours { get; set; }
-    public int TotalProjects { get; set; }
-    public double AvgBehaviours { get; set; }
-}
-
-public class CohortsResponseDto
-{
-    public List<CohortStatsDto> Grades { get; set; } = [];
-    public List<CohortStatsDto> Homerooms { get; set; } = [];
-}
-
 public class StudentProfileDetailDto
 {
     public int Id { get; set; }
-    public string StudentCode { get; set; } = default!;
+    public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
     public string? Campus { get; set; }
     public string? EducationLevel { get; set; }
     public string? Program { get; set; }
-    public string? TeacherName { get; set; }
     public string RiskLevel { get; set; } = "None";
     public List<RiskFlagDto> Flags { get; set; } = [];
     public StudentSummaryDto Summary { get; set; } = new();
@@ -158,16 +137,42 @@ public class StudentCanvasDto
     public int MissingAssignments { get; set; }
     public int LateSubmissions { get; set; }
     public List<StudentCanvasCourseDto> Courses { get; set; } = [];
+    public int CourseGradesPage { get; set; } = 1;
+    public int CourseGradesPageSize { get; set; }
+    public int CourseGradesTotalCount { get; set; }
+    public int CourseGradesTotalPages { get; set; }
     public List<StudentCanvasSubmissionDto> RecentSubmissions { get; set; } = [];
+    public int RecentSubmissionsPage { get; set; } = 1;
+    public int RecentSubmissionsPageSize { get; set; }
+    public int RecentSubmissionsTotalCount { get; set; }
+    public int RecentSubmissionsTotalPages { get; set; }
     /// <summary>The student's grade trajectory across every academic year/term on record.</summary>
     public List<StudentCanvasJourneyPointDto> Journey { get; set; } = [];
+}
+
+public class StudentCanvasCoursesPageDto
+{
+    public List<StudentCanvasCourseDto> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+}
+
+public class StudentCanvasSubmissionsPageDto
+{
+    public List<StudentCanvasSubmissionDto> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
 }
 
 public class StudentCanvasJourneyPointDto
 {
     public string AcademicYear { get; set; } = default!;
     public string? Term { get; set; }
-    /// <summary>The grade level the student was in that year, when it can be derived (e.g. "5").</summary>
+    /// <summary>Reserved for a future SIS-supplied historical grade level; never inferred from Canvas.</summary>
     public string? GradeLevel { get; set; }
     public string Label { get; set; } = default!;
     public decimal? AverageGrade { get; set; }
@@ -176,27 +181,37 @@ public class StudentCanvasJourneyPointDto
 
 public class StudentCanvasCourseDto
 {
+    public long CanvasCourseId { get; set; }
     public string CourseName { get; set; } = default!;
-    public string? Subject { get; set; }
-    public string? Term { get; set; }
+    public string? CourseCode { get; set; }
+    public long? EnrollmentTermId { get; set; }
+    public string? EnrollmentTermName { get; set; }
+    public long? GradingPeriodId { get; set; }
     public string? GradingPeriodTitle { get; set; }
+    public string ScoreScope { get; set; } = default!;
     public decimal? CurrentScore { get; set; }
     public decimal? FinalScore { get; set; }
 }
 
 public class StudentCanvasSubmissionDto
 {
+    public long CanvasSubmissionId { get; set; }
+    public long CanvasAssignmentId { get; set; }
+    public long CanvasCourseId { get; set; }
     public string AssignmentTitle { get; set; } = default!;
     public string? CourseName { get; set; }
     public string? Subject { get; set; }
     public string WorkflowState { get; set; } = default!;
+    public string? Grade { get; set; }
+    public string? SubmissionType { get; set; }
     public decimal? Score { get; set; }
     public decimal? PointsPossible { get; set; }
     public DateTime? DueAt { get; set; }
     public DateTime? SubmittedAt { get; set; }
+    public DateTime? GradedAt { get; set; }
     public bool Late { get; set; }
     public bool Missing { get; set; }
-    public bool Excused { get; set; }
+    public bool? Excused { get; set; }
 }
 
 public class StudentMentalHealthRecordDto
@@ -216,7 +231,7 @@ public class SISHealthVisitDto
 {
     public int Id { get; set; }
     public int? StudentProfileId { get; set; }
-    public string? StudentCode { get; set; }
+    public string? SISUserId { get; set; }
     public DateTime ExamTime { get; set; }
     public string FullName { get; set; } = default!;
     public string? Gender { get; set; }

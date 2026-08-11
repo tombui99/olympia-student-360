@@ -212,7 +212,7 @@ public class ImportHistoryController : ControllerBase
         return new ImportHistoryRecordDto
         {
             Id = id,
-            StudentCode = student.StudentCode,
+            SISUserId = student.SISUserId,
             StudentName = student.FullName,
             Values = result
         };

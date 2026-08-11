@@ -269,6 +269,9 @@ namespace OlympiaStudent360.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    b.Property<long?>("AssignmentGroupId")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("AssignmentGroupName")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
@@ -280,7 +283,8 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseCreatedAt");
 
                     b.Property<DateTime?>("DueAt")
                         .HasColumnType("datetime(6)");
@@ -289,23 +293,24 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
-                    b.Property<double?>("PointsPossible")
-                        .HasColumnType("double");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
+                    b.Property<string>("Name")
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
+                    b.Property<double?>("PointsPossible")
+                        .HasColumnType("double");
+
                     b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseUpdatedAt");
 
                     b.Property<string>("WorkflowState")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssignmentGroupId");
 
                     b.HasIndex("CanvasAssignmentId")
                         .IsUnique();
@@ -321,10 +326,6 @@ namespace OlympiaStudent360.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
-                    b.Property<string>("AcademicYear")
-                        .HasMaxLength(20)
-                        .HasColumnType("varchar(20)");
-
                     b.Property<long>("CanvasCourseId")
                         .HasColumnType("bigint");
 
@@ -333,37 +334,35 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasColumnType("varchar(100)");
 
                     b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseCreatedAt");
+
+                    b.Property<DateTime?>("EndAt")
                         .HasColumnType("datetime(6)");
 
                     b.Property<long?>("EnrollmentTermId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("EnrollmentTermName")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
                     b.Property<string>("Name")
-                        .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<string>("SisSourceId")
+                    b.Property<string>("SisCourseId")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<string>("Subject")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<string>("Term")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("TermName")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<DateTime?>("UpdatedAt")
+                    b.Property<DateTime?>("StartAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseUpdatedAt");
+
                     b.Property<string>("WorkflowState")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
@@ -383,66 +382,59 @@ namespace OlympiaStudent360.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
-                    b.Property<string>("AcademicYear")
-                        .HasMaxLength(20)
-                        .HasColumnType("varchar(20)");
-
                     b.Property<long>("CanvasEnrollmentId")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("CanvasScoreId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("CourseName")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<bool>("CourseScore")
-                        .HasColumnType("tinyint(1)");
-
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseCreatedAt");
 
                     b.Property<double?>("CurrentScore")
+                        .HasColumnType("double");
+
+                    b.Property<double?>("EnrollmentOverrideScore")
                         .HasColumnType("double");
 
                     b.Property<double?>("FinalScore")
                         .HasColumnType("double");
 
+                    b.Property<double?>("GradesOverrideScore")
+                        .HasColumnType("double");
+
+                    b.Property<DateTime?>("GradingPeriodEndDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<long?>("GradingPeriodId")
                         .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("GradingPeriodStartDate")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<string>("GradingPeriodTitle")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
-                    b.Property<double?>("OverrideScore")
+                    b.Property<double?>("GradingPeriodWeight")
                         .HasColumnType("double");
 
                     b.Property<int?>("StudentProfileId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Subject")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<string>("Term")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
                     b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseUpdatedAt");
+
+                    b.Property<long>("WarehouseScoreFactId")
+                        .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
                     b.HasIndex("CanvasEnrollmentId");
 
-                    b.HasIndex("CanvasScoreId")
-                        .IsUnique();
-
                     b.HasIndex("StudentProfileId");
 
-                    b.HasIndex("AcademicYear", "Term");
+                    b.HasIndex("WarehouseScoreFactId")
+                        .IsUnique();
 
                     b.ToTable("CanvasCourseScores");
                 });
@@ -463,7 +455,12 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseCreatedAt");
+
+                    b.Property<string>("EnrollmentState")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("SisUserId")
                         .HasMaxLength(100)
@@ -473,17 +470,12 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("Type")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
                     b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("WorkflowState")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseUpdatedAt");
 
                     b.HasKey("Id");
 
@@ -505,9 +497,8 @@ namespace OlympiaStudent360.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
-                    b.Property<string>("AcademicYear")
-                        .HasMaxLength(20)
-                        .HasColumnType("varchar(20)");
+                    b.Property<DateTime?>("CachedDueDate")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<long>("CanvasAssignmentId")
                         .HasColumnType("bigint");
@@ -522,12 +513,10 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseCreatedAt");
 
-                    b.Property<DateTime?>("DueAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<bool>("Excused")
+                    b.Property<bool?>("Excused")
                         .HasColumnType("tinyint(1)");
 
                     b.Property<string>("Grade")
@@ -543,25 +532,14 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<bool>("Missing")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<double?>("PointsPossible")
-                        .HasColumnType("double");
-
                     b.Property<double?>("Score")
                         .HasColumnType("double");
 
                     b.Property<long?>("SecondsLate")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("SisUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<int?>("StudentProfileId")
                         .HasColumnType("int");
-
-                    b.Property<string>("Subject")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
 
                     b.Property<string>("SubmissionType")
                         .HasMaxLength(50)
@@ -570,15 +548,11 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<DateTime?>("SubmittedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Term")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
                     b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseUpdatedAt");
 
                     b.Property<string>("WorkflowState")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
@@ -591,9 +565,55 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasIndex("StudentProfileId");
 
-                    b.HasIndex("AcademicYear", "Term");
-
                     b.ToTable("CanvasSubmissions");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasSyncState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseCreatedAt");
+
+                    b.Property<DateTime?>("LastCompletedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<string>("LastRunMode")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime?>("LastStartedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("LastStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime?>("LastSuccessfulWatermarkUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("WarehouseUpdatedAt");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceKey")
+                        .IsUnique();
+
+                    b.ToTable("CanvasSyncStates");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomReport", b =>
@@ -951,124 +971,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("ImportModuleFields");
                 });
 
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClass", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<string>("AcademicYear")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<string>("Campus")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<string>("ClassName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("GradeLevel")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("Homeroom")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("SISClassCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<string>("Term")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SISClassCode")
-                        .IsUnique();
-
-                    b.HasIndex("AcademicYear", "IsActive");
-
-                    b.ToTable("SISClasses", (string)null);
-                });
-
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassStudent", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int>("SISClassId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("StudentProfileId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StudentProfileId");
-
-                    b.HasIndex("SISClassId", "StudentProfileId")
-                        .IsUnique();
-
-                    b.ToTable("SISClassStudents", (string)null);
-                });
-
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassTeacher", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<string>("AssignmentRole")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int>("SISClassId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("TeacherUserId")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TeacherUserId");
-
-                    b.HasIndex("SISClassId", "TeacherUserId")
-                        .IsUnique();
-
-                    b.ToTable("SISClassTeachers", (string)null);
-                });
-
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISHealthVisit", b =>
                 {
                     b.Property<int>("Id")
@@ -1110,8 +1012,9 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
-                    b.Property<int?>("StudentProfileId")
-                        .HasColumnType("int");
+                    b.Property<string>("SISUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<string>("Symptoms")
                         .HasMaxLength(1000)
@@ -1128,7 +1031,7 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasIndex("ExamTime");
 
-                    b.HasIndex("StudentProfileId");
+                    b.HasIndex("SISUserId");
 
                     b.ToTable("SISHealthVisits", (string)null);
                 });
@@ -1171,15 +1074,17 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
-                    b.Property<int>("StudentProfileId")
-                        .HasColumnType("int");
+                    b.Property<string>("SISUserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("StudentProfileId");
+                    b.HasIndex("SISUserId");
 
                     b.ToTable("SISStudentParents", (string)null);
                 });
@@ -1446,6 +1351,9 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<long?>("CanvasUserId")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -1477,7 +1385,7 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
-                    b.Property<string>("StudentCode")
+                    b.Property<string>("SISUserId")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
@@ -1487,7 +1395,7 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("StudentCode")
+                    b.HasIndex("CanvasUserId")
                         .IsUnique();
 
                     b.ToTable("StudentProfiles");
@@ -1769,49 +1677,12 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassStudent", b =>
-                {
-                    b.HasOne("OlympiaStudent360.Api.Core.Entities.SISClass", "SISClass")
-                        .WithMany("Students")
-                        .HasForeignKey("SISClassId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
-                        .WithMany("SISClassMemberships")
-                        .HasForeignKey("StudentProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("SISClass");
-
-                    b.Navigation("Student");
-                });
-
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClassTeacher", b =>
-                {
-                    b.HasOne("OlympiaStudent360.Api.Core.Entities.SISClass", "SISClass")
-                        .WithMany("Teachers")
-                        .HasForeignKey("SISClassId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "Teacher")
-                        .WithMany("SISClassAssignments")
-                        .HasForeignKey("TeacherUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("SISClass");
-
-                    b.Navigation("Teacher");
-                });
-
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISHealthVisit", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
                         .WithMany("SISHealthVisits")
-                        .HasForeignKey("StudentProfileId")
+                        .HasForeignKey("SISUserId")
+                        .HasPrincipalKey("SISUserId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Student");
@@ -1821,7 +1692,8 @@ namespace OlympiaStudent360.Api.Migrations
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
                         .WithMany("Parents")
-                        .HasForeignKey("StudentProfileId")
+                        .HasForeignKey("SISUserId")
+                        .HasPrincipalKey("SISUserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -1911,11 +1783,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("CustomReport");
                 });
 
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ApplicationUser", b =>
-                {
-                    b.Navigation("SISClassAssignments");
-                });
-
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasAssignment", b =>
                 {
                     b.Navigation("Submissions");
@@ -1954,13 +1821,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Projects");
                 });
 
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISClass", b =>
-                {
-                    b.Navigation("Students");
-
-                    b.Navigation("Teachers");
-                });
-
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
                 {
                     b.Navigation("Behaviours");
@@ -1972,8 +1832,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Parents");
 
                     b.Navigation("Projects");
-
-                    b.Navigation("SISClassMemberships");
 
                     b.Navigation("SISHealthVisits");
                 });

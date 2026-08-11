@@ -85,7 +85,7 @@ import { importModules } from './import-template-data';
               <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#eee9f1] pb-3">
                 <div>
                   <h4 class="font-semibold text-[#32124f]">{{ record.studentName }}</h4>
-                  <p class="mt-0.5 text-xs text-[#817687]">{{ record.studentCode }}</p>
+                  <p class="mt-0.5 text-xs text-[#817687]">{{ record.sisUserId }}</p>
                 </div>
                 <button class="text-sm font-semibold text-red-700 hover:underline" type="button" [disabled]="rowBusy(record.id)" (click)="removeRecord(record)">
                   {{ languageService.t('common.delete') }}
