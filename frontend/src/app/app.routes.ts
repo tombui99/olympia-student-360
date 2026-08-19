@@ -1,11 +1,16 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/auth/auth.guard';
 import { adminGuard } from './core/auth/auth.guard';
+import { formManagerGuard } from './core/auth/auth.guard';
 
 export const routes: Routes = [
   {
     path: 'login',
     loadComponent: () => import('./auth/login/login.component').then((m) => m.LoginComponent),
+  },
+  {
+    path: 'f/:publicId',
+    loadComponent: () => import('./custom-forms/public-form.component').then((m) => m.PublicFormComponent),
   },
   {
     path: '',
@@ -91,6 +96,25 @@ export const routes: Routes = [
           import('./imports/manual-excel-import.component').then(
             (m) => m.ManualExcelImportComponent,
           ),
+      },
+      {
+        path: 'forms/new',
+        loadComponent: () => import('./custom-forms/form-builder.component').then((m) => m.FormBuilderComponent),
+        canActivate: [formManagerGuard],
+      },
+      {
+        path: 'forms/:id/responses',
+        loadComponent: () => import('./custom-forms/form-responses.component').then((m) => m.FormResponsesComponent),
+        canActivate: [formManagerGuard],
+      },
+      {
+        path: 'forms/:id',
+        loadComponent: () => import('./custom-forms/form-builder.component').then((m) => m.FormBuilderComponent),
+        canActivate: [formManagerGuard],
+      },
+      {
+        path: 'forms',
+        loadComponent: () => import('./custom-forms/custom-forms.component').then((m) => m.CustomFormsComponent),
       },
       {
         path: 'admin/accounts',

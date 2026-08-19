@@ -14,6 +14,7 @@ import {
   faUsersGear,
   faFileLines,
   faKitMedical,
+  faClipboardList,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
@@ -369,6 +370,7 @@ export class MainLayoutComponent {
       items: [
         { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
         { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
+        { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList },
       ],
     },
     {

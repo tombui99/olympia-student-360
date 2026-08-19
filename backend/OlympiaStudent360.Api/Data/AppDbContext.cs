@@ -19,6 +19,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
     public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<ImportModuleField> ImportModuleFields { get; set; }
+    public DbSet<CustomForm> CustomForms { get; set; }
+    public DbSet<CustomFormResponse> CustomFormResponses { get; set; }
+    public DbSet<CustomFormAccessSession> CustomFormAccessSessions { get; set; }
     public DbSet<CustomReport> CustomReports { get; set; }
     public DbSet<WorkspacePreference> WorkspacePreferences { get; set; }
     public DbSet<AcademicPeriod> AcademicPeriods { get; set; }
@@ -42,6 +45,44 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .Property(u => u.FullName)
             .HasMaxLength(255);
 
+        modelBuilder.Entity<CustomForm>(form =>
+        {
+            form.Property(item => item.PublicId).HasMaxLength(64);
+            form.Property(item => item.Title).HasMaxLength(255);
+            form.Property(item => item.Description).HasMaxLength(4000);
+            form.Property(item => item.ConfirmationMessage).HasMaxLength(2000);
+            form.Property(item => item.CreatedByUserId).HasMaxLength(450);
+            form.Property(item => item.CreatedByName).HasMaxLength(255);
+            form.HasIndex(item => item.PublicId).IsUnique();
+            form.HasIndex(item => item.IsArchived);
+        });
+
+        modelBuilder.Entity<CustomFormResponse>(response =>
+        {
+            response.Property(item => item.RespondentName).HasMaxLength(255);
+            response.Property(item => item.RespondentRelationship).HasMaxLength(100);
+            response.Property(item => item.RespondentEmail).HasMaxLength(255);
+            response.Property(item => item.RespondentPhone).HasMaxLength(50);
+            response.Property(item => item.DeletedByUserId).HasMaxLength(450);
+            response.HasIndex(item => new { item.CustomFormId, item.StudentProfileId });
+            response.HasIndex(item => new { item.CustomFormId, item.IsDeleted, item.CreatedAt });
+            response.HasOne(item => item.Form).WithMany(item => item.Responses)
+                .HasForeignKey(item => item.CustomFormId).OnDelete(DeleteBehavior.Cascade);
+            response.HasOne(item => item.Student).WithMany()
+                .HasForeignKey(item => item.StudentProfileId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<CustomFormAccessSession>(session =>
+        {
+            session.Property(item => item.TokenHash).HasMaxLength(64);
+            session.HasIndex(item => item.TokenHash).IsUnique();
+            session.HasIndex(item => item.ExpiresAt);
+            session.HasOne(item => item.Form).WithMany(item => item.AccessSessions)
+                .HasForeignKey(item => item.CustomFormId).OnDelete(DeleteBehavior.Cascade);
+            session.HasOne(item => item.Student).WithMany()
+                .HasForeignKey(item => item.StudentProfileId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<StudentProfile>()
             .Property(s => s.SISUserId)
             .HasMaxLength(100);
@@ -49,6 +90,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<StudentProfile>()
             .Property(s => s.FullName)
             .HasMaxLength(255);
+
+        modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.Email)
+            .HasMaxLength(255);
+
+        modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.PhoneNumber)
+            .HasMaxLength(50);
 
         modelBuilder.Entity<StudentProfile>()
             .Property(s => s.Gender)

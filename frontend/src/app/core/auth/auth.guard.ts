@@ -26,3 +26,12 @@ export const adminGuard: CanActivateFn = () => {
     }),
   );
 };
+
+export const formManagerGuard: CanActivateFn = () => {
+  const authService = inject(AuthenticationService);
+  const router = inject(Router);
+  return authService.ensureCurrentUser().pipe(
+    map((authenticated) => authenticated && ['Admin', 'SchoolAdministration', 'Principal'].includes(authService.getUserRole() || '')
+      ? true : router.createUrlTree(authenticated ? ['/forms'] : ['/login'])),
+  );
+};

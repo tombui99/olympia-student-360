@@ -21,6 +21,8 @@ public class StudentProfile : BaseEntity
     public long? CanvasUserId { get; set; }
     public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
+    public string? Email { get; set; }
+    public string? PhoneNumber { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
     public string? GradeLevel { get; set; }
@@ -404,6 +406,55 @@ public class ImportHistory : BaseEntity
     public ICollection<StudentProject> Projects { get; set; } = [];
     public ICollection<StudentMentalHealthRecord> MentalHealthRecords { get; set; } = [];
     public ICollection<StudentBusAttendanceRecord> BusAttendanceRecords { get; set; } = [];
+}
+
+/// <summary>A student-linked form authored by school administrators and shared publicly.</summary>
+public class CustomForm : BaseEntity
+{
+    public string PublicId { get; set; } = Guid.NewGuid().ToString("N");
+    public string Title { get; set; } = default!;
+    public string? Description { get; set; }
+    public string? ConfirmationMessage { get; set; }
+    public bool IsArchived { get; set; }
+    public bool AllowMultipleSubmissions { get; set; } = true;
+    public DateTime? OpensAt { get; set; }
+    public DateTime? ClosesAt { get; set; }
+    public int? ResponseLimit { get; set; }
+    public string DefinitionJson { get; set; } = default!;
+    public string CreatedByUserId { get; set; } = default!;
+    public string CreatedByName { get; set; } = default!;
+    public ICollection<CustomFormResponse> Responses { get; set; } = [];
+    public ICollection<CustomFormAccessSession> AccessSessions { get; set; } = [];
+}
+
+/// <summary>A submitted response. QuestionSnapshotJson keeps history readable after form edits.</summary>
+public class CustomFormResponse : BaseEntity
+{
+    public int CustomFormId { get; set; }
+    public CustomForm Form { get; set; } = default!;
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public string RespondentName { get; set; } = default!;
+    public string RespondentRelationship { get; set; } = default!;
+    public string RespondentEmail { get; set; } = default!;
+    public string RespondentPhone { get; set; } = default!;
+    public string AnswersJson { get; set; } = default!;
+    public string QuestionSnapshotJson { get; set; } = default!;
+    public bool IsDeleted { get; set; }
+    public DateTime? DeletedAt { get; set; }
+    public string? DeletedByUserId { get; set; }
+}
+
+/// <summary>Short-lived capability issued only after a guardian/student identity match.</summary>
+public class CustomFormAccessSession : BaseEntity
+{
+    public int CustomFormId { get; set; }
+    public CustomForm Form { get; set; } = default!;
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public string TokenHash { get; set; } = default!;
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
 }
 
 public class CustomReport : BaseEntity

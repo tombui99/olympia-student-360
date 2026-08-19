@@ -690,6 +690,185 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("CanvasSyncStates");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomForm", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<bool>("AllowMultipleSubmissions")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("ClosesAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ConfirmationMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar(4000)");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("OpensAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int?>("ResponseLimit")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsArchived");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.ToTable("CustomForms");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomFormAccessSession", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("CustomFormId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomFormId");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("CustomFormAccessSessions");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomFormResponse", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("AnswersJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("CustomFormId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("DeletedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("QuestionSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("RespondentEmail")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("RespondentName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("RespondentPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("RespondentRelationship")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("CustomFormId", "StudentProfileId");
+
+                    b.HasIndex("CustomFormId", "IsDeleted", "CreatedAt");
+
+                    b.ToTable("CustomFormResponses");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomReport", b =>
                 {
                     b.Property<int>("Id")
@@ -1438,6 +1617,10 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<string>("Email")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -1454,6 +1637,10 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<string>("Homeroom")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("Program")
                         .HasMaxLength(100)
@@ -1733,6 +1920,44 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomFormAccessSession", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.CustomForm", "Form")
+                        .WithMany("AccessSessions")
+                        .HasForeignKey("CustomFormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Form");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomFormResponse", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.CustomForm", "Form")
+                        .WithMany("Responses")
+                        .HasForeignKey("CustomFormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Form");
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.DashboardMetricObservation", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.DashboardMetric", "Metric")
@@ -1872,6 +2097,13 @@ namespace OlympiaStudent360.Api.Migrations
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasEnrollment", b =>
                 {
                     b.Navigation("Scores");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomForm", b =>
+                {
+                    b.Navigation("AccessSessions");
+
+                    b.Navigation("Responses");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CustomReport", b =>
