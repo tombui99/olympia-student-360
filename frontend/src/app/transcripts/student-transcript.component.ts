@@ -5,6 +5,8 @@ import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
 import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './transcripts.service';
 
+type TranscriptType = 'bilingual' | 'international' | 'ib';
+
 @Component({
   selector: 'app-student-transcript',
   imports: [RouterLink],
@@ -85,27 +87,38 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
                 </div>
               </details>
             }
-            <div class="inline-flex rounded-lg border border-[#d8cede] bg-white p-1" role="group" [attr.aria-label]="t('transcript.scoreScale')">
-              @for (scale of scoreScales; track scale) {
-                <button type="button"
-                  class="rounded-md px-3 py-2 text-xs font-semibold transition sm:text-sm"
-                  [class.bg-[#32124f]]="scoreScale() === scale"
-                  [class.text-white]="scoreScale() === scale"
-                  [class.text-[#695d70]]="scoreScale() !== scale"
-                  [class.hover:bg-[#f3edf6]]="scoreScale() !== scale"
-                  (click)="scoreScale.set(scale)">
-                  {{ t('transcript.scales.' + scale) }}
+            @if (activeTranscriptType() === 'international') {
+              <div class="inline-flex rounded-lg border border-[#d8cede] bg-white p-1" role="group" [attr.aria-label]="t('transcript.scoreScale')">
+                @for (scale of scoreScales; track scale) {
+                  <button type="button"
+                    class="rounded-md px-3 py-2 text-xs font-semibold transition sm:text-sm"
+                    [class.bg-[#32124f]]="scoreScale() === scale"
+                    [class.text-white]="scoreScale() === scale"
+                    [class.text-[#695d70]]="scoreScale() !== scale"
+                    [class.hover:bg-[#f3edf6]]="scoreScale() !== scale"
+                    (click)="scoreScale.set(scale)">
+                    {{ t('transcript.scales.' + scale) }}
+                  </button>
+                }
+              </div>
+            }
+          }
+          <details class="export-menu relative">
+            <summary
+              class="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg bg-[#32124f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#51236f]"
+              [class.pointer-events-none]="!transcript() || !transcript()?.years?.length"
+              [class.opacity-50]="!transcript() || !transcript()?.years?.length">
+              <span aria-hidden="true">↧</span> {{ t('transcript.exportPdf') }} <span aria-hidden="true">⌄</span>
+            </summary>
+            <div class="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-lg border border-[#d8cede] bg-white p-1.5 shadow-[0_14px_35px_rgba(50,18,79,0.16)]">
+              @for (type of transcriptTypes; track type.id) {
+                <button type="button" class="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[#f4eef7]" (click)="exportPdf(type.id)">
+                  <span class="block text-sm font-semibold text-[#32124f]">{{ t('transcript.types.' + type.id + '.name') }}</span>
+                  <span class="mt-0.5 block text-xs text-[#817589]">{{ t('transcript.types.' + type.id + '.exportHint') }}</span>
                 </button>
               }
             </div>
-          }
-          <button
-            type="button"
-            class="inline-flex items-center gap-2 rounded-lg bg-[#32124f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#51236f] disabled:cursor-not-allowed disabled:opacity-50"
-            [disabled]="!transcript() || !transcript()?.years?.length"
-            (click)="exportPdf()">
-            <span aria-hidden="true">↧</span> {{ t('transcript.exportPdf') }}
-          </button>
+          </details>
         </div>
       </div>
 
@@ -121,16 +134,50 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
         <a routerLink="/transcripts/student" class="no-print mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#6d3a91] hover:text-[#32124f]">
           <span aria-hidden="true">←</span> {{ t('transcript.backToStudentDirectory') }}
         </a>
+        <section class="no-print mt-5" aria-labelledby="transcript-type-title">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ t('transcript.typeEyebrow') }}</p>
+              <h3 id="transcript-type-title" class="mt-1 text-lg font-semibold text-[#32124f]">{{ t('transcript.typeTitle') }}</h3>
+            </div>
+            <p class="max-w-xl text-sm text-[#756b7c]">{{ t('transcript.typeHelp') }}</p>
+          </div>
+          <div class="mt-3 grid gap-3 lg:grid-cols-3">
+            @for (type of transcriptTypes; track type.id) {
+              <button type="button"
+                class="rounded-xl border p-4 text-left transition"
+                [class.border-[#6d3a91]]="activeTranscriptType() === type.id"
+                [class.bg-[#f7f1f9]]="activeTranscriptType() === type.id"
+                [class.shadow-[0_6px_18px_rgba(50,18,79,0.08)]]="activeTranscriptType() === type.id"
+                [class.border-[#ded6e3]]="activeTranscriptType() !== type.id"
+                [class.bg-white]="activeTranscriptType() !== type.id"
+                (click)="selectTranscriptType(type.id)">
+                <span class="flex items-center justify-between gap-3">
+                  <span class="font-semibold text-[#32124f]">{{ t('transcript.types.' + type.id + '.name') }}</span>
+                  @if (activeTranscriptType() === type.id) { <span class="rounded-full bg-[#6d3a91] px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-white">{{ t('transcript.selected') }}</span> }
+                </span>
+                <span class="mt-1.5 block text-sm leading-5 text-[#756b7c]">{{ t('transcript.types.' + type.id + '.description') }}</span>
+                <span class="mt-3 block text-xs font-semibold text-[#8a6811]">{{ t('transcript.types.' + type.id + '.scale') }}</span>
+              </button>
+            }
+          </div>
+          @if (hasScienceMappingIssue(record)) {
+            <div class="mt-3 flex gap-3 rounded-lg border border-[#e5c97a] bg-[#fffaf0] px-4 py-3 text-sm text-[#6b5318]">
+              <span aria-hidden="true">⚠</span>
+              <p><strong>{{ t('transcript.mappingReviewTitle') }}</strong> {{ t('transcript.mappingReviewScience') }}</p>
+            </div>
+          }
+        </section>
         <article class="print-region transcript-sheet mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.07)]">
           <header class="transcript-header border-b border-[#d9cfdf] px-6 py-6 lg:px-9">
             <div class="letterhead-content flex items-center gap-5">
               <img src="/assets/olympia_logo.png" alt="The Olympia Schools" class="h-20 w-20 object-contain" />
               <div class="min-w-0 flex-1">
                 <h1 class="text-2xl font-bold text-[#64266f] lg:text-3xl">The Olympia Schools</h1>
-                <p class="mt-1 text-sm font-semibold uppercase tracking-[0.24em] text-[#756b7c]">{{ t('transcript.documentTitle') }}</p>
+                <p class="mt-1 text-sm font-semibold uppercase tracking-[0.18em] text-[#756b7c]">{{ t('transcript.types.' + activeTranscriptType() + '.documentTitle') }}</p>
               </div>
               <div class="hidden text-right text-xs text-[#756b7c] sm:block">
-                <p>{{ t('transcript.officialRecord') }}</p>
+                <p>{{ t('transcript.types.' + activeTranscriptType() + '.name') }}</p>
                 <p class="mt-1">{{ generatedDate() }}</p>
               </div>
             </div>
@@ -145,6 +192,19 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
             </div>
           </header>
 
+          @if (activeTranscriptType() === 'ib') {
+            <section class="transcript-note mx-6 mt-5 border border-[#cfc4d5] bg-[#faf8fb] p-4 text-xs leading-5 text-[#4e4056] lg:mx-9">
+              <h2 class="font-bold text-[#24162b]">{{ t('transcript.ibProgrammeTitle') }}</h2>
+              <p class="mt-1">{{ t('transcript.ibProgrammeNote') }}</p>
+              <p class="mt-2 font-semibold">{{ t('transcript.ibScaleNote') }}</p>
+            </section>
+          } @else if (activeTranscriptType() === 'bilingual') {
+            <section class="transcript-note mx-6 mt-5 flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#32124f] pb-3 text-sm lg:mx-9">
+              <strong>{{ t('transcript.bilingualAuthority') }}</strong>
+              <span class="text-[#756b7c]">{{ t('transcript.bilingualPurpose') }}</span>
+            </section>
+          }
+
           @if (record.years.length) {
             <div class="grade-grid grid items-start gap-7 p-6 lg:grid-cols-2 lg:p-9">
               @for (year of displayedYears(record); track year.academicYear) {
@@ -154,34 +214,38 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
                       <h2 class="text-base font-bold text-[#24162b]">
                         {{ gradeLabel(grade.gradeLevel) }} {{ year.academicYear }}
                       </h2>
-                      <p class="text-sm font-bold text-[#32124f]">
-                        GPA <span class="ml-2">{{ formatGpa(grade.gpa) }}</span>
-                      </p>
+                      @if (activeTranscriptType() === 'international') {
+                        <p class="text-sm font-bold text-[#32124f]">GPA <span class="ml-2">{{ formatGpa(grade.gpa) }}</span></p>
+                      } @else if (activeTranscriptType() === 'ib') {
+                        <p class="text-xs font-bold uppercase tracking-wide text-[#32124f]">{{ isIbGrade(grade.gradeLevel) ? t('transcript.ibSevenPoint') : t('transcript.letterGrade') }}</p>
+                      } @else {
+                        <p class="text-xs font-bold uppercase tracking-wide text-[#32124f]">{{ t('transcript.tenPointScale') }}</p>
+                      }
                     </div>
                     <div class="overflow-hidden rounded-md border border-[#cfc4d5]">
                       <table class="w-full table-fixed border-collapse text-[0.78rem]">
                         <thead class="bg-[#eee7f1] text-[#382541]">
                           <tr>
-                            <th class="w-[52%] px-3 py-2 text-left">{{ t('transcript.subject') }}</th>
-                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s1fHelp')">S1F</abbr></th>
-                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s2fHelp')">S2F</abbr></th>
-                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.yrHelp')">YR</abbr></th>
-                            <th class="w-[12%] px-1 py-2 text-center">{{ t('transcript.credit') }}</th>
+                            <th class="w-[52%] px-3 py-2 text-left">{{ activeTranscriptType() === 'bilingual' ? t('transcript.bilingualSubject') : t('transcript.subject') }}</th>
+                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s1fHelp')">{{ activeTranscriptType() === 'bilingual' ? t('transcript.semester1Short') : 'S1F' }}</abbr></th>
+                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s2fHelp')">{{ activeTranscriptType() === 'bilingual' ? t('transcript.semester2Short') : 'S2F' }}</abbr></th>
+                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.yrHelp')">{{ activeTranscriptType() === 'bilingual' ? t('transcript.fullYearShort') : 'YR' }}</abbr></th>
+                            <th class="w-[12%] px-1 py-2 text-center">{{ activeTranscriptType() === 'international' || (activeTranscriptType() === 'ib' && !isIbGrade(grade.gradeLevel)) ? t('transcript.credit') : (activeTranscriptType() === 'ib' ? t('transcript.ibLevel') : t('transcript.result')) }}</th>
                           </tr>
                         </thead>
                         <tbody>
                           @for (subject of grade.subjects; track subject.subject) {
                             <tr class="border-t border-[#e7e0ea]">
                               <td class="px-3 py-1.5 text-[#35293b]">
-                                <span class="block font-medium">{{ subject.subject }}</span>
+                                <span class="block font-medium">{{ displaySubject(subject.subject) }}</span>
                                 @if (subject.courseNames.length) {
                                   <span class="mt-0.5 block text-[0.62rem] leading-tight text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
                                 }
                               </td>
-                              <td class="px-1 py-1.5 text-center">{{ score(subject.semester1Final) }}</td>
-                              <td class="px-1 py-1.5 text-center">{{ score(subject.semester2Final) }}</td>
-                              <td class="bg-[#fbf8fc] px-1 py-1.5 text-center font-semibold">{{ score(subject.yearAverage) }}</td>
-                              <td class="px-1 py-1.5 text-center">{{ formatCredit(subject.credit) }}</td>
+                              <td class="px-1 py-1.5 text-center">{{ typeScore(subject.semester1Final, subject.subject, grade.gradeLevel) }}</td>
+                              <td class="px-1 py-1.5 text-center">{{ typeScore(subject.semester2Final, subject.subject, grade.gradeLevel) }}</td>
+                              <td class="bg-[#fbf8fc] px-1 py-1.5 text-center font-semibold">{{ typeScore(subject.yearAverage, subject.subject, grade.gradeLevel) }}</td>
+                              <td class="px-1 py-1.5 text-center">{{ trailingValue(subject.credit, subject.yearAverage, subject.subject, grade.gradeLevel) }}</td>
                             </tr>
                           }
                         </tbody>
@@ -194,37 +258,53 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
 
             <footer class="formal-footer mx-6 mb-6 border-t border-[#bfb2c7] pt-4 lg:mx-9 lg:mb-8">
               <div class="text-sm">
-                <p class="font-bold text-[#32124f]">{{ t('transcript.academicStanding') }}</p>
-                <p class="mt-2">{{ t('transcript.cumulativeGpa') }} <strong class="ml-3">{{ formatGpa(record.overallGpa) }}</strong></p>
+                <p class="font-bold text-[#32124f]">{{ activeTranscriptType() === 'ib' ? t('transcript.ibSummary') : t('transcript.academicStanding') }}</p>
+                @if (activeTranscriptType() === 'international') {
+                  <p class="mt-2">{{ t('transcript.cumulativeGpa') }} <strong class="ml-3">{{ formatGpa(record.overallGpa) }}</strong></p>
+                } @else if (activeTranscriptType() === 'bilingual') {
+                  <p class="mt-2">{{ t('transcript.overallResult') }} <strong class="ml-3">{{ tenPoint(record.overallAverage) }}</strong></p>
+                } @else {
+                  <p class="mt-2 text-[#6f6877]">{{ t('transcript.ibSummaryNote') }}</p>
+                }
               </div>
-              <div class="grading-scale mt-5 break-inside-avoid">
-                <p class="mb-2 text-sm font-bold text-[#32124f]">{{ t('transcript.gradingScale') }}</p>
-                <div class="overflow-hidden rounded border border-[#bfb2c7]">
-                  <table class="w-full table-fixed border-collapse text-[0.62rem]">
-                    <tbody>
-                      <tr>
-                        <th class="w-24 border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.tenPointScale') }}</th>
-                        @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center last:border-r-0">{{ band.range }}</td> }
-                      </tr>
-                      <tr class="border-t border-[#d8cfdd]">
-                        <th class="border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.letterGrade') }}</th>
-                        @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center font-semibold last:border-r-0">{{ band.letter }}</td> }
-                      </tr>
-                      <tr class="border-t border-[#d8cfdd]">
-                        <th class="border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.gpaScale') }}</th>
-                        @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center last:border-r-0">{{ band.gpa }}</td> }
-                      </tr>
-                    </tbody>
-                  </table>
+              @if (activeTranscriptType() === 'international') {
+                <div class="grading-scale mt-5 break-inside-avoid">
+                  <p class="mb-2 text-sm font-bold text-[#32124f]">{{ t('transcript.gradingScale') }}</p>
+                  <div class="overflow-hidden rounded border border-[#bfb2c7]">
+                    <table class="w-full table-fixed border-collapse text-[0.62rem]">
+                      <tbody>
+                        <tr>
+                          <th class="w-24 border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.tenPointScale') }}</th>
+                          @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center last:border-r-0">{{ band.range }}</td> }
+                        </tr>
+                        <tr class="border-t border-[#d8cfdd]">
+                          <th class="border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.letterGrade') }}</th>
+                          @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center font-semibold last:border-r-0">{{ band.letter }}</td> }
+                        </tr>
+                        <tr class="border-t border-[#d8cfdd]">
+                          <th class="border-r border-[#d8cfdd] bg-[#f4eff6] px-2 py-1.5 text-left">{{ t('transcript.gpaScale') }}</th>
+                          @for (band of gradingScale; track band.range) { <td class="border-r border-[#e3dce7] px-1 py-1.5 text-center last:border-r-0">{{ band.gpa }}</td> }
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              } @else if (activeTranscriptType() === 'ib') {
+                <div class="grading-scale mt-5 grid grid-cols-7 overflow-hidden rounded border border-[#bfb2c7] text-center text-[0.68rem]">
+                  @for (point of ibScale; track point.value) {
+                    <div class="border-r border-[#d8cfdd] px-1 py-2 last:border-r-0"><strong class="block text-sm text-[#32124f]">{{ point.value }}</strong>{{ t(point.label) }}</div>
+                  }
+                </div>
+              } @else {
+                <p class="mt-5 text-xs leading-5 text-[#6f6877]">{{ t('transcript.bilingualScaleNote') }}</p>
+              }
               <div class="mt-8 grid grid-cols-2 gap-12 text-xs">
                 <div class="border-t border-[#8e8295] pt-2">{{ t('transcript.schoolOfficer') }}</div>
                 <div class="border-t border-[#8e8295] pt-2">{{ t('transcript.signatureDate') }}</div>
               </div>
               <div class="letterhead-content mt-6 flex items-end justify-between gap-4 border-t border-[#e8e1eb] pt-3 text-[0.68rem] text-[#756b7c]">
                 <p>The Olympia Schools · Trung Van, Nam Tu Liem, Hanoi, Vietnam</p>
-                <p class="font-semibold">Official Transcript</p>
+                <p class="font-semibold">{{ t('transcript.types.' + activeTranscriptType() + '.documentTitle') }}</p>
               </div>
             </footer>
           } @else {
@@ -233,6 +313,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
             </div>
           }
         </article>
+        @if (activeTranscriptType() === 'international') {
         <section class="no-print mt-6 rounded-xl border border-[#ddd3e2] bg-[#fbf8fc] p-5 lg:p-7" aria-labelledby="transcript-calculation-title">
           <div class="max-w-3xl">
             <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ t('transcript.calculationEyebrow') }}</p>
@@ -262,6 +343,7 @@ import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './trans
             </article>
           </div>
         </section>
+        }
       } @else {
         <section class="no-print mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.06)]">
           <header class="flex flex-wrap items-end justify-between gap-4 border-b border-[#e8e1eb] px-5 py-5 lg:px-7">
@@ -346,6 +428,12 @@ export class StudentTranscriptComponent {
   readonly students = signal<TranscriptStudent[]>([]);
   readonly selectedStudentId = signal<number | null>(null);
   readonly selectedYears = signal<string[]>([]);
+  readonly activeTranscriptType = signal<TranscriptType>('international');
+  readonly transcriptTypes: { id: TranscriptType }[] = [
+    { id: 'bilingual' },
+    { id: 'international' },
+    { id: 'ib' },
+  ];
   readonly scoreScale = signal<TranscriptScoreScale>('letter');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
   readonly searchTerm = signal('');
@@ -373,6 +461,26 @@ export class StudentTranscriptComponent {
     { range: '4.0–4.4', letter: 'D', gpa: '1.0' },
     { range: '<4.0', letter: 'D-', gpa: '0.7' },
   ];
+  readonly ibScale = [
+    { value: 7, label: 'transcript.ibBands.exceptional' },
+    { value: 6, label: 'transcript.ibBands.excellent' },
+    { value: 5, label: 'transcript.ibBands.veryGood' },
+    { value: 4, label: 'transcript.ibBands.good' },
+    { value: 3, label: 'transcript.ibBands.mediocre' },
+    { value: 2, label: 'transcript.ibBands.poor' },
+    { value: 1, label: 'transcript.ibBands.veryPoor' },
+  ];
+
+  private readonly bilingualSubjects: Record<string, string> = {
+    math: 'Toán / Math', mathematics: 'Toán / Mathematics',
+    physics: 'Vật lý / Physics', chemistry: 'Hóa học / Chemistry', biology: 'Sinh học / Biology',
+    science: 'Khoa học / Science', literature: 'Ngữ văn / Literature',
+    history: 'Lịch sử / History', geography: 'Địa lý / Geography',
+    english: 'Tiếng Anh / English', technology: 'Công nghệ / Technology',
+    music: 'Âm nhạc / Music', 'physical education': 'Giáo dục thể chất / Physical Education',
+    'national defense education': 'GDQP-AN / National Defense Education',
+    'economics and law': 'Kinh tế & Pháp luật / Economics & Law',
+  };
 
   constructor() {
     this.searchTerms.pipe(
@@ -511,16 +619,84 @@ export class StudentTranscriptComponent {
     if (studentId) this.loadTranscript(studentId);
   }
 
-  exportPdf(): void {
+  selectTranscriptType(type: TranscriptType): void {
+    this.activeTranscriptType.set(type);
+    if (type === 'bilingual') this.scoreScale.set('percentage');
+    if (type === 'international' && this.scoreScale() === 'percentage') this.scoreScale.set('letter');
+  }
+
+  exportPdf(type: TranscriptType = this.activeTranscriptType()): void {
+    this.selectTranscriptType(type);
     const currentTitle = document.title;
     const record = this.transcript();
-    document.title = `${record?.sisUserId || 'student'}-official-transcript`;
-    window.print();
-    setTimeout(() => (document.title = currentTitle), 250);
+    document.title = `${record?.sisUserId || 'student'}-${type}-transcript`;
+    // Give Angular one frame to render the requested template before opening the print dialog.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.print();
+      setTimeout(() => (document.title = currentTitle), 250);
+    }));
   }
 
   score(value?: number | null): string {
     return formatTranscriptScore(value, this.scoreScale());
+  }
+
+  typeScore(value?: number | null, subject = '', gradeLevel = ''): string {
+    if (value == null || !Number.isFinite(value)) return '—';
+    if (this.activeTranscriptType() === 'bilingual') {
+      if (this.isPassFailSubject(subject)) return value >= 50 ? this.t('transcript.passed') : this.t('transcript.notPassed');
+      return this.tenPoint(value);
+    }
+    if (this.activeTranscriptType() === 'ib') {
+      return this.isIbGrade(gradeLevel) ? String(this.ibPoint(value)) : formatTranscriptScore(value, 'letter');
+    }
+    return this.score(value);
+  }
+
+  tenPoint(value?: number | null): string {
+    if (value == null || !Number.isFinite(value)) return '—';
+    const converted = value > 10 ? value / 10 : value;
+    return converted.toFixed(1);
+  }
+
+  trailingValue(credit: number, score?: number | null, subject = '', gradeLevel = ''): string {
+    if (this.activeTranscriptType() === 'international') return this.formatCredit(credit);
+    if (this.activeTranscriptType() === 'ib') return this.isIbGrade(gradeLevel) ? '—' : this.formatCredit(credit);
+    if (score == null) return '—';
+    return this.isPassFailSubject(subject)
+      ? (score >= 50 ? this.t('transcript.passed') : this.t('transcript.notPassed'))
+      : this.t('transcript.graded');
+  }
+
+  displaySubject(subject: string): string {
+    if (this.activeTranscriptType() !== 'bilingual') return subject;
+    return this.bilingualSubjects[subject.trim().toLowerCase()] ?? subject;
+  }
+
+  isIbGrade(gradeLevel: string): boolean {
+    const grade = Number(gradeLevel);
+    return Number.isFinite(grade) && grade >= 11;
+  }
+
+  hasScienceMappingIssue(record: SchoolTranscript): boolean {
+    return record.years.some((year) => year.grades.some((grade) => grade.subjects.some((subject) =>
+      /^science$/i.test(subject.subject.trim()))));
+  }
+
+  private ibPoint(value: number): number {
+    if (value >= 80) return 7;
+    if (value >= 70) return 6;
+    if (value >= 60) return 5;
+    if (value >= 50) return 4;
+    if (value >= 40) return 3;
+    if (value >= 30) return 2;
+    return 1;
+  }
+
+  private isPassFailSubject(subject: string): boolean {
+    const normalized = subject.toLowerCase();
+    return ['music', 'physical education', 'fine arts', 'service learning', 'cas']
+      .some((name) => normalized.includes(name));
   }
 
   formatGpa(value?: number | null): string {
