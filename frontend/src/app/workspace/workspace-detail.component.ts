@@ -79,6 +79,26 @@ interface ChartImageExporter {
   imports: [FormsModule, NgClass, NgFor, NgIf, NgxEchartsDirective, RouterLink],
   template: `
     <section class="space-y-7">
+      <div
+        *ngIf="workspaceLoading()"
+        class="fixed inset-0 z-40 grid place-items-center bg-[#f7f4f2]/95 px-6 backdrop-blur-sm"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="w-full max-w-sm rounded-2xl border border-[#e3dbe7] bg-white px-8 py-9 text-center shadow-[0_24px_70px_rgba(50,18,79,0.16)]">
+          <div class="relative mx-auto h-16 w-16">
+            <div class="absolute inset-0 rounded-full border-4 border-[#eee7f1]"></div>
+            <div class="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-[#6d3a91] border-r-[#f3c246]"></div>
+            <div class="absolute inset-[18px] rounded-full bg-[#32124f]"></div>
+          </div>
+          <h2 class="mt-5 text-xl font-semibold text-[#32124f]">{{ languageService.t('workspace.loading.title') }}</h2>
+          <p class="mt-2 text-sm leading-6 text-[#6f6877]">{{ languageService.t('workspace.loading.body') }}</p>
+          <p *ngIf="loadingTotalCharts()" class="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6811]">
+            {{ loadingProgressLabel() }}
+          </p>
+        </div>
+      </div>
+
       <div class="no-print flex flex-wrap items-start justify-between gap-4">
         <div>
           <a
@@ -395,6 +415,7 @@ interface ChartImageExporter {
                   role="img"
                   [attr.aria-label]="chart.title"
                   (chartInit)="onChartInit(chart.id, $event)"
+                  (chartFinished)="onChartFinished(chart.id)"
                   (chartClick)="onChartPointClick(chart, $event)"
                   (chartDataZoom)="onChartDataZoom(chart.id, $event)"
                 ></div>
@@ -431,6 +452,7 @@ interface ChartImageExporter {
                   role="img"
                   [attr.aria-label]="chart.title"
                   (chartInit)="onChartInit(chart.id, $event)"
+                  (chartFinished)="onChartFinished(chart.id)"
                   (chartClick)="onChartPointClick(chart, $event)"
                   (chartDataZoom)="onChartDataZoom(chart.id, $event)"
                 ></div>
@@ -1308,6 +1330,13 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly workspaceSheetMode = signal<WorkspaceSheetMode>('edit');
   readonly shareDropdownOpen = signal(false);
   readonly metricVariables = this.reportBuilderService.metricVariables;
+  readonly workspaceLoading = signal(true);
+  readonly loadingTotalCharts = signal(0);
+  readonly loadingRenderedCharts = signal(0);
+  private renderCycle = 0;
+  private loadingDataRequests = 0;
+  private readonly dataReadyChartIds = new Set<string>();
+  private readonly finishedChartIds = new Set<string>();
 
   readonly drilldownMounted = signal(false);
   readonly drilldownOpen = signal(false);
@@ -1422,31 +1451,39 @@ export class WorkspaceDetailComponent implements OnInit {
     this.selectedReportId.set(this.route.snapshot.paramMap.get('workspaceId'));
     this.customReports.set(this.reportBuilderService.loadReports());
 
-    this.reportBuilderService.loadRemoteReports().subscribe((remoteReports) => {
-      if (!remoteReports.length) {
-        return;
-      }
-      this.customReports.set(remoteReports);
-      this.reportBuilderService.saveReports(remoteReports);
-      const report = this.selectedReport();
-      if (!report?.serverId) {
-        this.filters.set(defaultFilterSet());
-        this.chartOrder.set([]);
-        this.loadMetrics();
-        return;
-      }
-      this.workspaceFilters.loadWorkspace(report.serverId).subscribe({
-        next: (filters) => {
-          this.filters.set(filters);
-          this.chartOrder.set(this.workspaceFilters.loadWorkspaceChartOrder());
-          this.loadMetrics();
-        },
-        error: () => {
+    this.reportBuilderService.loadRemoteReports().subscribe({
+      next: (remoteReports) => {
+        if (!remoteReports.length) {
+          if (this.selectedReport()) this.loadMetrics();
+          else this.workspaceLoading.set(false);
+          return;
+        }
+        this.customReports.set(remoteReports);
+        this.reportBuilderService.saveReports(remoteReports);
+        const report = this.selectedReport();
+        if (!report?.serverId) {
           this.filters.set(defaultFilterSet());
           this.chartOrder.set([]);
           this.loadMetrics();
-        },
-      });
+          return;
+        }
+        this.workspaceFilters.loadWorkspace(report.serverId).subscribe({
+          next: (filters) => {
+            this.filters.set(filters);
+            this.chartOrder.set(this.workspaceFilters.loadWorkspaceChartOrder());
+            this.loadMetrics();
+          },
+          error: () => {
+            this.filters.set(defaultFilterSet());
+            this.chartOrder.set([]);
+            this.loadMetrics();
+          },
+        });
+      },
+      error: () => {
+        if (this.selectedReport()) this.loadMetrics();
+        else this.workspaceLoading.set(false);
+      },
     });
 
     this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
@@ -1560,9 +1597,46 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   private loadMetrics(): void {
+    const report = this.selectedReport();
+    if (!report) {
+      this.workspaceLoading.set(false);
+      return;
+    }
+
+    const cycle = ++this.renderCycle;
     const params = this.filterParams();
-    this.reportBuilderService.loadMetricVariables(params).subscribe();
-    this.loadExplorerCharts();
+    const explorerCharts = report.charts.filter((chart) => !!chart.explorer);
+
+    this.workspaceLoading.set(true);
+    this.dataReadyChartIds.clear();
+    this.finishedChartIds.clear();
+    this.loadingTotalCharts.set(report.charts.length);
+    this.loadingRenderedCharts.set(0);
+    this.loadingDataRequests = 1 + explorerCharts.length;
+    this.exploreResults.set({});
+
+    this.reportBuilderService.loadMetricVariables(params).subscribe({
+      next: () => {
+        if (cycle !== this.renderCycle) return;
+        for (const chart of report.charts.filter((candidate) => !candidate.explorer)) {
+          this.dataReadyChartIds.add(chart.id);
+          if (chart.kind === 'card' || this.chartMetrics(chart).length === 0) {
+            this.finishedChartIds.add(chart.id);
+          }
+        }
+        this.completeChartDataRequest(cycle);
+      },
+      error: () => {
+        if (cycle === this.renderCycle) {
+          for (const chart of report.charts.filter((candidate) => !candidate.explorer)) {
+            this.dataReadyChartIds.add(chart.id);
+            this.finishedChartIds.add(chart.id);
+          }
+        }
+        this.completeChartDataRequest(cycle);
+      },
+    });
+    this.loadExplorerCharts(cycle, params, explorerCharts);
   }
 
   private filterParams(): Record<string, string> {
@@ -1575,12 +1649,13 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   /** Fetch aggregated data for every explorer chart in the selected report. */
-  private loadExplorerCharts(): void {
-    const report = this.selectedReport();
-    if (!report) return;
+  private loadExplorerCharts(
+    cycle: number,
+    base: Record<string, string>,
+    explorerCharts: CustomChart[],
+  ): void {
     const requestVersion = ++this.explorerRequestVersion;
-    const base = this.filterParams();
-    for (const chart of report.charts) {
+    for (const chart of explorerCharts) {
       if (!chart.explorer) continue;
       const { dataset, dimension, measure } = chart.explorer;
       this.reportBuilderService
@@ -1589,11 +1664,47 @@ export class WorkspaceDetailComponent implements OnInit {
           next: (result) => {
             if (requestVersion === this.explorerRequestVersion) {
               this.exploreResults.update((current) => ({ ...current, [chart.id]: result }));
+              this.dataReadyChartIds.add(chart.id);
             }
+            this.completeChartDataRequest(cycle);
           },
-          error: () => {},
+          error: () => {
+            if (cycle === this.renderCycle) {
+              this.dataReadyChartIds.add(chart.id);
+              this.finishedChartIds.add(chart.id);
+            }
+            this.completeChartDataRequest(cycle);
+          },
         });
     }
+  }
+
+  private completeChartDataRequest(cycle: number): void {
+    if (cycle !== this.renderCycle) return;
+
+    this.loadingDataRequests = Math.max(0, this.loadingDataRequests - 1);
+    if (this.loadingDataRequests > 0) return;
+
+    const report = this.selectedReport();
+    if (!report) {
+      this.workspaceLoading.set(false);
+      return;
+    }
+
+    this.loadingRenderedCharts.set(this.finishedChartIds.size);
+    this.finishWorkspaceLoadingIfReady(cycle);
+  }
+
+  private finishWorkspaceLoadingIfReady(cycle: number): void {
+    if (
+      cycle !== this.renderCycle
+      || this.loadingDataRequests > 0
+      || this.loadingRenderedCharts() < this.loadingTotalCharts()
+    ) return;
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (cycle === this.renderCycle) this.workspaceLoading.set(false);
+    }));
   }
 
   startEditWorkspace() {
@@ -1682,7 +1793,7 @@ export class WorkspaceDetailComponent implements OnInit {
     }
 
     this.persistReport(report);
-    this.loadExplorerCharts();
+    this.loadMetrics();
     this.closeSheet();
   }
 
@@ -2025,6 +2136,28 @@ export class WorkspaceDetailComponent implements OnInit {
 
   onChartInit(chartId: string, chart: ChartImageExporter): void {
     this.chartImageExporters.set(chartId, chart);
+  }
+
+  onChartFinished(chartId: string): void {
+    if (
+      !this.workspaceLoading()
+      || !this.dataReadyChartIds.has(chartId)
+      || this.finishedChartIds.has(chartId)
+    ) {
+      return;
+    }
+    const report = this.selectedReport();
+    if (!report?.charts.some((chart) => chart.id === chartId)) return;
+
+    this.finishedChartIds.add(chartId);
+    this.loadingRenderedCharts.set(this.finishedChartIds.size);
+    this.finishWorkspaceLoadingIfReady(this.renderCycle);
+  }
+
+  loadingProgressLabel(): string {
+    return this.languageService.t('workspace.loading.progress')
+      .replace('{ready}', String(this.loadingRenderedCharts()))
+      .replace('{total}', String(this.loadingTotalCharts()));
   }
 
   private chartSnapshotDataUrl(chart: CustomChart): string | null {
