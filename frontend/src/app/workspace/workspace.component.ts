@@ -37,7 +37,12 @@ interface WorkspaceTemplate {
   id: string;
   titleKey: string;
   descriptionKey: string;
-  charts: { titleKey: string; kind: ChartKind; metrics: string[] }[];
+  charts: {
+    titleKey: string;
+    kind: ChartKind;
+    metrics: string[];
+    explorer?: { dataset: string; dimension: string; measure: string };
+  }[];
 }
 
 @Component({
@@ -62,33 +67,67 @@ interface WorkspaceTemplate {
       </div>
 
       <section *ngIf="activeSection() === 'mine'" class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-        <div class="flex flex-wrap items-end justify-between gap-3">
+        <div class="grid items-end gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,440px)]">
           <div>
             <p class="text-sm uppercase tracking-[0.16em] text-[#8a6811]">{{ languageService.t('workspace.templates.eyebrow') }}</p>
             <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ languageService.t('workspace.templates.title') }}</h3>
             <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('workspace.templates.hint') }}</p>
           </div>
-        </div>
-        <div class="mt-5 grid gap-3 lg:grid-cols-3">
-          <article
-            *ngFor="let template of workspaceTemplates; trackBy: trackWorkspaceTemplate"
-            class="flex min-h-48 flex-col rounded-md border border-[#e4dce9] bg-[#faf9f6] p-4 transition hover:border-[#d1b35d] hover:bg-[#fffdf7]"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <span class="rounded bg-[#f3c246]/25 px-2.5 py-1 text-xs font-semibold text-[#7a5b12]">
-                {{ template.charts.length }} {{ languageService.t('workspace.charts') }}
-              </span>
-            </div>
-            <h4 class="mt-4 text-base font-semibold text-[#32124f]">{{ languageService.t(template.titleKey) }}</h4>
-            <p class="mt-2 flex-1 text-sm leading-6 text-[#6f6877]">{{ languageService.t(template.descriptionKey) }}</p>
+          <div class="relative">
+            <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('workspace.templates.selectLabel') }}</span>
             <button
-              class="mt-4 self-start rounded-md border border-[#7b4aa4] bg-white px-4 py-2.5 text-sm font-semibold text-[#4a1b73] transition hover:bg-[#f4eef8]"
+              class="mt-2 flex w-full items-center gap-3 rounded-xl border border-[#d8d0df] bg-gradient-to-r from-white to-[#faf7fc] px-4 py-3.5 text-left shadow-[0_4px_14px_rgba(50,18,79,0.05)] outline-none transition hover:border-[#a98abb] hover:shadow-[0_7px_20px_rgba(50,18,79,0.09)] focus-visible:border-[#7b4aa4] focus-visible:ring-4 focus-visible:ring-[#7b4aa4]/10"
               type="button"
-              (click)="createFromTemplate(template)"
+              [attr.aria-expanded]="templateDropdownOpen()"
+              aria-haspopup="listbox"
+              (click)="templateDropdownOpen.set(!templateDropdownOpen())"
             >
-              {{ languageService.t('workspace.templates.use') }}
+              <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#f1e8f5] text-[#6d3a91]" aria-hidden="true">
+                <svg class="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
+                </svg>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-semibold text-[#32124f]">{{ selectedTemplateName() }}</span>
+                <span class="mt-0.5 block truncate text-xs text-[#817589]">{{ languageService.t('workspace.templates.selectHint') }}</span>
+              </span>
+              <svg class="h-4 w-4 shrink-0 text-[#765c85] transition-transform" [class.rotate-180]="templateDropdownOpen()" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
             </button>
-          </article>
+
+            <button
+              *ngIf="templateDropdownOpen()"
+              class="fixed inset-0 z-20 cursor-default"
+              type="button"
+              tabindex="-1"
+              [attr.aria-label]="languageService.t('workspace.cancel')"
+              (click)="templateDropdownOpen.set(false)"
+            ></button>
+            <div
+              *ngIf="templateDropdownOpen()"
+              class="absolute right-0 z-30 mt-2 max-h-96 w-full overflow-y-auto rounded-xl border border-[#d8d0df] bg-white p-2 shadow-[0_18px_50px_rgba(50,18,79,0.17)]"
+              role="listbox"
+            >
+              <button
+                *ngFor="let template of workspaceTemplates; trackBy: trackWorkspaceTemplate"
+                class="group flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-[#f6f0f8] focus-visible:bg-[#f6f0f8] focus-visible:outline-none"
+                type="button"
+                role="option"
+                [attr.aria-selected]="selectedTemplateId() === template.id"
+                (click)="chooseTemplate(template.id)"
+              >
+                <span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#e2d6e7] bg-[#faf7fb] text-xs font-bold text-[#6d3a91] transition group-hover:border-[#c9aed4] group-hover:bg-white">
+                  {{ templateInitial(template) }}
+                </span>
+                <span class="min-w-0">
+                  <span class="block text-sm font-semibold text-[#32124f]">{{ languageService.t(template.titleKey) }}</span>
+                  <span class="mt-1 line-clamp-2 block text-xs leading-5 text-[#756b7c]">{{ languageService.t(template.descriptionKey) }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -445,6 +484,58 @@ interface WorkspaceTemplate {
         </aside>
       </div>
 
+      <div *ngIf="templateConfirmMounted()" class="fixed inset-0 z-50" [class.pointer-events-none]="!templateConfirmOpen()">
+        <button
+          class="absolute inset-0 bg-[#24182f]/35 transition-opacity duration-200 ease-out"
+          [class.opacity-100]="templateConfirmOpen()"
+          [class.opacity-0]="!templateConfirmOpen()"
+          type="button"
+          [attr.aria-label]="languageService.t('workspace.cancel')"
+          (click)="closeTemplateConfirm()"
+        ></button>
+        <section
+          class="absolute left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-[0_24px_80px_rgba(36,24,47,0.28)] transition duration-200 ease-out"
+          [class.scale-100]="templateConfirmOpen()"
+          [class.opacity-100]="templateConfirmOpen()"
+          [class.scale-95]="!templateConfirmOpen()"
+          [class.opacity-0]="!templateConfirmOpen()"
+          role="alertdialog"
+          aria-modal="true"
+          [attr.aria-labelledby]="'template-confirm-title'"
+        >
+          <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">{{ languageService.t('workspace.templates.eyebrow') }}</p>
+          <h3 id="template-confirm-title" class="mt-2 text-xl font-semibold text-[#32124f]">
+            {{ languageService.t('workspace.templates.confirmTitle') }}
+          </h3>
+          <p class="mt-3 text-sm leading-6 text-[#6f6877]">{{ languageService.t('workspace.templates.confirmBody') }}</p>
+          <div *ngIf="pendingTemplate() as template" class="mt-4 rounded-md border border-[#e4dce9] bg-[#faf9f6] px-4 py-4">
+            <div class="flex items-start justify-between gap-3">
+              <p class="font-semibold text-[#32124f]">{{ languageService.t(template.titleKey) }}</p>
+              <span class="shrink-0 rounded bg-[#f3c246]/25 px-2.5 py-1 text-xs font-semibold text-[#7a5b12]">
+                {{ template.charts.length }} {{ languageService.t('workspace.charts') }}
+              </span>
+            </div>
+            <p class="mt-2 text-sm leading-6 text-[#6f6877]">{{ languageService.t(template.descriptionKey) }}</p>
+          </div>
+          <div class="mt-6 flex justify-end gap-3">
+            <button
+              class="rounded-md border border-[#d8d0df] px-4 py-3 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+              type="button"
+              (click)="closeTemplateConfirm()"
+            >
+              {{ languageService.t('workspace.cancel') }}
+            </button>
+            <button
+              class="rounded-md bg-[#32124f] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#4a1b73]"
+              type="button"
+              (click)="confirmTemplateCreation()"
+            >
+              {{ languageService.t('workspace.templates.createAndOpen') }}
+            </button>
+          </div>
+        </section>
+      </div>
+
       <div *ngIf="deleteConfirmMounted()" class="fixed inset-0 z-50" [class.pointer-events-none]="!deleteConfirmOpen()">
         <button
           class="absolute inset-0 bg-[#24182f]/35 transition-opacity duration-200 ease-out"
@@ -507,6 +598,11 @@ export class WorkspaceComponent implements OnInit {
   readonly sheetKind = signal<SheetKind>('workspace');
   readonly workspaceSheetMode = signal<WorkspaceSheetMode>('create');
   readonly shareDropdownOpen = signal(false);
+  readonly selectedTemplateId = signal('');
+  readonly templateDropdownOpen = signal(false);
+  readonly templateConfirmMounted = signal(false);
+  readonly templateConfirmOpen = signal(false);
+  readonly pendingTemplate = signal<WorkspaceTemplate | null>(null);
   readonly deleteConfirmMounted = signal(false);
   readonly deleteConfirmOpen = signal(false);
   readonly pendingDeleteReport = signal<CustomReport | null>(null);
@@ -539,6 +635,56 @@ export class WorkspaceComponent implements OnInit {
       charts: [
         { titleKey: 'workspace.templates.charts.behaviour', kind: 'line', metrics: ['behaviour-records', 'concern-behaviour-records', 'commendation-records'] },
         { titleKey: 'workspace.templates.charts.projects', kind: 'line', metrics: ['project-records', 'active-project-records'] },
+      ],
+    },
+    {
+      id: 'school-learning-engagement',
+      titleKey: 'workspace.templates.learningEngagement.title',
+      descriptionKey: 'workspace.templates.learningEngagement.description',
+      charts: [
+        {
+          titleKey: 'workspace.templates.charts.homeworkStatus', kind: 'pie', metrics: [],
+          explorer: { dataset: 'submissions', dimension: 'status', measure: 'count' },
+        },
+        {
+          titleKey: 'workspace.templates.charts.homeworkQualityBySubject', kind: 'bar', metrics: [],
+          explorer: { dataset: 'submissions', dimension: 'subject', measure: 'avgScorePercent' },
+        },
+        {
+          titleKey: 'workspace.templates.charts.homeworkFlow', kind: 'line',
+          metrics: ['canvas-assignments-submitted', 'canvas-assignments-graded'],
+        },
+        {
+          titleKey: 'workspace.templates.charts.homeworkAttention', kind: 'bar',
+          metrics: ['canvas-assignments-missing', 'canvas-assignments-late'],
+        },
+      ],
+    },
+    {
+      id: 'school-assessment-results',
+      titleKey: 'workspace.templates.assessmentResults.title',
+      descriptionKey: 'workspace.templates.assessmentResults.description',
+      charts: [
+        {
+          titleKey: 'workspace.templates.charts.formativeBySubject', kind: 'bar', metrics: [],
+          explorer: { dataset: 'submissions', dimension: 'subject', measure: 'avgScorePercent' },
+        },
+        {
+          titleKey: 'workspace.templates.charts.summativeBySubject', kind: 'bar', metrics: [],
+          explorer: { dataset: 'scores', dimension: 'subject', measure: 'avgFinalScore' },
+        },
+        {
+          titleKey: 'workspace.templates.charts.summativeByGrade', kind: 'bar', metrics: [],
+          explorer: { dataset: 'scores', dimension: 'gradeLevel', measure: 'avgFinalScore' },
+        },
+        {
+          titleKey: 'workspace.templates.charts.summativeByHomeroom', kind: 'bar', metrics: [],
+          explorer: { dataset: 'scores', dimension: 'homeroom', measure: 'avgFinalScore' },
+        },
+        {
+          titleKey: 'workspace.templates.charts.independentAssessments', kind: 'bar', metrics: [],
+          explorer: { dataset: 'scores', dimension: 'gradingPeriod', measure: 'avgFinalScore' },
+        },
       ],
     },
   ];
@@ -594,7 +740,46 @@ export class WorkspaceComponent implements OnInit {
     this.openSheet('workspace');
   }
 
-  createFromTemplate(template: WorkspaceTemplate): void {
+  chooseTemplate(templateId: string): void {
+    const template = this.workspaceTemplates.find((item) => item.id === templateId);
+    if (!template) return;
+
+    this.templateDropdownOpen.set(false);
+    this.selectedTemplateId.set(templateId);
+    this.pendingTemplate.set(template);
+    this.templateConfirmMounted.set(true);
+    window.setTimeout(() => this.templateConfirmOpen.set(true));
+  }
+
+  confirmTemplateCreation(): void {
+    const template = this.pendingTemplate();
+    if (!template) return;
+
+    this.closeTemplateConfirm();
+    this.createFromTemplate(template);
+  }
+
+  closeTemplateConfirm(): void {
+    this.templateConfirmOpen.set(false);
+    this.selectedTemplateId.set('');
+    window.setTimeout(() => {
+      this.templateConfirmMounted.set(false);
+      this.pendingTemplate.set(null);
+    }, 200);
+  }
+
+  selectedTemplateName(): string {
+    const template = this.workspaceTemplates.find((item) => item.id === this.selectedTemplateId());
+    return template
+      ? this.languageService.t(template.titleKey)
+      : this.languageService.t('workspace.templates.selectPlaceholder');
+  }
+
+  templateInitial(template: WorkspaceTemplate): string {
+    return this.languageService.t(template.titleKey).trim().charAt(0).toUpperCase() || 'R';
+  }
+
+  private createFromTemplate(template: WorkspaceTemplate): void {
     const report = this.reportBuilderService.createReport(this.owner());
     report.title = this.languageService.t(template.titleKey);
     report.description = this.languageService.t(template.descriptionKey);
@@ -603,6 +788,7 @@ export class WorkspaceComponent implements OnInit {
       title: this.languageService.t(chart.titleKey),
       kind: chart.kind,
       metrics: [...chart.metrics],
+      ...(chart.explorer ? { explorer: { ...chart.explorer } } : {}),
     }));
 
     this.customReports.set([report, ...this.customReports()]);

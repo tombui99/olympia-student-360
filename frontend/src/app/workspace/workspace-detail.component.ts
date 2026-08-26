@@ -1,4 +1,4 @@
-import { NgFor, NgIf } from '@angular/common';
+import { NgClass, NgFor, NgIf } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -76,7 +76,7 @@ interface ChartImageExporter {
 
 @Component({
   selector: 'app-workspace-detail',
-  imports: [FormsModule, NgFor, NgIf, NgxEchartsDirective, RouterLink],
+  imports: [FormsModule, NgClass, NgFor, NgIf, NgxEchartsDirective, RouterLink],
   template: `
     <section class="space-y-7">
       <div class="no-print flex flex-wrap items-start justify-between gap-4">
@@ -342,6 +342,7 @@ interface ChartImageExporter {
           <article
             *ngFor="let chart of orderedCharts(report)"
             class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.06)]"
+            [ngClass]="{ 'lg:col-span-2': isWideChart(chart) }"
           >
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -383,11 +384,13 @@ interface ChartImageExporter {
 
             <div
               class="mt-5 min-h-72 rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-4"
+              [ngClass]="{ 'min-h-[29rem]': isWideChart(chart) }"
             >
               <ng-container *ngIf="chart.explorer">
                 <div
                   echarts
-                  class="h-72 w-full"
+                  class="w-full"
+                  [ngClass]="isWideChart(chart) ? 'h-[26rem]' : 'h-72'"
                   [options]="chartOptions(chart)"
                   role="img"
                   [attr.aria-label]="chart.title"
@@ -422,7 +425,8 @@ interface ChartImageExporter {
                 <div
                   echarts
                   *ngIf="chart.kind !== 'card'"
-                  class="h-72 w-full cursor-pointer"
+                  class="w-full cursor-pointer"
+                  [ngClass]="isWideChart(chart) ? 'h-[26rem]' : 'h-72'"
                   [options]="chartOptions(chart)"
                   role="img"
                   [attr.aria-label]="chart.title"
@@ -2083,6 +2087,19 @@ export class WorkspaceDetailComponent implements OnInit {
     return (this.explorerResult(chart)?.rows.length ?? 0) > 0;
   }
 
+  /**
+   * Dense category charts need the full report width. Small summaries intentionally
+   * remain in the two-column grid so the workspace stays compact.
+   */
+  isWideChart(chart: CustomChart): boolean {
+    if (chart.explorer) {
+      return (this.explorerResult(chart)?.rows.length ?? 0) > 12;
+    }
+    if (chart.kind === 'card') return false;
+    const metrics = this.chartMetrics(chart);
+    return metrics.length > 3 || this.metricPeriods(metrics).length > 18;
+  }
+
   explorerCaption(chart: CustomChart): string {
     if (!chart.explorer) return '';
     const dataset = this.exploreDatasetLabel(chart.explorer.dataset);
@@ -2097,7 +2114,35 @@ export class WorkspaceDetailComponent implements OnInit {
     if (monthMatch) {
       return this.periodDisplay(`${key}-01T00:00:00Z`);
     }
+    const statusKey: Record<string, string> = {
+      'Not submitted': 'notSubmitted',
+      'On time': 'onTime',
+      Late: 'late',
+      Missing: 'missing',
+      Excused: 'excused',
+    };
+    if (statusKey[key]) {
+      return this.languageService.t(`workspace.explorer.values.${statusKey[key]}`);
+    }
     return key;
+  }
+
+  private wrapCategoryLabel(value: string, maximumLineLength = 34): string {
+    const words = value.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let current = '';
+    for (const word of words) {
+      if (!current) {
+        current = word;
+      } else if (`${current} ${word}`.length <= maximumLineLength) {
+        current += ` ${word}`;
+      } else {
+        lines.push(current);
+        current = word;
+      }
+    }
+    if (current) lines.push(current);
+    return lines.join('\n');
   }
 
   private explorerChartOptions(chart: CustomChart): EChartsCoreOption {
@@ -2108,6 +2153,7 @@ export class WorkspaceDetailComponent implements OnInit {
     const values = rows.map((row) => row.value);
     const unit = result?.unit ?? '';
     const fmt = (value: string | number) => (unit === '%' ? `${value}%` : `${value}`);
+    const denseCategories = rows.length > 12;
 
     if (chart.kind === 'pie') {
       return {
@@ -2129,11 +2175,91 @@ export class WorkspaceDetailComponent implements OnInit {
       };
     }
 
+    if (chart.kind === 'bar' && denseCategories) {
+      const savedZoom = this.chartZoomRange(chart.id);
+      const initialZoom = {
+        start: 0,
+        end: Math.min(100, (10 / rows.length) * 100),
+        ...savedZoom,
+      };
+      return {
+        color: colors,
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: fmt },
+        grid: { left: 18, right: 76, bottom: 24, top: 48, containLabel: true },
+        toolbox: {
+          right: 28,
+          feature: {
+            restore: {},
+            saveAsImage: {},
+          },
+        },
+        xAxis: {
+          type: 'value',
+          axisLabel: { color: '#6f6877', formatter: fmt },
+          splitLine: { lineStyle: { color: '#ebe6ef' } },
+        },
+        yAxis: {
+          type: 'category',
+          inverse: true,
+          data: labels,
+          axisLine: { lineStyle: { color: '#d8d0df' } },
+          axisTick: { show: false },
+          axisLabel: {
+            color: '#5f5368',
+            interval: 0,
+            margin: 14,
+            fontSize: 11,
+            lineHeight: 15,
+            formatter: (value: string) => this.wrapCategoryLabel(value),
+          },
+        },
+        dataZoom: [
+          {
+            type: 'slider', yAxisIndex: 0, filterMode: 'filter', orient: 'vertical',
+            ...initialZoom, width: 16, right: 8, top: 54, bottom: 24,
+            borderColor: '#d8d0df', fillerColor: 'rgba(109,58,145,0.16)',
+            handleStyle: { color: '#6d3a91' }, showDetail: false,
+          },
+        ],
+        series: [
+          {
+            name: chart.title,
+            type: 'bar',
+            cursor: 'pointer',
+            data: rows.map((row) => ({ value: row.value, groupKey: row.key })),
+            barMaxWidth: 24,
+            itemStyle: { color: '#32124f', borderRadius: [0, 4, 4, 0] },
+            label: {
+              show: true,
+              position: 'right',
+              color: '#5f5368',
+              fontSize: 11,
+              formatter: (params: { value?: string | number }) => fmt(params.value ?? ''),
+            },
+          },
+        ],
+      };
+    }
+
     const cartesianKind = chart.kind === 'line' ? 'line' : 'bar';
+    const savedZoom = this.chartZoomRange(chart.id);
+    const initialZoom = denseCategories
+      ? { start: 0, end: Math.min(100, (12 / rows.length) * 100), ...savedZoom }
+      : savedZoom;
+    const dataZoom = denseCategories
+      ? [
+          { type: 'inside' as const, filterMode: 'filter' as const, ...initialZoom },
+          {
+            type: 'slider' as const, filterMode: 'filter' as const, ...initialZoom,
+            height: 18, bottom: 8, borderColor: '#d8d0df', fillerColor: 'rgba(109,58,145,0.16)',
+            handleStyle: { color: '#6d3a91' }, showDetail: false,
+          },
+        ]
+      : [{ type: 'inside' as const, ...savedZoom }];
     return {
       color: colors,
       tooltip: { trigger: 'axis', valueFormatter: fmt },
-      grid: { left: 8, right: 16, bottom: 8, top: 24, containLabel: true },
+      grid: { left: 16, right: 24, bottom: denseCategories ? 82 : 52, top: 44, containLabel: true },
       toolbox: {
         right: 8,
         feature: { dataZoom: { yAxisIndex: 'none' }, magicType: { type: ['line', 'bar'] }, restore: {}, saveAsImage: {} },
@@ -2142,14 +2268,21 @@ export class WorkspaceDetailComponent implements OnInit {
         type: 'category',
         data: labels,
         axisLine: { lineStyle: { color: '#d8d0df' } },
-        axisLabel: { color: '#6f6877', interval: 0, rotate: labels.length > 6 ? 30 : 0 },
+        axisLabel: {
+          color: '#6f6877',
+          interval: 0,
+          rotate: labels.length > 6 ? 28 : 0,
+          margin: 14,
+          fontSize: 11,
+          formatter: (value: string) => value.length > 20 ? `${value.slice(0, 19)}…` : value,
+        },
       },
       yAxis: {
         type: 'value',
         axisLabel: { color: '#6f6877', formatter: fmt },
         splitLine: { lineStyle: { color: '#ebe6ef' } },
       },
-      dataZoom: [{ type: 'inside', ...this.chartZoomRange(chart.id) }],
+      dataZoom,
       series: [
         {
           name: chart.title,
