@@ -73,8 +73,11 @@ public class DashboardStudentOptionDto
     public int Id { get; set; }
     public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
+    public string? Campus { get; set; }
+    public string? EducationLevel { get; set; }
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
+    public string? Program { get; set; }
 }
 
 public class DashboardPreferenceDto

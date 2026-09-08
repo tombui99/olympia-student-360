@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
@@ -189,8 +190,8 @@ public class CustomReportsController : ControllerBase
             _context.WorkspacePreferences.Add(preference);
         }
 
-        preference.AcademicYear = Clean(model.AcademicYear);
-        preference.Term = Clean(model.Term);
+        preference.AcademicYear = NormalizeAcademicYear(model.AcademicYear);
+        preference.Term = NormalizeTerm(model.Term);
         preference.MeasurementCycle = Clean(model.MeasurementCycle);
         preference.Campus = Clean(model.Campus);
         preference.EducationLevel = Clean(model.EducationLevel);
@@ -248,8 +249,8 @@ public class CustomReportsController : ControllerBase
 
     private static WorkspacePreferenceDto ToPreferenceDto(WorkspacePreference preference) => new()
     {
-        AcademicYear = preference.AcademicYear,
-        Term = preference.Term,
+        AcademicYear = NormalizeAcademicYear(preference.AcademicYear),
+        Term = NormalizeTerm(preference.Term),
         MeasurementCycle = preference.MeasurementCycle,
         Campus = preference.Campus,
         EducationLevel = preference.EducationLevel,
@@ -262,6 +263,12 @@ public class CustomReportsController : ControllerBase
     };
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? NormalizeAcademicYear(string? value) =>
+        Clean(value) is { } cleaned ? DashboardPeriodNormalizer.AcademicYear(cleaned) : null;
+
+    private static string? NormalizeTerm(string? value) =>
+        Clean(value) is { } cleaned ? DashboardPeriodNormalizer.Term(cleaned) : null;
 
     private async Task<List<string>> ValidRecipients(IEnumerable<string> recipients, string ownerUserId)
     {

@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
+using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
@@ -52,7 +54,7 @@ public class CanvasExploreController : ControllerBase
             return BadRequest($"Unknown measure '{measure}' for dataset '{dataset}'.");
         }
 
-        var f = new Filters(year, term, campus, level, grade, homeroom, studentId, program, subject);
+        var f = await BuildFilters(year, term, campus, level, grade, homeroom, studentId, program, subject);
         var rows = dataset switch
         {
             "submissions" => await SubmissionRows(f, dimension, measure),
@@ -113,7 +115,7 @@ public class CanvasExploreController : ControllerBase
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var filters = new Filters(year, term, campus, level, grade, homeroom, studentId, program, subject);
+        var filters = await BuildFilters(year, term, campus, level, grade, homeroom, studentId, program, subject);
         var records = dataset switch
         {
             "submissions" => await SubmissionDrilldownRows(filters, dimension, measure, groupKey),
@@ -150,8 +152,12 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Program)) query = query.Where(item => item.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(item => item.StudentProfileId == f.StudentId);
         if (f.Has(f.Subject)) query = query.Where(item => item.Assignment!.Course!.Name == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(item => item.Assignment!.Course!.EnrollmentTermName == f.Year);
-        if (f.Has(f.Term)) query = query.Where(item => item.Assignment!.Course!.EnrollmentTermName == f.Term);
+        if (f.YearAliases.Count > 0)
+            query = query.Where(item => f.YearAliases.Contains(item.Assignment!.Course!.EnrollmentTermName!));
+        if (f.Period != null)
+            query = query.Where(item =>
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= f.Period.Start &&
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) < f.Period.End);
 
         var rows = await query.Select(item => new
         {
@@ -202,9 +208,11 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Program)) query = query.Where(item => item.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(item => item.StudentProfileId == f.StudentId);
         if (f.Has(f.Subject)) query = query.Where(item => item.Enrollment!.Course!.Name == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(item => item.Enrollment!.Course!.EnrollmentTermName == f.Year);
-        if (f.Has(f.Term)) query = query.Where(item =>
-            (item.GradingPeriodTitle ?? item.Enrollment!.Course!.EnrollmentTermName) == f.Term);
+        if (f.YearAliases.Count > 0)
+            query = query.Where(item => f.YearAliases.Contains(item.Enrollment!.Course!.EnrollmentTermName!));
+        if (f.TermAliases.Count > 0)
+            query = query.Where(item => item.GradingPeriodTitle != null &&
+                f.TermAliases.Contains(item.GradingPeriodTitle));
         var rows = await query.Select(item => new
         {
             item.StudentProfileId, item.Student!.SISUserId, item.Student.FullName,
@@ -241,16 +249,19 @@ public class CanvasExploreController : ControllerBase
     private async Task<List<CanvasExploreDrilldownRowDto>> AssignmentDrilldownRows(
         Filters f, string dimension, string measure, string groupKey)
     {
-        var query = from assignment in _context.CanvasAssignments.AsNoTracking()
-                    join course in _context.CanvasCourses.AsNoTracking()
-                        on assignment.CanvasCourseId equals course.CanvasCourseId
-                    select new { assignment.Name, assignment.AssignmentGroupName, assignment.WorkflowState,
-                        assignment.DueAt, assignment.PointsPossible,
-                        Subject = course.Name,
-                        AcademicYear = course.EnrollmentTermName };
-        if (f.Has(f.Subject)) query = query.Where(item => item.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(item => item.AcademicYear == f.Year);
-        var rows = await query.ToListAsync();
+        var assignments = ApplyStudentScope(_context.CanvasAssignments.AsNoTracking(), f);
+        if (f.Has(f.Subject)) assignments = assignments.Where(item => item.Course!.Name == f.Subject);
+        if (f.YearAliases.Count > 0)
+            assignments = assignments.Where(item => f.YearAliases.Contains(item.Course!.EnrollmentTermName!));
+        if (f.Period != null)
+            assignments = assignments.Where(item => item.DueAt >= f.Period.Start && item.DueAt < f.Period.End);
+        var rows = await assignments.Select(assignment => new
+        {
+            assignment.Name, assignment.AssignmentGroupName, assignment.WorkflowState,
+            assignment.DueAt, assignment.PointsPossible,
+            Subject = assignment.Course!.Name,
+            AcademicYear = assignment.Course.EnrollmentTermName
+        }).ToListAsync();
         string Dim(dynamic item) => dimension switch
         {
             "subject" => Text(item.Subject), "assignmentGroup" => Text(item.AssignmentGroupName),
@@ -269,9 +280,13 @@ public class CanvasExploreController : ControllerBase
     private async Task<List<CanvasExploreDrilldownRowDto>> CourseDrilldownRows(
         Filters f, string dimension, string measure, string groupKey)
     {
-        var query = _context.CanvasCourses.AsNoTracking().AsQueryable();
+        var query = ApplyStudentScope(_context.CanvasCourses.AsNoTracking(), f);
         if (f.Has(f.Subject)) query = query.Where(item => item.Name == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(item => item.EnrollmentTermName == f.Year);
+        if (f.YearAliases.Count > 0)
+            query = query.Where(item => f.YearAliases.Contains(item.EnrollmentTermName!));
+        if (f.Period != null)
+            query = query.Where(item => (item.StartAt == null || item.StartAt < f.Period.End) &&
+                (item.EndAt == null || item.EndAt >= f.Period.Start));
         var rows = await query.ToListAsync();
         string Dim(Core.Entities.CanvasCourse item) => dimension switch
         {
@@ -345,8 +360,12 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Program)) query = query.Where(s => s.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(s => s.StudentProfileId == f.StudentId);
         if (f.Has(f.Subject)) query = query.Where(s => s.Assignment!.Course!.Name == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(s => s.Assignment!.Course!.EnrollmentTermName == f.Year);
-        if (f.Has(f.Term)) query = query.Where(s => s.Assignment!.Course!.EnrollmentTermName == f.Term);
+        if (f.YearAliases.Count > 0)
+            query = query.Where(item => f.YearAliases.Contains(item.Assignment!.Course!.EnrollmentTermName!));
+        if (f.Period != null)
+            query = query.Where(item =>
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= f.Period.Start &&
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) < f.Period.End);
 
         var data = await query.Select(s => new SubRow(
             s.Assignment!.Course!.Name, s.Assignment.Course.EnrollmentTermName,
@@ -393,9 +412,11 @@ public class CanvasExploreController : ControllerBase
         if (f.Has(f.Program)) query = query.Where(s => s.Student!.Program == f.Program);
         if (f.StudentId.HasValue) query = query.Where(s => s.StudentProfileId == f.StudentId);
         if (f.Has(f.Subject)) query = query.Where(s => s.Enrollment!.Course!.Name == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(s => s.Enrollment!.Course!.EnrollmentTermName == f.Year);
-        if (f.Has(f.Term)) query = query.Where(s =>
-            (s.GradingPeriodTitle ?? s.Enrollment!.Course!.EnrollmentTermName) == f.Term);
+        if (f.YearAliases.Count > 0)
+            query = query.Where(item => f.YearAliases.Contains(item.Enrollment!.Course!.EnrollmentTermName!));
+        if (f.TermAliases.Count > 0)
+            query = query.Where(item => item.GradingPeriodTitle != null &&
+                f.TermAliases.Contains(item.GradingPeriodTitle));
 
         var data = await query.Select(s => new ScoreRow(
             s.Enrollment!.Course!.Name,
@@ -430,17 +451,17 @@ public class CanvasExploreController : ControllerBase
 
     private async Task<List<(string Key, double? Value)>> AssignmentRows(Filters f, string dimension, string measure)
     {
-        // Assignments are catalogue rows; join their course for the subject dimension.
-        var query = from a in _context.CanvasAssignments.AsNoTracking()
-                    join c in _context.CanvasCourses.AsNoTracking() on a.CanvasCourseId equals c.CanvasCourseId
-                    select new AssignmentRow(
-                        c.Name, c.EnrollmentTermName,
-                        a.AssignmentGroupName, a.WorkflowState, a.DueAt, a.PointsPossible,
-                        c.EnrollmentTermName);
-        if (f.Has(f.Subject)) query = query.Where(a => a.Subject == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(a => a.AcademicYear == f.Year);
+        var assignments = ApplyStudentScope(_context.CanvasAssignments.AsNoTracking(), f);
+        if (f.Has(f.Subject)) assignments = assignments.Where(item => item.Course!.Name == f.Subject);
+        if (f.YearAliases.Count > 0)
+            assignments = assignments.Where(item => f.YearAliases.Contains(item.Course!.EnrollmentTermName!));
+        if (f.Period != null)
+            assignments = assignments.Where(item => item.DueAt >= f.Period.Start && item.DueAt < f.Period.End);
 
-        var data = await query.ToListAsync();
+        var data = await assignments.Select(item => new AssignmentRow(
+            item.Course!.Name, item.Course.EnrollmentTermName,
+            item.AssignmentGroupName, item.WorkflowState, item.DueAt, item.PointsPossible,
+            item.Course.EnrollmentTermName)).ToListAsync();
 
         string Dim(AssignmentRow a) => dimension switch
         {
@@ -463,9 +484,13 @@ public class CanvasExploreController : ControllerBase
 
     private async Task<List<(string Key, double? Value)>> CourseRows(Filters f, string dimension, string measure)
     {
-        var query = _context.CanvasCourses.AsNoTracking().AsQueryable();
+        var query = ApplyStudentScope(_context.CanvasCourses.AsNoTracking(), f);
         if (f.Has(f.Subject)) query = query.Where(c => c.Name == f.Subject);
-        if (f.Has(f.Year)) query = query.Where(c => c.EnrollmentTermName == f.Year);
+        if (f.YearAliases.Count > 0)
+            query = query.Where(item => f.YearAliases.Contains(item.EnrollmentTermName!));
+        if (f.Period != null)
+            query = query.Where(item => (item.StartAt == null || item.StartAt < f.Period.End) &&
+                (item.EndAt == null || item.EndAt >= f.Period.Start));
 
         var data = await query.Select(c => new CourseRow(
             c.Name, c.EnrollmentTermName, c.EnrollmentTermName, c.WorkflowState)).ToListAsync();
@@ -617,11 +642,122 @@ public class CanvasExploreController : ControllerBase
     private static CanvasExploreFieldDto Field(string key, string label, string unit = "") =>
         new() { Key = key, Label = label, Unit = unit };
 
-    private sealed record Filters(
-        string? Year, string? Term, string? Campus, string? Level, string? Grade,
-        string? Homeroom, int? StudentId, string? Program, string? Subject)
+    private static IQueryable<CanvasCourse> ApplyStudentScope(
+        IQueryable<CanvasCourse> query, Filters filters)
     {
-        public bool Has(string? value) =>
-            !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "all", StringComparison.OrdinalIgnoreCase);
+        if (filters.Has(filters.Campus))
+            query = query.Where(course => course.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Campus == filters.Campus));
+        if (filters.Has(filters.Level))
+            query = query.Where(course => course.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.EducationLevel == filters.Level));
+        if (filters.Has(filters.Grade))
+            query = query.Where(course => course.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.GradeLevel == filters.Grade));
+        if (filters.Has(filters.Homeroom))
+            query = query.Where(course => course.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Homeroom == filters.Homeroom));
+        if (filters.Has(filters.Program))
+            query = query.Where(course => course.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Program == filters.Program));
+        if (filters.StudentId.HasValue)
+            query = query.Where(course => course.Enrollments.Any(item =>
+                item.StudentProfileId == filters.StudentId));
+        return query;
+    }
+
+    private static IQueryable<CanvasAssignment> ApplyStudentScope(
+        IQueryable<CanvasAssignment> query, Filters filters)
+    {
+        if (filters.Has(filters.Campus))
+            query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Campus == filters.Campus));
+        if (filters.Has(filters.Level))
+            query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.EducationLevel == filters.Level));
+        if (filters.Has(filters.Grade))
+            query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.GradeLevel == filters.Grade));
+        if (filters.Has(filters.Homeroom))
+            query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Homeroom == filters.Homeroom));
+        if (filters.Has(filters.Program))
+            query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Program == filters.Program));
+        if (filters.StudentId.HasValue)
+            query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
+                item.StudentProfileId == filters.StudentId));
+        return query;
+    }
+
+    private async Task<Filters> BuildFilters(
+        string? year, string? term, string? campus, string? level, string? grade,
+        string? homeroom, int? studentId, string? program, string? subject)
+    {
+        var hasYear = HasValue(year);
+        var hasTerm = HasValue(term);
+        var yearAliases = new List<string>();
+        var termAliases = new List<string>();
+
+        if (hasYear)
+        {
+            var normalizedYear = DashboardPeriodNormalizer.AcademicYear(year!);
+            yearAliases = (await _context.CanvasCourses.AsNoTracking()
+                    .Where(item => item.EnrollmentTermName != null)
+                    .Select(item => item.EnrollmentTermName!)
+                    .Distinct()
+                    .ToListAsync())
+                .Where(value => DashboardPeriodNormalizer.AcademicYear(value)
+                    .Equals(normalizedYear, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (yearAliases.Count == 0) yearAliases.Add(year!);
+        }
+
+        if (hasTerm)
+        {
+            var normalizedTerm = DashboardPeriodNormalizer.Term(term!);
+            termAliases = (await _context.CanvasCourseScores.AsNoTracking()
+                    .Where(item => item.GradingPeriodTitle != null)
+                    .Select(item => item.GradingPeriodTitle!)
+                    .Distinct()
+                    .ToListAsync())
+                .Where(value => DashboardPeriodNormalizer.Term(value)
+                    .Equals(normalizedTerm, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (termAliases.Count == 0) termAliases.Add(term!);
+        }
+
+        PeriodRange? period = null;
+        if (hasTerm)
+        {
+            var normalizedYear = hasYear ? DashboardPeriodNormalizer.AcademicYear(year!) : null;
+            var normalizedTerm = DashboardPeriodNormalizer.Term(term!);
+            var configured = (await _context.AcademicPeriods.AsNoTracking().ToListAsync())
+                .Where(item => normalizedYear == null || DashboardPeriodNormalizer.AcademicYear(item.AcademicYear)
+                    .Equals(normalizedYear, StringComparison.OrdinalIgnoreCase))
+                .Where(item => DashboardPeriodNormalizer.Term(item.Term)
+                    .Equals(normalizedTerm, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(item => item.IsCurrent)
+                .ThenByDescending(item => item.StartDate)
+                .FirstOrDefault();
+            if (configured != null) period = new PeriodRange(configured.StartDate, configured.EndDate);
+        }
+
+        return new Filters(campus, level, grade, homeroom, studentId, program, subject,
+            yearAliases, termAliases, period);
+    }
+
+    private static bool HasValue(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        !string.Equals(value, "all", StringComparison.OrdinalIgnoreCase);
+
+    private sealed record PeriodRange(DateTime Start, DateTime End);
+
+    private sealed record Filters(
+        string? Campus, string? Level, string? Grade, string? Homeroom, int? StudentId,
+        string? Program, string? Subject, List<string> YearAliases, List<string> TermAliases,
+        PeriodRange? Period)
+    {
+        public bool Has(string? value) => HasValue(value);
     }
 }

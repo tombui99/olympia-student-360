@@ -245,7 +245,7 @@ interface ChartImageExporter {
                 <select class="filter-select" [ngModel]="filters().semester" (ngModelChange)="setFilter('semester', $event)">
                   <option value="">{{ languageService.t('workspace.filters.all') }}</option>
                   <option *ngFor="let semester of options().terms" [value]="semester">
-                    {{ languageService.t('workspace.filters.semester.' + semester) }}
+                    {{ semesterLabel(semester) }}
                   </option>
                 </select>
               </label>
@@ -268,7 +268,7 @@ interface ChartImageExporter {
                 <span class="filter-label">{{ languageService.t('workspace.filters.fields.level') }}</span>
                 <select class="filter-select" [ngModel]="filters().level" (ngModelChange)="setFilter('level', $event)">
                   <option value="">{{ languageService.t('workspace.filters.all') }}</option>
-                  <option *ngFor="let level of options().educationLevels" [value]="level">{{ level }}</option>
+                  <option *ngFor="let level of educationLevelOptions()" [value]="level">{{ level }}</option>
                 </select>
               </label>
               <label class="filter-field">
@@ -1290,23 +1290,47 @@ export class WorkspaceDetailComponent implements OnInit {
 
   readonly options = signal(emptyFilterOptions());
   readonly filters = signal<WorkspaceFilterSet>(defaultFilterSet());
+  private filterOptionsLoaded = false;
   private readonly chartOrder = signal<string[]>([]);
 
+  readonly educationLevelOptions = computed(() => {
+    const campus = this.filters().campus;
+    if (!campus) return this.options().educationLevels;
+    return [...new Set(this.options().students
+      .filter((student) => student.campus === campus)
+      .map((student) => student.educationLevel)
+      .filter((level): level is string => !!level))]
+      .sort((a, b) => a.localeCompare(b));
+  });
+
   readonly gradeOptions = computed(() => {
-    const level = this.filters().level;
+    const { campus, level } = this.filters();
+    if (!campus && !level) {
+      return [...this.options().gradeLevels]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
     const grades = new Set(
       this.options().students
+        .filter((student) => (!campus || student.campus === campus) &&
+          (!level || student.educationLevel === level))
         .map((student) => student.gradeLevel)
-        .filter((grade): grade is string => !!grade && this.gradeMatchesLevel(grade, level)),
+        .filter((grade): grade is string => !!grade),
     );
     return [...grades].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   });
 
   readonly homeroomOptions = computed(() => {
-    const { grade } = this.filters();
+    const { campus, level, grade } = this.filters();
+    if (!campus && !level && !grade) {
+      return [...this.options().homerooms]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
     const homerooms = new Set(
       this.options().students
-        .filter((student) => !grade || student.gradeLevel === grade)
+        .filter((student) =>
+          (!campus || student.campus === campus) &&
+          (!level || student.educationLevel === level) &&
+          (!grade || student.gradeLevel === grade))
         .map((student) => student.homeroom)
         .filter((homeroom): homeroom is string => !!homeroom),
     );
@@ -1314,10 +1338,13 @@ export class WorkspaceDetailComponent implements OnInit {
   });
 
   readonly studentOptions = computed(() => {
-    const { grade, homeroom } = this.filters();
+    const { campus, level, grade, homeroom } = this.filters();
     return this.options().students.filter(
       (student) =>
-        (!grade || student.gradeLevel === grade) && (!homeroom || student.homeroom === homeroom),
+        (!campus || student.campus === campus) &&
+        (!level || student.educationLevel === level) &&
+        (!grade || student.gradeLevel === grade) &&
+        (!homeroom || student.homeroom === homeroom),
     );
   });
 
@@ -1413,7 +1440,7 @@ export class WorkspaceDetailComponent implements OnInit {
 
     push('workspace.filters.fields.year', filters.year);
     if (filters.semester) {
-      push('workspace.filters.fields.semester', t('workspace.filters.semester.' + filters.semester));
+      push('workspace.filters.fields.semester', this.semesterLabel(filters.semester));
     }
     if (filters.cycle) {
       push('workspace.filters.fields.cycle', t('workspace.filters.cycle.' + filters.cycle));
@@ -1470,6 +1497,7 @@ export class WorkspaceDetailComponent implements OnInit {
         this.workspaceFilters.loadWorkspace(report.serverId).subscribe({
           next: (filters) => {
             this.filters.set(filters);
+            this.reconcileFilters();
             this.chartOrder.set(this.workspaceFilters.loadWorkspaceChartOrder());
             this.loadMetrics();
           },
@@ -1488,14 +1516,27 @@ export class WorkspaceDetailComponent implements OnInit {
 
     this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
     this.reportBuilderService.loadExploreOptions().subscribe((options) => this.exploreOptions.set(options));
-    this.workspaceFilters.options().subscribe((options) => this.options.set(options));
+    this.workspaceFilters.options().subscribe((options) => {
+      this.options.set(options);
+      this.filterOptionsLoaded = true;
+      if (this.reconcileFilters()) {
+        const workspaceId = this.selectedReport()?.serverId;
+        if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
+        if (this.selectedReport()) this.loadMetrics();
+      }
+    });
 
   }
 
   setFilter(key: keyof WorkspaceFilterSet, value: string): void {
     this.filters.update((current) => {
       const next = { ...current, [key]: value };
-      if (key === 'level') {
+      if (key === 'campus') {
+        next.level = '';
+        next.grade = '';
+        next.homeroom = '';
+        next.studentId = '';
+      } else if (key === 'level') {
         next.grade = '';
         next.homeroom = '';
         next.studentId = '';
@@ -1517,6 +1558,45 @@ export class WorkspaceDetailComponent implements OnInit {
     const workspaceId = this.selectedReport()?.serverId;
     if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
     this.loadMetrics();
+  }
+
+  private reconcileFilters(): boolean {
+    if (!this.filterOptionsLoaded) return false;
+    const current = this.filters();
+    const available = this.options();
+    const next = { ...current };
+
+    if (next.year && !available.academicYears.includes(next.year)) next.year = '';
+    if (next.semester && !available.terms.includes(next.semester)) next.semester = '';
+    if (next.campus && !available.campuses.includes(next.campus)) next.campus = '';
+    const campusLevels = next.campus
+      ? available.students.filter((student) => student.campus === next.campus)
+          .map((student) => student.educationLevel)
+      : available.educationLevels;
+    if (next.level && !campusLevels.includes(next.level)) next.level = '';
+    if (next.program && !available.programs.includes(next.program)) next.program = '';
+    if (next.subject && !available.subjects.includes(next.subject)) next.subject = '';
+
+    const scopedStudents = available.students.filter((student) =>
+      (!next.campus || student.campus === next.campus) &&
+      (!next.level || student.educationLevel === next.level));
+    if (next.grade && !scopedStudents.some((student) => student.gradeLevel === next.grade)) {
+      next.grade = '';
+    }
+    if (next.homeroom && !scopedStudents.some((student) =>
+      (!next.grade || student.gradeLevel === next.grade) && student.homeroom === next.homeroom)) {
+      next.homeroom = '';
+    }
+    if (next.studentId && !scopedStudents.some((student) =>
+      String(student.id) === String(next.studentId) &&
+      (!next.grade || student.gradeLevel === next.grade) &&
+      (!next.homeroom || student.homeroom === next.homeroom))) {
+      next.studentId = '';
+    }
+
+    if (JSON.stringify(next) === JSON.stringify(current)) return false;
+    this.filters.set(next);
+    return true;
   }
 
   orderedCharts(report: CustomReport): CustomChart[] {
@@ -1562,23 +1642,6 @@ export class WorkspaceDetailComponent implements OnInit {
 
   trackMetric(_index: number, metric: MetricVariable): string {
     return metric.id;
-  }
-
-  private gradeMatchesLevel(grade: string, level: string): boolean {
-    if (!level || level === 'all') {
-      return true;
-    }
-    const numeric = Number(grade);
-    if (!Number.isFinite(numeric)) {
-      return true;
-    }
-    if (level === 'primary') {
-      return numeric >= 1 && numeric <= 5;
-    }
-    if (level === 'secondary') {
-      return numeric >= 6 && numeric <= 9;
-    }
-    return numeric >= 10 && numeric <= 12;
   }
 
   private scaledSeries(metric: MetricVariable): number[] {
@@ -1846,6 +1909,10 @@ export class WorkspaceDetailComponent implements OnInit {
   private tr(key: string, fallback: string): string {
     const value = this.languageService.t(key);
     return value === key ? fallback : value;
+  }
+
+  semesterLabel(term: string): string {
+    return this.tr(`workspace.filters.semester.${term}`, term);
   }
 
   deleteChartDraft() {

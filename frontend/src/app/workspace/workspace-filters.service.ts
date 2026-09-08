@@ -24,7 +24,16 @@ export interface WorkspaceFilterOptions {
   educationLevels: string[];
   gradeLevels: string[];
   homerooms: string[];
-  students: { id: number; sisUserId: string; fullName: string; gradeLevel?: string; homeroom?: string }[];
+  students: {
+    id: number;
+    sisUserId: string;
+    fullName: string;
+    campus?: string;
+    educationLevel?: string;
+    gradeLevel?: string;
+    homeroom?: string;
+    program?: string;
+  }[];
   programs: string[];
   subjects: string[];
 }

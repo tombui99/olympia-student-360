@@ -70,7 +70,7 @@ interface RiskRow {
                   <option value="all">{{ languageService.t('dashboard.period.term.all') }}</option>
                   @for (term of terms(); track term) {
                     <option [value]="term">
-                      {{ languageService.t('dashboard.period.term.' + term) }}
+                      {{ termLabel(term) }}
                     </option>
                   }
                 </select>
@@ -239,7 +239,7 @@ export class DashboardComponent implements OnInit {
     if (!data) {
       return '';
     }
-    const term = this.languageService.t('dashboard.period.term.' + data.periodTerm);
+    const term = this.termLabel(data.periodTerm);
     return `${this.formatYear(data.periodYear)} · ${term}`;
   });
 
@@ -297,7 +297,7 @@ export class DashboardComponent implements OnInit {
       next: ({ options, filters }) => this.initializePeriod(options.academicYears, options.terms, filters),
       error: () => {
         this.currentFilters = defaultFilterSet();
-        this.terms.set(['hk1', 'hk2']);
+        this.terms.set([]);
         this.loadOverview();
       },
     });
@@ -340,8 +340,7 @@ export class DashboardComponent implements OnInit {
 
   private initializePeriod(years: string[], terms: string[], filters: WorkspaceFilterSet): void {
     this.years.set(years);
-    const configuredTerms = terms.filter((term) => term === 'hk1' || term === 'hk2');
-    const availableTerms: string[] = configuredTerms.length ? configuredTerms : ['hk1', 'hk2'];
+    const availableTerms = terms;
     this.terms.set(availableTerms);
 
     this.selectedYear = years.includes(filters.year) ? filters.year : years[0] ?? '';
@@ -358,6 +357,12 @@ export class DashboardComponent implements OnInit {
 
   formatYear(year: string): string {
     return year.replace('-', '–');
+  }
+
+  termLabel(term: string): string {
+    const key = `dashboard.period.term.${term}`;
+    const translated = this.languageService.t(key);
+    return translated === key ? term : translated;
   }
 
   atRiskSub(): string {

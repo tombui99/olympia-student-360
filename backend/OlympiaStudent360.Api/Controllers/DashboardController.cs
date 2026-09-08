@@ -45,51 +45,75 @@ public class DashboardController : ControllerBase
     public async Task<ActionResult<DashboardFilterOptionsDto>> FilterOptions()
     {
         var students = VisibleStudents();
-        var periods = _context.AcademicPeriods.AsNoTracking();
 
         // Academic years / terms / subjects are sourced from the real data (Canvas warehouse,
         // academic periods and the imported student records) — not the legacy demo metrics.
-        // "Measurement cycle" has no Canvas equivalent and is intentionally left empty.
-        var canvasYears = _context.CanvasCourseScores
-            .Where(s => s.Enrollment!.Course!.EnrollmentTermName != null)
-            .Select(s => s.Enrollment!.Course!.EnrollmentTermName!);
-        var behaviourYears = _context.StudentBehaviours.Where(b => b.AcademicYear != null).Select(b => b.AcademicYear!);
-        var projectYears = _context.StudentProjects.Where(p => p.AcademicYear != null).Select(p => p.AcademicYear!);
-        var healthYears = _context.StudentMentalHealthRecords.Select(m => m.AcademicYear);
-        var busYears = _context.StudentBusAttendanceRecords.Where(b => b.AcademicYear != null).Select(b => b.AcademicYear!);
+        // Source-system aliases are normalized after loading so labels such as
+        // "Năm học 25-26 THCS G6-8" and "2025-2026" become one selectable year.
+        // Measurement cycles come from the imported/observation sources that actually store them.
+        var academicYears = (await AcademicYearValues().Distinct().ToListAsync())
+            .Select(DashboardPeriodNormalizer.AcademicYear)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(DashboardPeriodNormalizer.AcademicYearStart)
+            .ThenByDescending(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var terms = (await TermValues().Distinct().ToListAsync())
+            .Select(DashboardPeriodNormalizer.Term)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var reportableCanvasSubjects = _context.CanvasCourseScores
+            .Where(item => item.StudentProfileId != null && item.Enrollment!.Course!.Name != null)
+            .Select(item => item.Enrollment!.Course!.Name!)
+            .Concat(_context.CanvasSubmissions
+                .Where(item => item.StudentProfileId != null && item.Assignment!.Course!.Name != null)
+                .Select(item => item.Assignment!.Course!.Name!));
 
         var result = new DashboardFilterOptionsDto
         {
-            AcademicYears = await periods.Select(p => p.AcademicYear)
-                .Concat(canvasYears).Concat(behaviourYears).Concat(projectYears).Concat(healthYears).Concat(busYears)
-                .Distinct().OrderByDescending(value => value).ToListAsync(),
-            Terms = await periods.Select(p => p.Term)
-                .Concat(_context.CanvasCourseScores
-                    .Where(s => s.GradingPeriodTitle != null).Select(s => s.GradingPeriodTitle!))
-                .Concat(_context.StudentBehaviours.Where(b => b.Term != null).Select(b => b.Term!))
-                .Concat(_context.StudentProjects.Where(p => p.Term != null).Select(p => p.Term!))
-                .Concat(_context.StudentBusAttendanceRecords.Where(b => b.Term != null).Select(b => b.Term!))
-                .Distinct().OrderBy(value => value).ToListAsync(),
-            Campuses = await students.Where(s => s.Campus != null).Select(s => s.Campus!)
-                .Distinct().OrderBy(value => value).ToListAsync(),
-            EducationLevels = await students.Where(s => s.EducationLevel != null).Select(s => s.EducationLevel!)
-                .Distinct().OrderBy(value => value).ToListAsync(),
-            GradeLevels = await students.Where(s => s.GradeLevel != null).Select(s => s.GradeLevel!)
-                .Distinct().OrderBy(value => value).ToListAsync(),
-            Homerooms = await students.Where(s => s.Homeroom != null).Select(s => s.Homeroom!)
-                .Distinct().OrderBy(value => value).ToListAsync(),
+            AcademicYears = academicYears,
+            Terms = terms,
+            Campuses = CleanOptions(await students.Where(item => item.Campus != null).Select(item => item.Campus!)
+                .Concat(_context.DashboardMetricObservations.Where(item => item.Campus != null)
+                    .Select(item => item.Campus!)).Distinct().ToListAsync()),
+            EducationLevels = CleanOptions(await students.Where(item => item.EducationLevel != null)
+                .Select(item => item.EducationLevel!)
+                .Concat(_context.DashboardMetricObservations.Where(item => item.EducationLevel != null)
+                    .Select(item => item.EducationLevel!)).Distinct().ToListAsync()),
+            GradeLevels = CleanOptions(await students.Where(item => item.GradeLevel != null)
+                .Select(item => item.GradeLevel!)
+                .Concat(_context.DashboardMetricObservations.Where(item => item.GradeLevel != null)
+                    .Select(item => item.GradeLevel!)).Distinct().ToListAsync()),
+            Homerooms = CleanOptions(await students.Where(item => item.Homeroom != null)
+                .Select(item => item.Homeroom!)
+                .Concat(_context.DashboardMetricObservations.Where(item => item.Homeroom != null)
+                    .Select(item => item.Homeroom!)).Distinct().ToListAsync()),
             Students = await students.OrderBy(s => s.FullName).Select(s => new DashboardStudentOptionDto
             {
                 Id = s.Id, SISUserId = s.SISUserId, FullName = s.FullName,
-                GradeLevel = s.GradeLevel, Homeroom = s.Homeroom
+                Campus = s.Campus, EducationLevel = s.EducationLevel,
+                GradeLevel = s.GradeLevel, Homeroom = s.Homeroom, Program = s.Program
             }).ToListAsync(),
-            Programs = await students.Where(s => s.Program != null).Select(s => s.Program!)
-                .Distinct().OrderBy(value => value).ToListAsync(),
-            Subjects = await _context.CanvasCourses
-                .Where(c => c.Name != null).Select(c => c.Name!)
+            MeasurementCycles = CleanOptions(await _context.DashboardMetricObservations
+                .Where(item => item.MeasurementCycle != null).Select(item => item.MeasurementCycle!)
+                .Concat(_context.StudentBehaviours.Where(item => item.MeasurementCycle != null)
+                    .Select(item => item.MeasurementCycle!))
+                .Concat(_context.StudentProjects.Where(item => item.MeasurementCycle != null)
+                    .Select(item => item.MeasurementCycle!)).Distinct().ToListAsync()),
+            Programs = CleanOptions(await students.Where(item => item.Program != null).Select(item => item.Program!)
+                .Concat(_context.DashboardMetricObservations.Where(item => item.Program != null)
+                    .Select(item => item.Program!))
+                .Concat(_context.StudentBehaviours.Where(item => item.Program != null)
+                    .Select(item => item.Program!))
+                .Concat(_context.StudentProjects.Where(item => item.Program != null)
+                    .Select(item => item.Program!)).Distinct().ToListAsync()),
+            Subjects = CleanOptions(await reportableCanvasSubjects
                 .Concat(_context.StudentProjects.Where(p => p.Subject != null).Select(p => p.Subject!))
                 .Concat(_context.StudentBehaviours.Where(b => b.Subject != null).Select(b => b.Subject!))
-                .Distinct().OrderBy(value => value).ToListAsync()
+                .Concat(_context.DashboardMetricObservations.Where(item => item.Subject != null)
+                    .Select(item => item.Subject!)).Distinct().ToListAsync())
         };
         return Ok(result);
     }
@@ -113,8 +137,8 @@ public class DashboardController : ControllerBase
             preference = new DashboardPreference { UserId = userId };
             _context.DashboardPreferences.Add(preference);
         }
-        preference.AcademicYear = Clean(model.AcademicYear);
-        preference.Term = Clean(model.Term);
+        preference.AcademicYear = NormalizeAcademicYear(model.AcademicYear);
+        preference.Term = NormalizeTerm(model.Term);
         preference.MeasurementCycle = Clean(model.MeasurementCycle);
         preference.Campus = Clean(model.Campus);
         preference.EducationLevel = Clean(model.EducationLevel);
@@ -135,10 +159,12 @@ public class DashboardController : ControllerBase
         [FromQuery] string? homeroom, [FromQuery] int? studentId,
         [FromQuery] string? program, [FromQuery] string? subject)
     {
+        var yearAliases = await AcademicYearAliases(year);
+        var termAliases = await TermAliases(term);
         var query = _context.DashboardMetricObservations.AsNoTracking()
             .Include(o => o.Metric).Where(o => o.Metric.IsActive);
-        query = Apply(query, o => o.AcademicYear, year);
-        query = Apply(query, o => o.Term, term);
+        query = Apply(query, o => o.AcademicYear, yearAliases);
+        query = Apply(query, o => o.Term, termAliases);
         query = Apply(query, o => o.MeasurementCycle, cycle);
         query = Apply(query, o => o.Campus, campus);
         query = Apply(query, o => o.EducationLevel, level);
@@ -177,9 +203,11 @@ public class DashboardController : ControllerBase
         }).ToList();
 
         result.AddRange(await ImportedDataMetrics(
-            year, term, cycle, campus, level, grade, homeroom, studentId, program, subject));
+            year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
+            yearAliases, termAliases));
         result.AddRange(await CanvasDataMetrics(
-            year, term, cycle, campus, level, grade, homeroom, studentId, program, subject));
+            year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
+            yearAliases, termAliases));
         result = result
             .OrderBy(metric => metric.Category)
             .ThenBy(metric => metric.Label)
@@ -226,6 +254,8 @@ public class DashboardController : ControllerBase
         {
             selectedPeriod = await ResolvePeriod(year, term, DateTime.UtcNow);
         }
+        var yearAliases = await AcademicYearAliases(year);
+        var termAliases = await TermAliases(term);
 
         var samples = new List<MetricSample>();
         var aggregation = "count";
@@ -234,15 +264,16 @@ public class DashboardController : ControllerBase
         // ---- Behaviour, project and health metrics (imported warehouse data) ----
         if (metricId is "behaviour-records" or "concern-behaviour-records" or "commendation-records")
         {
-            var query = FilterBehaviours(campus, level, grade, homeroom, program, subject, year, term)
+            var query = FilterBehaviours(campus, level, grade, homeroom, program, subject,
+                    yearAliases, termAliases)
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
             if (HasFilter(cycle)) query = query.Where(item => item.MeasurementCycle == cycle);
             if (hasYear && selectedPeriod.HasValue)
-                query = query.Where(item => item.AcademicYear == year ||
+                query = query.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
                     (item.AcademicYear == null && item.IncidentDate >= selectedPeriod.Value.Start &&
                      item.IncidentDate < selectedPeriod.Value.End));
             if (hasTerm && selectedPeriod.HasValue)
-                query = query.Where(item => item.Term == term ||
+                query = query.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
                     (item.Term == null && item.IncidentDate >= selectedPeriod.Value.Start &&
                      item.IncidentDate < selectedPeriod.Value.End));
             if (monthStart.HasValue)
@@ -266,15 +297,16 @@ public class DashboardController : ControllerBase
         }
         else if (metricId is "project-records" or "active-project-records")
         {
-            var query = FilterProjects(campus, level, grade, homeroom, program, subject, year, term)
+            var query = FilterProjects(campus, level, grade, homeroom, program, subject,
+                    yearAliases, termAliases)
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
             if (HasFilter(cycle)) query = query.Where(item => item.MeasurementCycle == cycle);
             if (hasYear && selectedPeriod.HasValue)
-                query = query.Where(item => item.AcademicYear == year ||
+                query = query.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
                     (item.AcademicYear == null && (item.ActivityDate ?? item.CreatedAt) >= selectedPeriod.Value.Start &&
                      (item.ActivityDate ?? item.CreatedAt) < selectedPeriod.Value.End));
             if (hasTerm && selectedPeriod.HasValue)
-                query = query.Where(item => item.Term == term ||
+                query = query.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
                     (item.Term == null && (item.ActivityDate ?? item.CreatedAt) >= selectedPeriod.Value.Start &&
                      (item.ActivityDate ?? item.CreatedAt) < selectedPeriod.Value.End));
             if (monthStart.HasValue)
@@ -300,7 +332,7 @@ public class DashboardController : ControllerBase
             }
             var query = FilterMentalHealth(campus, level, grade, homeroom, program, null)
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
-            if (hasYear) query = query.Where(item => item.AcademicYear == year);
+            if (hasYear) query = query.Where(item => yearAliases.Contains(item.AcademicYear));
             if (hasTerm && selectedPeriod.HasValue)
                 query = query.Where(item => item.RecordDate >= selectedPeriod.Value.Start &&
                     item.RecordDate < selectedPeriod.Value.End);
@@ -347,14 +379,15 @@ public class DashboardController : ControllerBase
             {
                 return Ok(EmptyDrilldown(metricId));
             }
-            var query = FilterBusAttendance(campus, level, grade, homeroom, program, year, term)
+            var query = FilterBusAttendance(campus, level, grade, homeroom, program,
+                    yearAliases, termAliases)
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
             if (hasYear && selectedPeriod.HasValue)
-                query = query.Where(item => item.AcademicYear == year ||
+                query = query.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
                     (item.AcademicYear == null && item.AttendanceDate >= selectedPeriod.Value.Start &&
                      item.AttendanceDate < selectedPeriod.Value.End));
             if (hasTerm && selectedPeriod.HasValue)
-                query = query.Where(item => item.Term == term ||
+                query = query.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
                     (item.Term == null && item.AttendanceDate >= selectedPeriod.Value.Start &&
                      item.AttendanceDate < selectedPeriod.Value.End));
             if (monthStart.HasValue)
@@ -383,7 +416,8 @@ public class DashboardController : ControllerBase
             {
                 return Ok(EmptyDrilldown(metricId));
             }
-            var query = FilterCanvasSubmissions(campus, level, grade, homeroom, program, subject, year, term)
+            var query = FilterCanvasSubmissions(campus, level, grade, homeroom, program, subject,
+                    yearAliases, hasTerm ? selectedPeriod : null)
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
             if (monthStart.HasValue)
             {
@@ -456,7 +490,8 @@ public class DashboardController : ControllerBase
             }
             aggregation = "average";
             unit = "%";
-            var rows = await FilterCanvasScores(campus, level, grade, homeroom, program, subject, year, term)
+            var rows = await FilterCanvasScores(campus, level, grade, homeroom, program, subject,
+                    yearAliases, termAliases)
                 .Where(item => studentId == null || item.StudentProfileId == studentId)
                 .Where(item => !monthStart.HasValue ||
                     (item.GradingPeriodEndDate >= monthStart.Value &&
@@ -482,8 +517,8 @@ public class DashboardController : ControllerBase
             var query = _context.DashboardMetricObservations.AsNoTracking()
                 .Include(o => o.Metric)
                 .Where(o => o.Metric.Key == metricId && o.StudentProfileId != null);
-            query = Apply(query, o => o.AcademicYear, year);
-            query = Apply(query, o => o.Term, term);
+            query = Apply(query, o => o.AcademicYear, yearAliases);
+            query = Apply(query, o => o.Term, termAliases);
             query = Apply(query, o => o.MeasurementCycle, cycle);
             query = Apply(query, o => o.Campus, campus);
             query = Apply(query, o => o.EducationLevel, level);
@@ -620,7 +655,8 @@ public class DashboardController : ControllerBase
 
     private IQueryable<StudentBehaviour> FilterBehaviours(
         string? campus, string? level, string? grade, string? homeroom,
-        string? program, string? subject, string? year, string? term)
+        string? program, string? subject, IReadOnlyCollection<string> yearAliases,
+        IReadOnlyCollection<string> termAliases)
     {
         var query = _context.StudentBehaviours.AsNoTracking().AsQueryable();
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
@@ -631,14 +667,17 @@ public class DashboardController : ControllerBase
             query = query.Where(item => item.Program == program ||
                 (item.Program == null && item.Student.Program == program));
         if (HasFilter(subject)) query = query.Where(item => item.Subject == subject);
-        if (HasFilter(year)) query = query.Where(item => item.AcademicYear == null || item.AcademicYear == year);
-        if (HasFilter(term)) query = query.Where(item => item.Term == null || item.Term == term);
+        if (yearAliases.Count > 0)
+            query = query.Where(item => item.AcademicYear == null || yearAliases.Contains(item.AcademicYear));
+        if (termAliases.Count > 0)
+            query = query.Where(item => item.Term == null || termAliases.Contains(item.Term));
         return query;
     }
 
     private IQueryable<StudentProject> FilterProjects(
         string? campus, string? level, string? grade, string? homeroom,
-        string? program, string? subject, string? year, string? term)
+        string? program, string? subject, IReadOnlyCollection<string> yearAliases,
+        IReadOnlyCollection<string> termAliases)
     {
         var query = _context.StudentProjects.AsNoTracking().AsQueryable();
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
@@ -649,8 +688,10 @@ public class DashboardController : ControllerBase
             query = query.Where(item => item.Program == program ||
                 (item.Program == null && item.Student.Program == program));
         if (HasFilter(subject)) query = query.Where(item => item.Subject == subject);
-        if (HasFilter(year)) query = query.Where(item => item.AcademicYear == null || item.AcademicYear == year);
-        if (HasFilter(term)) query = query.Where(item => item.Term == null || item.Term == term);
+        if (yearAliases.Count > 0)
+            query = query.Where(item => item.AcademicYear == null || yearAliases.Contains(item.AcademicYear));
+        if (termAliases.Count > 0)
+            query = query.Where(item => item.Term == null || termAliases.Contains(item.Term));
         return query;
     }
 
@@ -686,7 +727,8 @@ public class DashboardController : ControllerBase
 
     private IQueryable<StudentBusAttendanceRecord> FilterBusAttendance(
         string? campus, string? level, string? grade, string? homeroom,
-        string? program, string? year, string? term)
+        string? program, IReadOnlyCollection<string> yearAliases,
+        IReadOnlyCollection<string> termAliases)
     {
         var query = _context.StudentBusAttendanceRecords.AsNoTracking().AsQueryable();
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
@@ -694,8 +736,10 @@ public class DashboardController : ControllerBase
         if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student.Program == program);
-        if (HasFilter(year)) query = query.Where(item => item.AcademicYear == null || item.AcademicYear == year);
-        if (HasFilter(term)) query = query.Where(item => item.Term == null || item.Term == term);
+        if (yearAliases.Count > 0)
+            query = query.Where(item => item.AcademicYear == null || yearAliases.Contains(item.AcademicYear));
+        if (termAliases.Count > 0)
+            query = query.Where(item => item.Term == null || termAliases.Contains(item.Term));
         return query;
     }
 
@@ -715,7 +759,8 @@ public class DashboardController : ControllerBase
 
     private IQueryable<CanvasSubmission> FilterCanvasSubmissions(
         string? campus, string? level, string? grade, string? homeroom,
-        string? program, string? subject, string? year, string? term)
+        string? program, string? subject, IReadOnlyCollection<string> yearAliases,
+        (string Year, string Term, DateTime Start, DateTime End)? period)
     {
         var query = _context.CanvasSubmissions.AsNoTracking().Where(item => item.StudentProfileId != null);
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
@@ -724,14 +769,19 @@ public class DashboardController : ControllerBase
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Assignment!.Course!.Name == subject);
-        if (HasFilter(year)) query = query.Where(item => item.Assignment!.Course!.EnrollmentTermName == year);
-        if (HasFilter(term)) query = query.Where(item => item.Assignment!.Course!.EnrollmentTermName == term);
+        if (yearAliases.Count > 0)
+            query = query.Where(item => yearAliases.Contains(item.Assignment!.Course!.EnrollmentTermName!));
+        if (period.HasValue)
+            query = query.Where(item =>
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= period.Value.Start &&
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) < period.Value.End);
         return query;
     }
 
     private IQueryable<CanvasCourseScore> FilterCanvasScores(
         string? campus, string? level, string? grade, string? homeroom,
-        string? program, string? subject, string? year, string? term)
+        string? program, string? subject, IReadOnlyCollection<string> yearAliases,
+        IReadOnlyCollection<string> termAliases)
     {
         var query = _context.CanvasCourseScores.AsNoTracking()
             .Where(item => item.StudentProfileId != null);
@@ -741,15 +791,18 @@ public class DashboardController : ControllerBase
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Enrollment!.Course!.Name == subject);
-        if (HasFilter(year)) query = query.Where(item => item.Enrollment!.Course!.EnrollmentTermName == year);
-        if (HasFilter(term)) query = query.Where(item =>
-            (item.GradingPeriodTitle ?? item.Enrollment!.Course!.EnrollmentTermName) == term);
+        if (yearAliases.Count > 0)
+            query = query.Where(item => yearAliases.Contains(item.Enrollment!.Course!.EnrollmentTermName!));
+        if (termAliases.Count > 0)
+            query = query.Where(item => item.GradingPeriodTitle != null &&
+                termAliases.Contains(item.GradingPeriodTitle));
         return query;
     }
 
     private async Task<List<DashboardMetricDto>> ImportedDataMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
-        string? homeroom, int? studentId, string? program, string? subject)
+        string? homeroom, int? studentId, string? program, string? subject,
+        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases)
     {
         var behaviours = _context.StudentBehaviours.AsNoTracking().AsQueryable();
         var projects = _context.StudentProjects.AsNoTracking().AsQueryable();
@@ -835,32 +888,30 @@ public class DashboardController : ControllerBase
         }
         if (hasYear && period.HasValue)
         {
-            var selectedYear = year!;
             var start = period.Value.Start;
             var end = period.Value.End;
-            behaviours = behaviours.Where(item => item.AcademicYear == selectedYear ||
+            behaviours = behaviours.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
                 (item.AcademicYear == null && item.IncidentDate >= start && item.IncidentDate < end));
-            projects = projects.Where(item => item.AcademicYear == selectedYear ||
+            projects = projects.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
                 (item.AcademicYear == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
                  (item.ActivityDate ?? item.CreatedAt) < end));
-            mentalHealth = mentalHealth.Where(item => item.AcademicYear == selectedYear);
+            mentalHealth = mentalHealth.Where(item => yearAliases.Contains(item.AcademicYear));
             healthVisits = healthVisits.Where(item => item.ExamTime >= start && item.ExamTime < end);
-            busRecords = busRecords.Where(item => item.AcademicYear == selectedYear ||
+            busRecords = busRecords.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
                 (item.AcademicYear == null && item.AttendanceDate >= start && item.AttendanceDate < end));
         }
         if (hasTerm && period.HasValue)
         {
-            var selectedTerm = term!;
             var start = period.Value.Start;
             var end = period.Value.End;
-            behaviours = behaviours.Where(item => item.Term == selectedTerm ||
+            behaviours = behaviours.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
                 (item.Term == null && item.IncidentDate >= start && item.IncidentDate < end));
-            projects = projects.Where(item => item.Term == selectedTerm ||
+            projects = projects.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
                 (item.Term == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
                  (item.ActivityDate ?? item.CreatedAt) < end));
             mentalHealth = mentalHealth.Where(item => item.RecordDate >= start && item.RecordDate < end);
             healthVisits = healthVisits.Where(item => item.ExamTime >= start && item.ExamTime < end);
-            busRecords = busRecords.Where(item => item.Term == selectedTerm ||
+            busRecords = busRecords.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
                 (item.Term == null && item.AttendanceDate >= start && item.AttendanceDate < end));
         }
 
@@ -922,7 +973,8 @@ public class DashboardController : ControllerBase
     /// </summary>
     private async Task<List<DashboardMetricDto>> CanvasDataMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
-        string? homeroom, int? studentId, string? program, string? subject)
+        string? homeroom, int? studentId, string? program, string? subject,
+        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases)
     {
         // Canvas records carry no measurement cycle, so a cycle-scoped report has no Canvas rows.
         if (HasFilter(cycle))
@@ -972,14 +1024,17 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(year))
         {
-            submissions = submissions.Where(item => item.Assignment!.Course!.EnrollmentTermName == year);
-            scores = scores.Where(item => item.Enrollment!.Course!.EnrollmentTermName == year);
+            submissions = submissions.Where(item => yearAliases.Contains(item.Assignment!.Course!.EnrollmentTermName!));
+            scores = scores.Where(item => yearAliases.Contains(item.Enrollment!.Course!.EnrollmentTermName!));
         }
         if (HasFilter(term))
         {
-            submissions = submissions.Where(item => item.Assignment!.Course!.EnrollmentTermName == term);
-            scores = scores.Where(item =>
-                (item.GradingPeriodTitle ?? item.Enrollment!.Course!.EnrollmentTermName) == term);
+            var period = await ResolvePeriod(year, term, DateTime.UtcNow);
+            submissions = submissions.Where(item =>
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= period.Start &&
+                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) < period.End);
+            scores = scores.Where(item => item.GradingPeriodTitle != null &&
+                termAliases.Contains(item.GradingPeriodTitle));
         }
 
         var submissionRows = await submissions.Select(item => new
@@ -1291,14 +1346,27 @@ public class DashboardController : ControllerBase
     private async Task<(string Year, string Term, DateTime Start, DateTime End)> ResolvePeriod(
         string? year, string? term, DateTime now)
     {
-        var storedPeriods = _context.AcademicPeriods.AsNoTracking().AsQueryable();
-        if (!string.IsNullOrWhiteSpace(year)) storedPeriods = storedPeriods.Where(p => p.AcademicYear == year);
-        if (!string.IsNullOrWhiteSpace(term) && term != "all") storedPeriods = storedPeriods.Where(p => p.Term == term);
-        var configured = await storedPeriods.OrderByDescending(p => p.IsCurrent).ThenBy(p => p.StartDate).ToListAsync();
+        var normalizedYear = HasFilter(year) ? DashboardPeriodNormalizer.AcademicYear(year!) : null;
+        var normalizedTerm = HasFilter(term) ? DashboardPeriodNormalizer.Term(term!) : null;
+        var configured = (await _context.AcademicPeriods.AsNoTracking().ToListAsync())
+            .Where(period => normalizedYear == null || DashboardPeriodNormalizer.AcademicYear(period.AcademicYear)
+                .Equals(normalizedYear, StringComparison.OrdinalIgnoreCase))
+            .Where(period => normalizedTerm == null || DashboardPeriodNormalizer.Term(period.Term)
+                .Equals(normalizedTerm, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(period => period.IsCurrent)
+            .ThenByDescending(period => period.StartDate)
+            .ToList();
         if (configured.Count > 0)
         {
-            return (configured[0].AcademicYear, string.IsNullOrWhiteSpace(term) ? "all" : term,
-                configured.Min(p => p.StartDate), configured.Max(p => p.EndDate));
+            var selected = configured[0];
+            var selectedYear = DashboardPeriodNormalizer.AcademicYear(selected.AcademicYear);
+            var selectedYearPeriods = normalizedTerm == null
+                ? configured.Where(period => DashboardPeriodNormalizer.AcademicYear(period.AcademicYear)
+                    .Equals(selectedYear, StringComparison.OrdinalIgnoreCase)).ToList()
+                : [selected];
+            return (selectedYear, normalizedTerm ?? "all",
+                selectedYearPeriods.Min(period => period.StartDate),
+                selectedYearPeriods.Max(period => period.EndDate));
         }
 
         // School year runs August–July. Default to the year that contains "now".
@@ -1312,12 +1380,7 @@ public class DashboardController : ControllerBase
             }
         }
 
-        var normalizedTerm = term switch
-        {
-            "hk1" => "hk1",
-            "hk2" => "hk2",
-            _ => "all"
-        };
+        normalizedTerm = normalizedTerm is "hk1" or "hk2" ? normalizedTerm : "all";
 
         var (start, end) = normalizedTerm switch
         {
@@ -1332,14 +1395,18 @@ public class DashboardController : ControllerBase
     private static bool InPeriod(StudentBehaviour item, (string Year, string Term, DateTime Start, DateTime End) period)
     {
         if (!string.IsNullOrWhiteSpace(item.AcademicYear))
-            return item.AcademicYear == period.Year && (period.Term == "all" || item.Term == period.Term);
+            return DashboardPeriodNormalizer.AcademicYear(item.AcademicYear) == period.Year &&
+                (period.Term == "all" || (!string.IsNullOrWhiteSpace(item.Term) &&
+                    DashboardPeriodNormalizer.Term(item.Term) == period.Term));
         return item.IncidentDate >= period.Start && item.IncidentDate < period.End;
     }
 
     private static bool InPeriod(StudentProject item, (string Year, string Term, DateTime Start, DateTime End) period)
     {
         if (!string.IsNullOrWhiteSpace(item.AcademicYear))
-            return item.AcademicYear == period.Year && (period.Term == "all" || item.Term == period.Term);
+            return DashboardPeriodNormalizer.AcademicYear(item.AcademicYear) == period.Year &&
+                (period.Term == "all" || (!string.IsNullOrWhiteSpace(item.Term) &&
+                    DashboardPeriodNormalizer.Term(item.Term) == period.Term));
         var date = item.ActivityDate ?? item.CreatedAt;
         return date >= period.Start && date < period.End;
     }
@@ -1395,6 +1462,65 @@ public class DashboardController : ControllerBase
     private IQueryable<StudentProfile> VisibleStudents()
         => _context.StudentProfiles.AsNoTracking();
 
+    private static List<string> CleanOptions(IEnumerable<string> values) =>
+        values.Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IQueryable<string> AcademicYearValues() =>
+        _context.AcademicPeriods.AsNoTracking().Select(item => item.AcademicYear)
+            .Concat(_context.DashboardMetricObservations.Where(item => item.AcademicYear != null)
+                .Select(item => item.AcademicYear!))
+            .Concat(_context.CanvasCourses.Where(item => item.EnrollmentTermName != null)
+                .Select(item => item.EnrollmentTermName!))
+            .Concat(_context.StudentBehaviours.Where(item => item.AcademicYear != null)
+                .Select(item => item.AcademicYear!))
+            .Concat(_context.StudentProjects.Where(item => item.AcademicYear != null)
+                .Select(item => item.AcademicYear!))
+            .Concat(_context.StudentMentalHealthRecords.Select(item => item.AcademicYear))
+            .Concat(_context.StudentBusAttendanceRecords.Where(item => item.AcademicYear != null)
+                .Select(item => item.AcademicYear!));
+
+    private IQueryable<string> TermValues() =>
+        _context.AcademicPeriods.AsNoTracking().Select(item => item.Term)
+            .Concat(_context.DashboardMetricObservations.Where(item => item.Term != null)
+                .Select(item => item.Term!))
+            .Concat(_context.CanvasCourseScores.Where(item => item.GradingPeriodTitle != null)
+                .Select(item => item.GradingPeriodTitle!))
+            .Concat(_context.StudentBehaviours.Where(item => item.Term != null)
+                .Select(item => item.Term!))
+            .Concat(_context.StudentProjects.Where(item => item.Term != null)
+                .Select(item => item.Term!))
+            .Concat(_context.StudentBusAttendanceRecords.Where(item => item.Term != null)
+                .Select(item => item.Term!));
+
+    private async Task<List<string>> AcademicYearAliases(string? selected)
+    {
+        if (!HasFilter(selected)) return [];
+        var normalized = DashboardPeriodNormalizer.AcademicYear(selected!);
+        var aliases = (await AcademicYearValues().Distinct().ToListAsync())
+            .Where(value => DashboardPeriodNormalizer.AcademicYear(value)
+                .Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (aliases.Count == 0) aliases.Add(selected!);
+        return aliases;
+    }
+
+    private async Task<List<string>> TermAliases(string? selected)
+    {
+        if (!HasFilter(selected)) return [];
+        var normalized = DashboardPeriodNormalizer.Term(selected!);
+        var aliases = (await TermValues().Distinct().ToListAsync())
+            .Where(value => DashboardPeriodNormalizer.Term(value)
+                .Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (aliases.Count == 0) aliases.Add(selected!);
+        return aliases;
+    }
+
     private static IQueryable<DashboardMetricObservation> Apply(
         IQueryable<DashboardMetricObservation> query,
         System.Linq.Expressions.Expression<Func<DashboardMetricObservation, string?>> selector,
@@ -1402,6 +1528,24 @@ public class DashboardController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(value) || value == "all") return query;
         return query.Where(BuildEquality(selector, value));
+    }
+
+    private static IQueryable<DashboardMetricObservation> Apply(
+        IQueryable<DashboardMetricObservation> query,
+        System.Linq.Expressions.Expression<Func<DashboardMetricObservation, string?>> selector,
+        IReadOnlyCollection<string> values)
+    {
+        if (values.Count == 0) return query;
+        System.Linq.Expressions.Expression? body = null;
+        foreach (var value in values)
+        {
+            var equality = System.Linq.Expressions.Expression.Equal(selector.Body,
+                System.Linq.Expressions.Expression.Constant(value, typeof(string)));
+            body = body == null ? equality : System.Linq.Expressions.Expression.OrElse(body, equality);
+        }
+        var predicate = System.Linq.Expressions.Expression.Lambda<Func<DashboardMetricObservation, bool>>(
+            body!, selector.Parameters);
+        return query.Where(predicate);
     }
 
     private static System.Linq.Expressions.Expression<Func<DashboardMetricObservation, bool>> BuildEquality(
@@ -1414,11 +1558,18 @@ public class DashboardController : ControllerBase
 
     private static DashboardPreferenceDto ToPreferenceDto(DashboardPreference item) => new()
     {
-        AcademicYear = item.AcademicYear, Term = item.Term, MeasurementCycle = item.MeasurementCycle,
+        AcademicYear = NormalizeAcademicYear(item.AcademicYear), Term = NormalizeTerm(item.Term),
+        MeasurementCycle = item.MeasurementCycle,
         Campus = item.Campus, EducationLevel = item.EducationLevel, GradeLevel = item.GradeLevel,
         Homeroom = item.Homeroom, StudentProfileId = item.StudentProfileId,
         Program = item.Program, Subject = item.Subject
     };
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? NormalizeAcademicYear(string? value) =>
+        Clean(value) is { } cleaned ? DashboardPeriodNormalizer.AcademicYear(cleaned) : null;
+
+    private static string? NormalizeTerm(string? value) =>
+        Clean(value) is { } cleaned ? DashboardPeriodNormalizer.Term(cleaned) : null;
 }
