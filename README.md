@@ -198,15 +198,15 @@ when it is absent, the workflow reads the connection already configured on App R
 
 ```txt
 Secrets:
-CANVAS_BASE_URL                 https://your-school.instructure.com
 CANVAS_ACCESS_TOKEN             Canvas API token with account/course grade access
-CANVAS_ACCOUNT_ID               Canvas root account id (often 1; verify in your instance)
 AWS_DEPLOY_ROLE_ARN             Existing deployment role used by the backend workflow
 OLYMPIA_RDS_CONNECTION_STRING   Optional direct override
 
 Variables:
 AWS_REGION
 APP_RUNNER_SERVICE_ARN
+CANVAS_BASE_URL                 Optional; defaults to Olympia's Canvas host
+CANVAS_ACCOUNT_ID               Optional; defaults to Olympia's root account 1
 ```
 
 Run `.github/workflows/sync-canvas-all.yml` manually once for the initial import. Olympia's workflow

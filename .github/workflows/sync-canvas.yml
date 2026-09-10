@@ -23,9 +23,9 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       APP_RUNNER_SERVICE_ARN: ${{ vars.APP_RUNNER_SERVICE_ARN }}
-      Canvas__BaseUrl: ${{ secrets.CANVAS_BASE_URL }}
+      Canvas__BaseUrl: ${{ vars.CANVAS_BASE_URL || secrets.CANVAS_BASE_URL || 'https://lms.theolympiaschools.edu.vn' }}
       Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
-      Canvas__AccountId: ${{ secrets.CANVAS_ACCOUNT_ID }}
+      Canvas__AccountId: ${{ vars.CANVAS_ACCOUNT_ID || secrets.CANVAS_ACCOUNT_ID || '1' }}
       Canvas__EnrollmentTermIds: "333,334,335,336,337,338,339,340"
       Canvas__WatermarkOverlapMinutes: "120"
       Canvas__CreateMissingStudentProfiles: "true"
@@ -76,10 +76,17 @@ jobs:
           echo "::add-mask::$connection_string"
           echo "ConnectionStrings__DefaultConnection=$connection_string" >> "$GITHUB_ENV"
 
-      - name: Verify direct RDS configuration
+      - name: Verify Canvas and direct RDS configuration
         run: |
+          missing=()
+          if [ -z "$Canvas__BaseUrl" ]; then missing+=("Canvas base URL"); fi
+          if [ -z "$Canvas__AccessToken" ]; then missing+=("production secret CANVAS_ACCESS_TOKEN"); fi
+          if [ -z "$Canvas__AccountId" ]; then missing+=("Canvas account id"); fi
           if [ -z "$ConnectionStrings__DefaultConnection" ]; then
-            echo "Unable to resolve the production database connection."
+            missing+=("production database connection")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Unable to start Canvas sync; unresolved configuration: %s\n' "$(IFS=', '; echo "${missing[*]}")"
             exit 1
           fi
 

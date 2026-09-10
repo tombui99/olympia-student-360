@@ -298,15 +298,15 @@ final record counts but should never include either secret.
 
 ```text
 Secrets:
-CANVAS_BASE_URL
 CANVAS_ACCESS_TOKEN
-CANVAS_ACCOUNT_ID
 AWS_DEPLOY_ROLE_ARN
 OLYMPIA_RDS_CONNECTION_STRING (optional direct override)
 
 Variables:
 AWS_REGION
 APP_RUNNER_SERVICE_ARN
+CANVAS_BASE_URL (optional; defaults to Olympia's Canvas host)
+CANVAS_ACCOUNT_ID (optional; defaults to Olympia's root account 1)
 ```
 
 When `OLYMPIA_RDS_CONNECTION_STRING` is absent, the workflow assumes `AWS_DEPLOY_ROLE_ARN` and
