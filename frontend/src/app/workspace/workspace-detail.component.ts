@@ -1470,6 +1470,7 @@ export class WorkspaceDetailComponent implements OnInit {
   ngOnInit() {
     this.selectedReportId.set(this.route.snapshot.paramMap.get('workspaceId'));
     this.customReports.set(this.reportBuilderService.loadReports());
+    this.loadFilterOptions(this.selectedReport()?.serverId);
 
     this.reportBuilderService.loadRemoteReports()
       .pipe(timeout(this.workspaceRequestTimeoutMs))
@@ -1483,6 +1484,7 @@ export class WorkspaceDetailComponent implements OnInit {
           this.customReports.set(remoteReports);
           this.reportBuilderService.saveReports(remoteReports);
           const report = this.selectedReport();
+          this.loadFilterOptions(report?.serverId);
           if (!report?.serverId) {
             this.filters.set(defaultFilterSet());
             this.chartOrder.set([]);
@@ -1513,16 +1515,30 @@ export class WorkspaceDetailComponent implements OnInit {
 
     this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
     this.reportBuilderService.loadExploreOptions().subscribe((options) => this.exploreOptions.set(options));
-    this.workspaceFilters.options().subscribe((options) => {
-      this.options.set(options);
-      this.filterOptionsLoaded = true;
-      if (this.reconcileFilters()) {
-        const workspaceId = this.selectedReport()?.serverId;
-        if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
-        if (this.selectedReport()) this.loadMetrics();
-      }
-    });
+  }
 
+  private loadedFilterOptionsFor: number | null | undefined = undefined;
+
+  private loadFilterOptions(reportId?: number): void {
+    const scope = reportId ?? null;
+    if (this.loadedFilterOptionsFor === scope) return;
+    this.loadedFilterOptionsFor = scope;
+    this.workspaceFilters.options(reportId).subscribe({
+      next: (options) => {
+        // Ignore a late unscoped response after the remote workspace has been resolved.
+        if (this.loadedFilterOptionsFor !== scope) return;
+        this.options.set(options);
+        this.filterOptionsLoaded = true;
+        if (this.reconcileFilters()) {
+          const workspaceId = this.selectedReport()?.serverId;
+          if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
+          if (this.selectedReport()) this.loadMetrics();
+        }
+      },
+      error: () => {
+        if (this.loadedFilterOptionsFor === scope) this.filterOptionsLoaded = true;
+      },
+    });
   }
 
   setFilter(key: keyof WorkspaceFilterSet, value: string): void {

@@ -80,8 +80,10 @@ export class WorkspaceFiltersService {
   private preference: DashboardPreference = {};
   private workspacePreference: WorkspacePreference = { chartOrder: [] };
 
-  options(): Observable<WorkspaceFilterOptions> {
-    return this.http.get<WorkspaceFilterOptions>(`${this.basePath}/api/dashboard/filter-options`);
+  options(reportId?: number): Observable<WorkspaceFilterOptions> {
+    return this.http.get<WorkspaceFilterOptions>(`${this.basePath}/api/dashboard/filter-options`, {
+      params: reportId ? { reportId: String(reportId) } : {},
+    });
   }
 
   load(): Observable<WorkspaceFilterSet> {

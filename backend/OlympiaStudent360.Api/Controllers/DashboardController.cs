@@ -42,89 +42,261 @@ public class DashboardController : ControllerBase
     }
 
     [HttpGet("filter-options")]
-    public async Task<ActionResult<DashboardFilterOptionsDto>> FilterOptions()
+    public async Task<ActionResult<DashboardFilterOptionsDto>> FilterOptions([FromQuery] int? reportId)
     {
-        var students = VisibleStudents();
+        var canvasOnly = reportId.HasValue && await IsCanvasOnlyReport(reportId.Value);
+        // Only expose dimensions attached to rows that can contribute to a dashboard chart.
+        // Catalogue-only courses and placeholder-only students otherwise create selections that
+        // correctly match a database row but can never produce a chart value.
+        var canvasScoreStudentIds = _context.CanvasCourseScores.AsNoTracking()
+            .Where(item => item.StudentProfileId != null &&
+                (item.FinalScore != null || item.CurrentScore != null) &&
+                (item.GradingPeriodEndDate != null || item.Enrollment!.Course!.EndAt != null))
+            .Select(item => item.StudentProfileId!.Value);
+        var canvasSubmissionStudentIds = _context.CanvasSubmissions.AsNoTracking()
+            .Where(item => item.StudentProfileId != null &&
+                (item.SubmittedAt != null ||
+                 (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
+                  (item.GradedAt != null || item.SubmittedAt != null)) ||
+                 (item.Missing && item.Excused != true &&
+                  (item.CachedDueDate != null || item.Assignment!.DueAt != null))))
+            .Select(item => item.StudentProfileId!.Value);
+        var dataStudentIds = await canvasScoreStudentIds
+            .Concat(canvasSubmissionStudentIds)
+            .Distinct()
+            .ToListAsync();
+        if (!canvasOnly)
+        {
+            var importedStudentIds = await _context.StudentBehaviours.Select(item => item.StudentProfileId)
+                .Concat(_context.StudentProjects.Select(item => item.StudentProfileId))
+                .Concat(_context.StudentMentalHealthRecords.Select(item => item.StudentProfileId))
+                .Concat(_context.StudentBusAttendanceRecords.Select(item => item.StudentProfileId))
+                .Concat(_context.SISHealthVisits.Where(item => item.SISUserId != null)
+                    .Select(item => item.Student!.Id))
+                .Concat(_context.DashboardMetricObservations
+                    .Where(item => item.StudentProfileId != null).Select(item => item.StudentProfileId!.Value))
+                .Distinct()
+                .ToListAsync();
+            dataStudentIds = dataStudentIds.Concat(importedStudentIds).Distinct().ToList();
+        }
+        var students = VisibleStudents().Where(item => dataStudentIds.Contains(item.Id));
 
         // Academic years / terms / subjects are sourced from the real data (Canvas warehouse,
         // academic periods and the imported student records) — not the legacy demo metrics.
         // Source-system aliases are normalized after loading so labels such as
         // "Năm học 25-26 THCS G6-8" and "2025-2026" become one selectable year.
         // Measurement cycles come from the imported/observation sources that actually store them.
-        var canvasPeriodDates = await _context.CanvasCourseScores.AsNoTracking()
-            .Where(score => score.GradingPeriodEndDate != null)
-            .Select(score => score.GradingPeriodEndDate!.Value.Date)
+        var canvasScorePeriods = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(item => item.StudentProfileId != null &&
+                (item.FinalScore != null || item.CurrentScore != null) &&
+                (item.GradingPeriodEndDate != null || item.Enrollment!.Course!.EndAt != null))
+            .Select(item => new
+            {
+                Label = item.Enrollment!.Course!.EnrollmentTermName,
+                Date = item.GradingPeriodEndDate ?? item.Enrollment.Course.EndAt
+            })
             .Distinct()
             .ToListAsync();
-        var academicYears = (await AcademicYearValues().Distinct().ToListAsync())
-            .Select(DashboardPeriodNormalizer.AcademicYear)
-            .Concat(canvasPeriodDates.Select(DashboardPeriodNormalizer.AcademicYear))
+        var canvasSubmissionPeriods = await _context.CanvasSubmissions.AsNoTracking()
+            .Where(item => item.StudentProfileId != null &&
+                (item.SubmittedAt != null ||
+                 (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
+                  (item.GradedAt != null || item.SubmittedAt != null)) ||
+                 (item.Missing && item.Excused != true &&
+                  (item.CachedDueDate != null || item.Assignment!.DueAt != null))))
+            .Select(item => new
+            {
+                Label = item.Assignment!.Course!.EnrollmentTermName,
+                Date = item.CachedDueDate ?? item.Assignment.DueAt ?? item.GradedAt ?? item.SubmittedAt
+            })
+            .Distinct()
+            .ToListAsync();
+        var importedAcademicYears = canvasOnly
+            ? []
+            : await _context.DashboardMetricObservations
+                .Where(item => item.AcademicYear != null).Select(item => item.AcademicYear!)
+                .Concat(_context.StudentBehaviours.Where(item => item.AcademicYear != null)
+                    .Select(item => item.AcademicYear!))
+                .Concat(_context.StudentProjects.Where(item => item.AcademicYear != null)
+                    .Select(item => item.AcademicYear!))
+                .Concat(_context.StudentMentalHealthRecords.Select(item => item.AcademicYear))
+                .Concat(_context.StudentBusAttendanceRecords.Where(item => item.AcademicYear != null)
+                    .Select(item => item.AcademicYear!))
+                .Distinct()
+                .ToListAsync();
+        var healthVisitDates = canvasOnly
+            ? []
+            : await _context.SISHealthVisits.AsNoTracking()
+                .Where(item => item.SISUserId != null)
+                .Select(item => item.ExamTime.Date)
+                .Distinct()
+                .ToListAsync();
+        var academicYears = canvasScorePeriods
+            .Concat(canvasSubmissionPeriods)
+            .Select(item => item.Date.HasValue
+                ? DashboardPeriodNormalizer.AcademicYear(item.Date.Value)
+                : DashboardPeriodNormalizer.AcademicYear(item.Label ?? ""))
+            .Concat(importedAcademicYears.Select(DashboardPeriodNormalizer.AcademicYear))
+            .Concat(healthVisitDates.Select(DashboardPeriodNormalizer.AcademicYear))
             .Where(DashboardPeriodNormalizer.IsAcademicYear)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(DashboardPeriodNormalizer.AcademicYearStart)
             .ThenByDescending(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var terms = (await TermValues().Distinct().ToListAsync())
+        var termValues = canvasOnly
+            ? await _context.CanvasCourseScores.AsNoTracking()
+                .Where(item => item.StudentProfileId != null && item.GradingPeriodTitle != null &&
+                    (item.FinalScore != null || item.CurrentScore != null))
+                .Select(item => item.GradingPeriodTitle!)
+                .Distinct()
+                .ToListAsync()
+            : await TermValues().Distinct().ToListAsync();
+        var terms = termValues
             .Select(DashboardPeriodNormalizer.Term)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
         var reportableCanvasSubjects = _context.CanvasCourseScores
-            .Where(item => item.StudentProfileId != null && item.Enrollment!.Course!.Name != null)
+            .Where(item => item.StudentProfileId != null && item.Enrollment!.Course!.Name != null &&
+                (item.FinalScore != null || item.CurrentScore != null) &&
+                (item.GradingPeriodEndDate != null || item.Enrollment.Course.EndAt != null))
             .Select(item => item.Enrollment!.Course!.Name!)
             .Concat(_context.CanvasSubmissions
-                .Where(item => item.StudentProfileId != null && item.Assignment!.Course!.Name != null)
+                .Where(item => item.StudentProfileId != null && item.Assignment!.Course!.Name != null &&
+                    (item.SubmittedAt != null ||
+                     (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
+                      (item.GradedAt != null || item.SubmittedAt != null)) ||
+                     (item.Missing && item.Excused != true &&
+                      (item.CachedDueDate != null || item.Assignment.DueAt != null))))
                 .Select(item => item.Assignment!.Course!.Name!));
+        var reportableCanvasGradeLevels = _context.CanvasCourseScores
+            .Where(item => item.StudentProfileId != null && item.Enrollment!.Course!.CanvasGradeLevel != null &&
+                (item.FinalScore != null || item.CurrentScore != null) &&
+                (item.GradingPeriodEndDate != null || item.Enrollment.Course.EndAt != null))
+            .Select(item => item.Enrollment!.Course!.CanvasGradeLevel!)
+            .Concat(_context.CanvasSubmissions
+                .Where(item => item.StudentProfileId != null &&
+                    item.Assignment!.Course!.CanvasGradeLevel != null &&
+                    (item.SubmittedAt != null ||
+                     (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
+                      (item.GradedAt != null || item.SubmittedAt != null)) ||
+                     (item.Missing && item.Excused != true &&
+                      (item.CachedDueDate != null || item.Assignment.DueAt != null))))
+                .Select(item => item.Assignment!.Course!.CanvasGradeLevel!));
+        var subjectValues = canvasOnly
+            ? await reportableCanvasSubjects.Distinct().ToListAsync()
+            : await reportableCanvasSubjects
+                .Concat(_context.StudentProjects.Where(p => p.Subject != null).Select(p => p.Subject!))
+                .Concat(_context.StudentBehaviours.Where(b => b.Subject != null).Select(b => b.Subject!))
+                .Concat(_context.DashboardMetricObservations.Where(item => item.Subject != null)
+                    .Select(item => item.Subject!))
+                .Distinct()
+                .ToListAsync();
 
         var result = new DashboardFilterOptionsDto
         {
             AcademicYears = academicYears,
             Terms = terms,
-            Campuses = CleanOptions(await students.Where(item => item.Campus != null).Select(item => item.Campus!)
-                .Concat(_context.DashboardMetricObservations.Where(item => item.Campus != null)
-                    .Select(item => item.Campus!)).Distinct().ToListAsync()),
-            EducationLevels = CleanOptions(await students.Where(item => item.EducationLevel != null)
-                .Select(item => item.EducationLevel!)
-                .Concat(_context.DashboardMetricObservations.Where(item => item.EducationLevel != null)
-                    .Select(item => item.EducationLevel!)).Distinct().ToListAsync()),
-            GradeLevels = GradeOptions(await students
-                .Where(item => (item.GradeLevel ?? item.CanvasGradeLevel) != null)
-                .Select(item => (item.GradeLevel ?? item.CanvasGradeLevel)!)
-                .Concat(_context.CanvasCourses.Where(item => item.CanvasGradeLevel != null)
-                    .Select(item => item.CanvasGradeLevel!))
-                .Concat(_context.DashboardMetricObservations.Where(item => item.GradeLevel != null)
-                    .Select(item => item.GradeLevel!)).Distinct().ToListAsync()),
-            Homerooms = CleanOptions(await students.Where(item => item.Homeroom != null)
-                .Select(item => item.Homeroom!)
-                .Concat(_context.DashboardMetricObservations.Where(item => item.Homeroom != null)
-                    .Select(item => item.Homeroom!)).Distinct().ToListAsync()),
+            Campuses = CleanOptions(canvasOnly
+                ? await students.Where(item => item.Campus != null).Select(item => item.Campus!).Distinct().ToListAsync()
+                : await students.Where(item => item.Campus != null).Select(item => item.Campus!)
+                    .Concat(_context.DashboardMetricObservations.Where(item => item.Campus != null)
+                        .Select(item => item.Campus!)).Distinct().ToListAsync()),
+            EducationLevels = CleanOptions(canvasOnly
+                ? await students.Where(item => item.EducationLevel != null)
+                    .Select(item => item.EducationLevel!).Distinct().ToListAsync()
+                : await students.Where(item => item.EducationLevel != null)
+                    .Select(item => item.EducationLevel!)
+                    .Concat(_context.DashboardMetricObservations.Where(item => item.EducationLevel != null)
+                        .Select(item => item.EducationLevel!)).Distinct().ToListAsync()),
+            GradeLevels = GradeOptions(canvasOnly
+                ? await students.Where(item => (item.GradeLevel ?? item.CanvasGradeLevel) != null)
+                    .Select(item => (item.GradeLevel ?? item.CanvasGradeLevel)!)
+                    .Concat(reportableCanvasGradeLevels).Distinct().ToListAsync()
+                : await students.Where(item => (item.GradeLevel ?? item.CanvasGradeLevel) != null)
+                    .Select(item => (item.GradeLevel ?? item.CanvasGradeLevel)!)
+                    .Concat(reportableCanvasGradeLevels)
+                    .Concat(_context.DashboardMetricObservations.Where(item => item.GradeLevel != null)
+                        .Select(item => item.GradeLevel!)).Distinct().ToListAsync()),
+            Homerooms = CleanOptions(canvasOnly
+                ? await students.Where(item => item.Homeroom != null)
+                    .Select(item => item.Homeroom!).Distinct().ToListAsync()
+                : await students.Where(item => item.Homeroom != null)
+                    .Select(item => item.Homeroom!)
+                    .Concat(_context.DashboardMetricObservations.Where(item => item.Homeroom != null)
+                        .Select(item => item.Homeroom!)).Distinct().ToListAsync()),
             Students = await students.OrderBy(s => s.FullName).Select(s => new DashboardStudentOptionDto
             {
                 Id = s.Id, SISUserId = s.SISUserId, FullName = s.FullName,
                 Campus = s.Campus, EducationLevel = s.EducationLevel,
                 GradeLevel = s.GradeLevel ?? s.CanvasGradeLevel, Homeroom = s.Homeroom, Program = s.Program
             }).ToListAsync(),
-            MeasurementCycles = CleanOptions(await _context.DashboardMetricObservations
-                .Where(item => item.MeasurementCycle != null).Select(item => item.MeasurementCycle!)
-                .Concat(_context.StudentBehaviours.Where(item => item.MeasurementCycle != null)
-                    .Select(item => item.MeasurementCycle!))
-                .Concat(_context.StudentProjects.Where(item => item.MeasurementCycle != null)
-                    .Select(item => item.MeasurementCycle!)).Distinct().ToListAsync()),
-            Programs = CleanOptions(await students.Where(item => item.Program != null).Select(item => item.Program!)
-                .Concat(_context.DashboardMetricObservations.Where(item => item.Program != null)
-                    .Select(item => item.Program!))
-                .Concat(_context.StudentBehaviours.Where(item => item.Program != null)
-                    .Select(item => item.Program!))
-                .Concat(_context.StudentProjects.Where(item => item.Program != null)
-                    .Select(item => item.Program!)).Distinct().ToListAsync()),
-            Subjects = CleanOptions(await reportableCanvasSubjects
-                .Concat(_context.StudentProjects.Where(p => p.Subject != null).Select(p => p.Subject!))
-                .Concat(_context.StudentBehaviours.Where(b => b.Subject != null).Select(b => b.Subject!))
-                .Concat(_context.DashboardMetricObservations.Where(item => item.Subject != null)
-                    .Select(item => item.Subject!)).Distinct().ToListAsync())
+            MeasurementCycles = canvasOnly
+                ? []
+                : CleanOptions(await _context.DashboardMetricObservations
+                    .Where(item => item.MeasurementCycle != null).Select(item => item.MeasurementCycle!)
+                    .Concat(_context.StudentBehaviours.Where(item => item.MeasurementCycle != null)
+                        .Select(item => item.MeasurementCycle!))
+                    .Concat(_context.StudentProjects.Where(item => item.MeasurementCycle != null)
+                        .Select(item => item.MeasurementCycle!)).Distinct().ToListAsync()),
+            Programs = CleanOptions(canvasOnly
+                ? await students.Where(item => item.Program != null)
+                    .Select(item => item.Program!).Distinct().ToListAsync()
+                : await students.Where(item => item.Program != null).Select(item => item.Program!)
+                    .Concat(_context.DashboardMetricObservations.Where(item => item.Program != null)
+                        .Select(item => item.Program!))
+                    .Concat(_context.StudentBehaviours.Where(item => item.Program != null)
+                        .Select(item => item.Program!))
+                    .Concat(_context.StudentProjects.Where(item => item.Program != null)
+                        .Select(item => item.Program!)).Distinct().ToListAsync()),
+            Subjects = CleanOptions(subjectValues)
         };
         return Ok(result);
+    }
+
+    private async Task<bool> IsCanvasOnlyReport(int reportId)
+    {
+        var definition = await _context.CustomReports.AsNoTracking()
+            .Where(item => item.Id == reportId)
+            .Select(item => item.DefinitionJson)
+            .FirstOrDefaultAsync();
+        if (string.IsNullOrWhiteSpace(definition)) return false;
+
+        try
+        {
+            using var document = JsonDocument.Parse(definition);
+            if (!document.RootElement.TryGetProperty("charts", out var charts) ||
+                charts.ValueKind != JsonValueKind.Array || charts.GetArrayLength() == 0)
+            {
+                return false;
+            }
+
+            foreach (var chart in charts.EnumerateArray())
+            {
+                if (chart.TryGetProperty("explorer", out var explorer) &&
+                    explorer.ValueKind == JsonValueKind.Object &&
+                    explorer.TryGetProperty("dataset", out var dataset))
+                {
+                    if (dataset.GetString() is not ("submissions" or "scores" or "assignments" or "courses"))
+                        return false;
+                    continue;
+                }
+
+                if (!chart.TryGetProperty("metrics", out var metrics) || metrics.ValueKind != JsonValueKind.Array ||
+                    !metrics.EnumerateArray().Any() ||
+                    metrics.EnumerateArray().Any(metric =>
+                        !metric.GetString()!.StartsWith("canvas-", StringComparison.Ordinal)))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     [HttpGet("preference")]
@@ -505,10 +677,10 @@ public class DashboardController : ControllerBase
                     yearAliases, termAliases)
                 .Where(item => studentId == null || item.StudentProfileId == studentId)
                 .Where(item => !monthStart.HasValue ||
-                    (item.GradingPeriodEndDate >= monthStart.Value &&
-                     item.GradingPeriodEndDate < monthEnd!.Value))
+                    ((item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= monthStart.Value &&
+                     (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < monthEnd!.Value))
                 .Select(item => new { item.StudentProfileId, item.FinalScore, item.CurrentScore,
-                    Date = item.GradingPeriodEndDate,
+                    Date = item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt,
                     CourseName = item.Enrollment!.Course!.Name,
                     item.GradingPeriodTitle })
                 .ToListAsync();
@@ -685,7 +857,8 @@ public class DashboardController : ControllerBase
         if (HasFilter(program))
             query = query.Where(item => item.Program == program ||
                 (item.Program == null && item.Student.Program == program));
-        if (HasFilter(subject)) query = query.Where(item => item.Subject == subject);
+        if (HasFilter(subject)) query = query.Where(item => item.Subject != null &&
+            item.Subject.Trim() == subject!.Trim());
         if (yearAliases.Count > 0)
             query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
                 item => item.AcademicYear == null);
@@ -709,7 +882,8 @@ public class DashboardController : ControllerBase
         if (HasFilter(program))
             query = query.Where(item => item.Program == program ||
                 (item.Program == null && item.Student.Program == program));
-        if (HasFilter(subject)) query = query.Where(item => item.Subject == subject);
+        if (HasFilter(subject)) query = query.Where(item => item.Subject != null &&
+            item.Subject.Trim() == subject!.Trim());
         if (yearAliases.Count > 0)
             query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
                 item => item.AcademicYear == null);
@@ -798,10 +972,12 @@ public class DashboardController : ControllerBase
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item =>
-            (item.Assignment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
+            (item.Assignment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel ??
+             item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
-        if (HasFilter(subject)) query = query.Where(item => item.Assignment!.Course!.Name == subject);
+        if (HasFilter(subject)) query = query.Where(item => item.Assignment!.Course!.Name != null &&
+            item.Assignment.Course.Name.Trim() == subject!.Trim());
         if (yearAliases.Count > 0)
         {
             var academicYear = DashboardPeriodNormalizer.AcademicYear(yearAliases.First());
@@ -832,17 +1008,21 @@ public class DashboardController : ControllerBase
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item =>
-            (item.Enrollment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
+            (item.Enrollment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel ??
+             item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
-        if (HasFilter(subject)) query = query.Where(item => item.Enrollment!.Course!.Name == subject);
+        if (HasFilter(subject)) query = query.Where(item => item.Enrollment!.Course!.Name != null &&
+            item.Enrollment.Course.Name.Trim() == subject!.Trim());
         if (yearAliases.Count > 0)
         {
             var academicYear = DashboardPeriodNormalizer.AcademicYear(yearAliases.First());
             var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
             query = query.WhereMatchesAny(item => item.Enrollment!.Course!.EnrollmentTermName,
-                yearAliases, item => item.GradingPeriodEndDate >= yearStart &&
-                    item.GradingPeriodEndDate < yearEnd);
+                yearAliases, item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= yearStart &&
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < yearEnd)
+                .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= yearStart &&
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < yearEnd);
         }
         if (termAliases.Count > 0)
             query = query.WhereMatchesAny(item => item.GradingPeriodTitle, termAliases);
@@ -917,8 +1097,8 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(subject))
         {
-            behaviours = behaviours.Where(item => item.Subject == subject);
-            projects = projects.Where(item => item.Subject == subject);
+            behaviours = behaviours.Where(item => item.Subject != null && item.Subject.Trim() == subject!.Trim());
+            projects = projects.Where(item => item.Subject != null && item.Subject.Trim() == subject!.Trim());
             // Mental health and clinic visits have no subject dimension.
             mentalHealth = mentalHealth.Where(_ => false);
             healthVisits = healthVisits.Where(_ => false);
@@ -1060,9 +1240,11 @@ public class DashboardController : ControllerBase
         if (HasFilter(grade))
         {
             submissions = submissions.Where(item =>
-                (item.Assignment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
+                (item.Assignment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel ??
+                 item.Student.CanvasGradeLevel) == grade);
             scores = scores.Where(item =>
-                (item.Enrollment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
+                (item.Enrollment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel ??
+                 item.Student.CanvasGradeLevel) == grade);
         }
         if (HasFilter(homeroom))
         {
@@ -1076,8 +1258,10 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(subject))
         {
-            submissions = submissions.Where(item => item.Assignment!.Course!.Name == subject);
-            scores = scores.Where(item => item.Enrollment!.Course!.Name == subject);
+            submissions = submissions.Where(item => item.Assignment!.Course!.Name != null &&
+                item.Assignment.Course.Name.Trim() == subject!.Trim());
+            scores = scores.Where(item => item.Enrollment!.Course!.Name != null &&
+                item.Enrollment.Course.Name.Trim() == subject!.Trim());
         }
         if (HasFilter(year))
         {
@@ -1092,8 +1276,10 @@ public class DashboardController : ControllerBase
                     (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) >= yearStart &&
                     (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) < yearEnd);
             scores = scores.WhereMatchesAny(item => item.Enrollment!.Course!.EnrollmentTermName,
-                yearAliases, item => item.GradingPeriodEndDate >= yearStart &&
-                    item.GradingPeriodEndDate < yearEnd);
+                yearAliases, item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= yearStart &&
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < yearEnd)
+                .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= yearStart &&
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < yearEnd);
         }
         if (HasFilter(term))
         {
@@ -1114,8 +1300,23 @@ public class DashboardController : ControllerBase
         var scoreRows = await scores.Select(item => new
         {
             item.FinalScore, item.CurrentScore,
-            Date = item.GradingPeriodEndDate
+            Date = item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt
         }).ToListAsync();
+
+        (DateTime Start, DateTime End)? selectedYearRange = null;
+        if (HasFilter(year))
+        {
+            selectedYearRange = DashboardPeriodNormalizer.AcademicYearRange(
+                DashboardPeriodNormalizer.AcademicYear(year!));
+        }
+        DateTime? ReportingDate(DateTime? eventDate, DateTime? dueDate)
+        {
+            if (!selectedYearRange.HasValue) return eventDate;
+            var range = selectedYearRange.Value;
+            if (eventDate >= range.Start && eventDate < range.End) return eventDate;
+            if (dueDate >= range.Start && dueDate < range.End) return dueDate;
+            return null;
+        }
 
         // Use each submission's most meaningful timeline date for the monthly series.
         var gradedSubs = submissionRows
@@ -1132,15 +1333,16 @@ public class DashboardController : ControllerBase
         var assignmentScorePoints = gradedSubs
             .Where(item => item.Score != null && item.PointsPossible is > 0 &&
                 (item.GradedAt != null || item.SubmittedAt != null))
-            .Select(item => (
-                Date: (item.GradedAt ?? item.SubmittedAt)!.Value,
-                Value: item.Score!.Value / item.PointsPossible!.Value * 100));
+            .Select(item => (Item: item, Date: ReportingDate(item.GradedAt ?? item.SubmittedAt, item.DueAt)))
+            .Where(item => item.Date != null)
+            .Select(item => (Date: item.Date!.Value,
+                Value: item.Item.Score!.Value / item.Item.PointsPossible!.Value * 100));
 
         var finalScoreMetric = DocumentMetric(AverageMetric(
                 "canvas-final-score-avg", "Average Canvas final_score", "Academics", "Canvas", "%",
                 finalScorePoints, "CanvasEnrollmentGrades"),
-            "Average of non-null Canvas grades.final_score values; zero is preserved. The monthly series includes only grading-period facts with a Canvas grading-period end_date.",
-            "enrollment.grades.final_score", "grading_period.end_date");
+            "Average of non-null Canvas grades.final_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+            "enrollment.grades.final_score", "grading_period.end_date", "course.end_at");
         var allFinalScores = scoreRows.Where(item => item.FinalScore != null)
             .Select(item => item.FinalScore!.Value).ToList();
         finalScoreMetric.Value = allFinalScores.Count == 0
@@ -1150,8 +1352,8 @@ public class DashboardController : ControllerBase
         var currentScoreMetric = DocumentMetric(AverageMetric(
                 "canvas-current-score-avg", "Average Canvas current_score", "Academics", "Canvas", "%",
                 currentScorePoints, "CanvasEnrollmentGrades"),
-            "Average of non-null Canvas grades.current_score values; zero is preserved. The monthly series includes only grading-period facts with a Canvas grading-period end_date.",
-            "enrollment.grades.current_score", "grading_period.end_date");
+            "Average of non-null Canvas grades.current_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+            "enrollment.grades.current_score", "grading_period.end_date", "course.end_at");
         var allCurrentScores = scoreRows.Where(item => item.CurrentScore != null)
             .Select(item => item.CurrentScore!.Value).ToList();
         currentScoreMetric.Value = allCurrentScores.Count == 0
@@ -1167,18 +1369,23 @@ public class DashboardController : ControllerBase
 
         var submittedMetric = DocumentMetric(CountMetric(
                 "canvas-assignments-submitted", "Canvas submissions with submitted_at", "Academics", "Canvas",
-                submissionRows.Where(item => item.SubmittedAt != null).Select(item => item.SubmittedAt!.Value),
+                submissionRows.Where(item => item.SubmittedAt != null)
+                    .Select(item => ReportingDate(item.SubmittedAt, item.DueAt))
+                    .Where(date => date != null).Select(date => date!.Value),
                 "submissions", "CanvasSubmissionsAndAssignments"),
             "Count of Canvas submission records whose submitted_at is non-null.",
             "submission.submitted_at");
+        var datedGradedRows = gradedSubs
+            .Select(item => new { Item = item, Date = ReportingDate(item.GradedAt ?? item.SubmittedAt, item.DueAt) })
+            .Where(item => item.Date != null)
+            .ToList();
         var gradedMetric = DocumentMetric(CountMetric(
                 "canvas-assignments-graded", "Canvas submissions with workflow_state=graded", "Academics", "Canvas",
-                gradedSubs.Where(item => item.GradedAt != null || item.SubmittedAt != null)
-                    .Select(item => (item.GradedAt ?? item.SubmittedAt)!.Value),
+                datedGradedRows.Select(item => item.Date!.Value),
                 "submissions", "CanvasSubmissionsAndAssignments"),
             "Count of Canvas submission records whose workflow_state is graded. Undated graded records contribute to the total but not the monthly series.",
             "submission.workflow_state", "submission.graded_at", "submission.submitted_at");
-        gradedMetric.Value = gradedSubs.Count;
+        gradedMetric.Value = selectedYearRange.HasValue ? datedGradedRows.Count : gradedSubs.Count;
 
         var missingRows = submissionRows.Where(item => item.Missing && item.Excused != true).ToList();
         var missingMetric = DocumentMetric(CountMetric(
@@ -1189,10 +1396,13 @@ public class DashboardController : ControllerBase
             "submission.missing", "submission.excused", "submission.cached_due_date", "assignment.due_at");
         missingMetric.Value = missingRows.Count;
 
-        var lateRows = submissionRows.Where(item => item.Late).ToList();
+        var lateRows = submissionRows.Where(item => item.Late)
+            .Select(item => new { Item = item, Date = ReportingDate(item.SubmittedAt, item.DueAt) })
+            .Where(item => !selectedYearRange.HasValue || item.Date != null)
+            .ToList();
         var lateMetric = DocumentMetric(CountMetric(
                 "canvas-assignments-late", "Canvas submissions flagged late", "Academics", "Canvas",
-                lateRows.Where(item => item.SubmittedAt != null).Select(item => item.SubmittedAt!.Value),
+                lateRows.Where(item => item.Date != null).Select(item => item.Date!.Value),
                 "submissions", "CanvasSubmissionsAndAssignments"),
             "Count of Canvas submission records where late=true. Records without submitted_at contribute to the total but not the monthly series.",
             "submission.late", "submission.submitted_at");
@@ -1529,12 +1739,14 @@ public class DashboardController : ControllerBase
 
     private static List<string> CleanOptions(IEnumerable<string> values) =>
         values.Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private static List<string> GradeOptions(IEnumerable<string> values) =>
         values.Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => int.TryParse(value, out var grade) ? grade : int.MaxValue)
             .ThenBy(value => value, StringComparer.OrdinalIgnoreCase)
