@@ -269,13 +269,13 @@ public class DashboardController : ControllerBase
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
             if (HasFilter(cycle)) query = query.Where(item => item.MeasurementCycle == cycle);
             if (hasYear && selectedPeriod.HasValue)
-                query = query.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
-                    (item.AcademicYear == null && item.IncidentDate >= selectedPeriod.Value.Start &&
-                     item.IncidentDate < selectedPeriod.Value.End));
+                query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                    item => item.AcademicYear == null && item.IncidentDate >= selectedPeriod.Value.Start &&
+                        item.IncidentDate < selectedPeriod.Value.End);
             if (hasTerm && selectedPeriod.HasValue)
-                query = query.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
-                    (item.Term == null && item.IncidentDate >= selectedPeriod.Value.Start &&
-                     item.IncidentDate < selectedPeriod.Value.End));
+                query = query.WhereMatchesAny(item => item.Term, termAliases,
+                    item => item.Term == null && item.IncidentDate >= selectedPeriod.Value.Start &&
+                        item.IncidentDate < selectedPeriod.Value.End);
             if (monthStart.HasValue)
                 query = query.Where(item => item.IncidentDate >= monthStart.Value && item.IncidentDate < monthEnd!.Value);
             var rows = await query
@@ -302,13 +302,15 @@ public class DashboardController : ControllerBase
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
             if (HasFilter(cycle)) query = query.Where(item => item.MeasurementCycle == cycle);
             if (hasYear && selectedPeriod.HasValue)
-                query = query.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
-                    (item.AcademicYear == null && (item.ActivityDate ?? item.CreatedAt) >= selectedPeriod.Value.Start &&
-                     (item.ActivityDate ?? item.CreatedAt) < selectedPeriod.Value.End));
+                query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                    item => item.AcademicYear == null &&
+                        (item.ActivityDate ?? item.CreatedAt) >= selectedPeriod.Value.Start &&
+                        (item.ActivityDate ?? item.CreatedAt) < selectedPeriod.Value.End);
             if (hasTerm && selectedPeriod.HasValue)
-                query = query.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
-                    (item.Term == null && (item.ActivityDate ?? item.CreatedAt) >= selectedPeriod.Value.Start &&
-                     (item.ActivityDate ?? item.CreatedAt) < selectedPeriod.Value.End));
+                query = query.WhereMatchesAny(item => item.Term, termAliases,
+                    item => item.Term == null &&
+                        (item.ActivityDate ?? item.CreatedAt) >= selectedPeriod.Value.Start &&
+                        (item.ActivityDate ?? item.CreatedAt) < selectedPeriod.Value.End);
             if (monthStart.HasValue)
                 query = query.Where(item => (item.ActivityDate ?? item.CreatedAt) >= monthStart.Value &&
                     (item.ActivityDate ?? item.CreatedAt) < monthEnd!.Value);
@@ -332,7 +334,7 @@ public class DashboardController : ControllerBase
             }
             var query = FilterMentalHealth(campus, level, grade, homeroom, program, null)
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
-            if (hasYear) query = query.Where(item => yearAliases.Contains(item.AcademicYear));
+            if (hasYear) query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases);
             if (hasTerm && selectedPeriod.HasValue)
                 query = query.Where(item => item.RecordDate >= selectedPeriod.Value.Start &&
                     item.RecordDate < selectedPeriod.Value.End);
@@ -383,13 +385,13 @@ public class DashboardController : ControllerBase
                     yearAliases, termAliases)
                 .Where(item => studentId == null || item.StudentProfileId == studentId);
             if (hasYear && selectedPeriod.HasValue)
-                query = query.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
-                    (item.AcademicYear == null && item.AttendanceDate >= selectedPeriod.Value.Start &&
-                     item.AttendanceDate < selectedPeriod.Value.End));
+                query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                    item => item.AcademicYear == null && item.AttendanceDate >= selectedPeriod.Value.Start &&
+                        item.AttendanceDate < selectedPeriod.Value.End);
             if (hasTerm && selectedPeriod.HasValue)
-                query = query.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
-                    (item.Term == null && item.AttendanceDate >= selectedPeriod.Value.Start &&
-                     item.AttendanceDate < selectedPeriod.Value.End));
+                query = query.WhereMatchesAny(item => item.Term, termAliases,
+                    item => item.Term == null && item.AttendanceDate >= selectedPeriod.Value.Start &&
+                        item.AttendanceDate < selectedPeriod.Value.End);
             if (monthStart.HasValue)
                 query = query.Where(item => item.AttendanceDate >= monthStart.Value && item.AttendanceDate < monthEnd!.Value);
             var rows = await query
@@ -668,9 +670,11 @@ public class DashboardController : ControllerBase
                 (item.Program == null && item.Student.Program == program));
         if (HasFilter(subject)) query = query.Where(item => item.Subject == subject);
         if (yearAliases.Count > 0)
-            query = query.Where(item => item.AcademicYear == null || yearAliases.Contains(item.AcademicYear));
+            query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null);
         if (termAliases.Count > 0)
-            query = query.Where(item => item.Term == null || termAliases.Contains(item.Term));
+            query = query.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null);
         return query;
     }
 
@@ -689,9 +693,11 @@ public class DashboardController : ControllerBase
                 (item.Program == null && item.Student.Program == program));
         if (HasFilter(subject)) query = query.Where(item => item.Subject == subject);
         if (yearAliases.Count > 0)
-            query = query.Where(item => item.AcademicYear == null || yearAliases.Contains(item.AcademicYear));
+            query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null);
         if (termAliases.Count > 0)
-            query = query.Where(item => item.Term == null || termAliases.Contains(item.Term));
+            query = query.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null);
         return query;
     }
 
@@ -737,9 +743,11 @@ public class DashboardController : ControllerBase
         if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student.Program == program);
         if (yearAliases.Count > 0)
-            query = query.Where(item => item.AcademicYear == null || yearAliases.Contains(item.AcademicYear));
+            query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null);
         if (termAliases.Count > 0)
-            query = query.Where(item => item.Term == null || termAliases.Contains(item.Term));
+            query = query.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null);
         return query;
     }
 
@@ -770,7 +778,8 @@ public class DashboardController : ControllerBase
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Assignment!.Course!.Name == subject);
         if (yearAliases.Count > 0)
-            query = query.Where(item => yearAliases.Contains(item.Assignment!.Course!.EnrollmentTermName!));
+            query = query.WhereMatchesAny(
+                item => item.Assignment!.Course!.EnrollmentTermName, yearAliases);
         if (period.HasValue)
             query = query.Where(item =>
                 (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= period.Value.Start &&
@@ -792,10 +801,10 @@ public class DashboardController : ControllerBase
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Enrollment!.Course!.Name == subject);
         if (yearAliases.Count > 0)
-            query = query.Where(item => yearAliases.Contains(item.Enrollment!.Course!.EnrollmentTermName!));
+            query = query.WhereMatchesAny(
+                item => item.Enrollment!.Course!.EnrollmentTermName, yearAliases);
         if (termAliases.Count > 0)
-            query = query.Where(item => item.GradingPeriodTitle != null &&
-                termAliases.Contains(item.GradingPeriodTitle));
+            query = query.WhereMatchesAny(item => item.GradingPeriodTitle, termAliases);
         return query;
     }
 
@@ -890,29 +899,29 @@ public class DashboardController : ControllerBase
         {
             var start = period.Value.Start;
             var end = period.Value.End;
-            behaviours = behaviours.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
-                (item.AcademicYear == null && item.IncidentDate >= start && item.IncidentDate < end));
-            projects = projects.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
-                (item.AcademicYear == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
-                 (item.ActivityDate ?? item.CreatedAt) < end));
-            mentalHealth = mentalHealth.Where(item => yearAliases.Contains(item.AcademicYear));
+            behaviours = behaviours.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null && item.IncidentDate >= start && item.IncidentDate < end);
+            projects = projects.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
+                    (item.ActivityDate ?? item.CreatedAt) < end);
+            mentalHealth = mentalHealth.WhereMatchesAny(item => item.AcademicYear, yearAliases);
             healthVisits = healthVisits.Where(item => item.ExamTime >= start && item.ExamTime < end);
-            busRecords = busRecords.Where(item => (item.AcademicYear != null && yearAliases.Contains(item.AcademicYear)) ||
-                (item.AcademicYear == null && item.AttendanceDate >= start && item.AttendanceDate < end));
+            busRecords = busRecords.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null && item.AttendanceDate >= start && item.AttendanceDate < end);
         }
         if (hasTerm && period.HasValue)
         {
             var start = period.Value.Start;
             var end = period.Value.End;
-            behaviours = behaviours.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
-                (item.Term == null && item.IncidentDate >= start && item.IncidentDate < end));
-            projects = projects.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
-                (item.Term == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
-                 (item.ActivityDate ?? item.CreatedAt) < end));
+            behaviours = behaviours.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null && item.IncidentDate >= start && item.IncidentDate < end);
+            projects = projects.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
+                    (item.ActivityDate ?? item.CreatedAt) < end);
             mentalHealth = mentalHealth.Where(item => item.RecordDate >= start && item.RecordDate < end);
             healthVisits = healthVisits.Where(item => item.ExamTime >= start && item.ExamTime < end);
-            busRecords = busRecords.Where(item => (item.Term != null && termAliases.Contains(item.Term)) ||
-                (item.Term == null && item.AttendanceDate >= start && item.AttendanceDate < end));
+            busRecords = busRecords.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null && item.AttendanceDate >= start && item.AttendanceDate < end);
         }
 
         var behaviourRows = await behaviours
@@ -1024,8 +1033,10 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(year))
         {
-            submissions = submissions.Where(item => yearAliases.Contains(item.Assignment!.Course!.EnrollmentTermName!));
-            scores = scores.Where(item => yearAliases.Contains(item.Enrollment!.Course!.EnrollmentTermName!));
+            submissions = submissions.WhereMatchesAny(
+                item => item.Assignment!.Course!.EnrollmentTermName, yearAliases);
+            scores = scores.WhereMatchesAny(
+                item => item.Enrollment!.Course!.EnrollmentTermName, yearAliases);
         }
         if (HasFilter(term))
         {
@@ -1033,8 +1044,7 @@ public class DashboardController : ControllerBase
             submissions = submissions.Where(item =>
                 (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= period.Start &&
                 (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) < period.End);
-            scores = scores.Where(item => item.GradingPeriodTitle != null &&
-                termAliases.Contains(item.GradingPeriodTitle));
+            scores = scores.WhereMatchesAny(item => item.GradingPeriodTitle, termAliases);
         }
 
         var submissionRows = await submissions.Select(item => new
