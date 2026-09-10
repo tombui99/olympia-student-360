@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: canvas-production-sync
@@ -16,14 +17,17 @@ concurrency:
 jobs:
   reconcile:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # Reconciliation revisits both school years and must tolerate Canvas rate limiting.
+    timeout-minutes: 240
     environment: production
     env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      APP_RUNNER_SERVICE_ARN: ${{ vars.APP_RUNNER_SERVICE_ARN }}
       Canvas__BaseUrl: ${{ secrets.CANVAS_BASE_URL }}
       Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
       Canvas__AccountId: ${{ secrets.CANVAS_ACCOUNT_ID }}
-      Canvas__EnrollmentTermIds: "232,333,334,335,336,337,338,339,340"
-      Canvas__SyncAllEnrollmentTermIds: "232,333,334,335,336,337,338,339,340"
+      Canvas__EnrollmentTermIds: "333,334,335,336,337,338,339,340"
+      Canvas__SyncAllEnrollmentTermIds: "227,228,229,230,231,232,333,334,335,336,337,338,339,340"
       Canvas__CreateMissingStudentProfiles: "true"
       ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
 
@@ -42,10 +46,40 @@ jobs:
           dotnet build backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
             --configuration Release --no-restore
 
+      - name: Configure AWS credentials
+        if: env.ConnectionStrings__DefaultConnection == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Load the deployed backend database connection
+        if: env.ConnectionStrings__DefaultConnection == ''
+        run: |
+          service_json=$(aws apprunner describe-service --service-arn "$APP_RUNNER_SERVICE_ARN")
+          connection_string=$(printf '%s' "$service_json" | jq -r '.Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables["ConnectionStrings__DefaultConnection"] // empty')
+          secret_ref=$(printf '%s' "$service_json" | jq -r '.Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentSecrets["ConnectionStrings__DefaultConnection"] // empty')
+          if [ -z "$connection_string" ] && [ -n "$secret_ref" ]; then
+            case "$secret_ref" in
+              *:secretsmanager:*) connection_string=$(aws secretsmanager get-secret-value --secret-id "$secret_ref" --query SecretString --output text) ;;
+              *:ssm:*) connection_string=$(aws ssm get-parameter --name "$secret_ref" --with-decryption --query Parameter.Value --output text) ;;
+            esac
+          fi
+          if printf '%s' "$connection_string" | jq -e . >/dev/null 2>&1; then
+            json_connection=$(printf '%s' "$connection_string" | jq -r '.ConnectionStrings__DefaultConnection // .ConnectionStrings.DefaultConnection // .DefaultConnection // empty')
+            if [ -n "$json_connection" ]; then connection_string="$json_connection"; fi
+          fi
+          if [ -z "$connection_string" ] || [ "$connection_string" = "None" ]; then
+            echo "Could not load ConnectionStrings__DefaultConnection from App Runner."
+            exit 1
+          fi
+          echo "::add-mask::$connection_string"
+          echo "ConnectionStrings__DefaultConnection=$connection_string" >> "$GITHUB_ENV"
+
       - name: Verify direct RDS configuration
         run: |
           if [ -z "$ConnectionStrings__DefaultConnection" ]; then
-            echo "Missing production secret OLYMPIA_RDS_CONNECTION_STRING."
+            echo "Unable to resolve the production database connection."
             exit 1
           fi
 

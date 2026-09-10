@@ -51,8 +51,14 @@ public class DashboardController : ControllerBase
         // Source-system aliases are normalized after loading so labels such as
         // "Năm học 25-26 THCS G6-8" and "2025-2026" become one selectable year.
         // Measurement cycles come from the imported/observation sources that actually store them.
+        var canvasPeriodDates = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.GradingPeriodEndDate != null)
+            .Select(score => score.GradingPeriodEndDate!.Value.Date)
+            .Distinct()
+            .ToListAsync();
         var academicYears = (await AcademicYearValues().Distinct().ToListAsync())
             .Select(DashboardPeriodNormalizer.AcademicYear)
+            .Concat(canvasPeriodDates.Select(DashboardPeriodNormalizer.AcademicYear))
             .Where(DashboardPeriodNormalizer.IsAcademicYear)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(DashboardPeriodNormalizer.AcademicYearStart)
@@ -723,7 +729,11 @@ public class DashboardController : ControllerBase
             (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student.Program == program);
-        if (HasFilter(year)) query = query.Where(item => item.AcademicYear == year);
+        if (HasFilter(year))
+        {
+            var normalizedYear = DashboardPeriodNormalizer.AcademicYear(year!);
+            query = query.Where(item => item.AcademicYear == normalizedYear || item.AcademicYear == year);
+        }
         return query;
     }
 
@@ -737,7 +747,7 @@ public class DashboardController : ControllerBase
             (item.Student!.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
-        // Health visits store an exam timestamp; scope to the selected academic year (Aug–Jul).
+        // Health visits store an exam timestamp; scope to the selected September-based school year.
         if (HasFilter(year) && TryAcademicYearRange(year!, out var start, out var end))
         {
             query = query.Where(item => item.ExamTime >= start && item.ExamTime < end);
@@ -768,15 +778,14 @@ public class DashboardController : ControllerBase
 
     private static bool TryAcademicYearRange(string academicYear, out DateTime start, out DateTime end)
     {
-        start = default;
-        end = default;
-        var parts = academicYear.Split('-');
-        if (parts.Length == 0 || !int.TryParse(parts[0], out var startYear))
+        if (!DashboardPeriodNormalizer.IsAcademicYear(academicYear))
         {
+            start = default;
+            end = default;
             return false;
         }
-        start = new DateTime(startYear, 8, 1, 0, 0, 0, DateTimeKind.Utc);
-        end = new DateTime(startYear + 1, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        (start, end) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
         return true;
     }
 
@@ -794,8 +803,18 @@ public class DashboardController : ControllerBase
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Assignment!.Course!.Name == subject);
         if (yearAliases.Count > 0)
-            query = query.WhereMatchesAny(
-                item => item.Assignment!.Course!.EnrollmentTermName, yearAliases);
+        {
+            var academicYear = DashboardPeriodNormalizer.AcademicYear(yearAliases.First());
+            var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
+            query = query.WhereMatchesAny(item => item.Assignment!.Course!.EnrollmentTermName,
+                    yearAliases, item =>
+                        (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) >= yearStart &&
+                        (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) < yearEnd)
+                .Where(item =>
+                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) == null ||
+                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) >= yearStart &&
+                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) < yearEnd);
+        }
         if (period.HasValue)
             query = query.Where(item =>
                 (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= period.Value.Start &&
@@ -818,8 +837,13 @@ public class DashboardController : ControllerBase
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Enrollment!.Course!.Name == subject);
         if (yearAliases.Count > 0)
-            query = query.WhereMatchesAny(
-                item => item.Enrollment!.Course!.EnrollmentTermName, yearAliases);
+        {
+            var academicYear = DashboardPeriodNormalizer.AcademicYear(yearAliases.First());
+            var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
+            query = query.WhereMatchesAny(item => item.Enrollment!.Course!.EnrollmentTermName,
+                yearAliases, item => item.GradingPeriodEndDate >= yearStart &&
+                    item.GradingPeriodEndDate < yearEnd);
+        }
         if (termAliases.Count > 0)
             query = query.WhereMatchesAny(item => item.GradingPeriodTitle, termAliases);
         return query;
@@ -1057,10 +1081,19 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(year))
         {
+            var academicYear = DashboardPeriodNormalizer.AcademicYear(year!);
+            var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
             submissions = submissions.WhereMatchesAny(
-                item => item.Assignment!.Course!.EnrollmentTermName, yearAliases);
-            scores = scores.WhereMatchesAny(
-                item => item.Enrollment!.Course!.EnrollmentTermName, yearAliases);
+                    item => item.Assignment!.Course!.EnrollmentTermName, yearAliases, item =>
+                        (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) >= yearStart &&
+                        (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) < yearEnd)
+                .Where(item =>
+                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) == null ||
+                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) >= yearStart &&
+                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) < yearEnd);
+            scores = scores.WhereMatchesAny(item => item.Enrollment!.Course!.EnrollmentTermName,
+                yearAliases, item => item.GradingPeriodEndDate >= yearStart &&
+                    item.GradingPeriodEndDate < yearEnd);
         }
         if (HasFilter(term))
         {
@@ -1403,8 +1436,10 @@ public class DashboardController : ControllerBase
                 selectedYearPeriods.Max(period => period.EndDate));
         }
 
-        // School year runs August–July. Default to the year that contains "now".
-        var startYear = now.Month >= 8 ? now.Year : now.Year - 1;
+        // The reporting school year begins in September. Default to the year containing "now".
+        var startYear = now.Month >= DashboardPeriodNormalizer.SchoolYearStartMonth
+            ? now.Year
+            : now.Year - 1;
         if (!string.IsNullOrWhiteSpace(year))
         {
             var parts = year.Split('-');
@@ -1416,14 +1451,10 @@ public class DashboardController : ControllerBase
 
         normalizedTerm = normalizedTerm is "hk1" or "hk2" ? normalizedTerm : "all";
 
-        var (start, end) = normalizedTerm switch
-        {
-            "hk1" => (new DateTime(startYear, 8, 1), new DateTime(startYear + 1, 1, 1)),
-            "hk2" => (new DateTime(startYear + 1, 1, 1), new DateTime(startYear + 1, 7, 1)),
-            _ => (new DateTime(startYear, 8, 1), new DateTime(startYear + 1, 7, 1))
-        };
+        var canonicalYear = $"{startYear}-{startYear + 1}";
+        var (start, end) = DashboardPeriodNormalizer.PeriodRange(canonicalYear, normalizedTerm);
 
-        return ($"{startYear}-{startYear + 1}", normalizedTerm, start, end);
+        return (canonicalYear, normalizedTerm, start, end);
     }
 
     private static bool InPeriod(StudentBehaviour item, (string Year, string Term, DateTime Start, DateTime End) period)

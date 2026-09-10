@@ -9,6 +9,8 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// </summary>
 public static partial class DashboardPeriodNormalizer
 {
+    public const int SchoolYearStartMonth = 9;
+
     public static string AcademicYear(string value)
     {
         var trimmed = value.Trim();
@@ -31,11 +33,61 @@ public static partial class DashboardPeriodNormalizer
     public static bool IsAcademicYear(string value) =>
         CanonicalAcademicYearPattern().IsMatch(AcademicYear(value));
 
+    public static string AcademicYear(DateTime value)
+    {
+        var startYear = value.Month >= SchoolYearStartMonth ? value.Year : value.Year - 1;
+        return $"{startYear:D4}-{startYear + 1:D4}";
+    }
+
+    public static string AcademicYear(string sourceLabel, DateTime? sourceDate)
+    {
+        var normalized = AcademicYear(sourceLabel);
+        return IsAcademicYear(normalized) || sourceDate is null
+            ? normalized
+            : AcademicYear(sourceDate.Value);
+    }
+
     public static string Term(string value)
     {
         var trimmed = value.Trim();
-        var match = SemesterPattern().Match(trimmed);
-        return match.Success ? $"hk{match.Groups["semester"].Value}" : trimmed;
+        if (SemesterOnePattern().IsMatch(trimmed)) return "hk1";
+        if (SemesterTwoPattern().IsMatch(trimmed)) return "hk2";
+        return trimmed;
+    }
+
+    public static (DateTime Start, DateTime End) AcademicYearRange(string academicYear)
+    {
+        var startYear = AcademicYearStart(academicYear);
+        if (startYear == int.MinValue)
+        {
+            startYear = AcademicYearStart(AcademicYear(DateTime.UtcNow));
+        }
+
+        return (
+            new DateTime(startYear, SchoolYearStartMonth, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(startYear + 1, SchoolYearStartMonth, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    public static (DateTime Start, DateTime End) PeriodRange(string academicYear, string? term)
+    {
+        var startYear = AcademicYearStart(academicYear);
+        if (startYear == int.MinValue)
+        {
+            startYear = AcademicYearStart(AcademicYear(DateTime.UtcNow));
+        }
+
+        return Term(term ?? "") switch
+        {
+            // Olympia's reporting fallback follows the Vietnamese school calendar. Canvas
+            // grading-period dates remain authoritative whenever Canvas supplied them.
+            "hk1" => (
+                new DateTime(startYear, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                new DateTime(startYear + 1, 1, 19, 0, 0, 0, DateTimeKind.Utc)),
+            "hk2" => (
+                new DateTime(startYear + 1, 1, 19, 0, 0, 0, DateTimeKind.Utc),
+                new DateTime(startYear + 1, 6, 1, 0, 0, 0, DateTimeKind.Utc)),
+            _ => AcademicYearRange(academicYear)
+        };
     }
 
     public static int AcademicYearStart(string value)
@@ -70,6 +122,9 @@ public static partial class DashboardPeriodNormalizer
     [GeneratedRegex(@"^(?:19|20)\d{2}-(?:19|20)\d{2}$", RegexOptions.CultureInvariant)]
     private static partial Regex CanonicalAcademicYearPattern();
 
-    [GeneratedRegex(@"(?:semester|term|học\s*kỳ|hoc\s*ky|hk)\s*(?<semester>[12])(?!\d)|^s(?<semester>[12])f?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex SemesterPattern();
+    [GeneratedRegex(@"(?:semester|term|học\s*k[ỳì]|hoc\s*k[yi]|hk)\s*(?:1|i)(?![\div])|^s1f?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SemesterOnePattern();
+
+    [GeneratedRegex(@"(?:semester|term|học\s*k[ỳì]|hoc\s*k[yi]|hk)\s*(?:2|ii)(?![\div])|^s2f?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SemesterTwoPattern();
 }

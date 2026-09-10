@@ -96,8 +96,8 @@ while a long synchronization is running from falling into a gap between runs.
 Purpose: manually load or repair the complete configured academic scope.
 
 - Uses `Canvas:SyncAllEnrollmentTermIds`.
-- The production workflow currently uses the 2026 academic term IDs
-  `333,334,335,337,338`.
+- The production workflow includes every configured Canvas term covering academic years
+  2025-2026 and 2026-2027: `227-232` and `333-340`.
 - Includes available and completed courses.
 - Does not apply a submission date cutoff.
 - Reads every submission returned for those courses.
@@ -285,7 +285,7 @@ data.
 
 | Workflow | Trigger | .NET mode | Scope |
 |---|---|---|---|
-| `.github/workflows/sync-canvas-all.yml` | Manual | `--sync-all` | All configured 2026 academic terms |
+| `.github/workflows/sync-canvas-all.yml` | Manual | `--sync-all --replace` | All configured terms since September 2025 |
 | `.github/workflows/sync-canvas.yml` | Daily at 01:00 Vietnam time | `--incremental` | Current configured terms since watermark minus overlap |
 | `.github/workflows/reconcile-canvas.yml` | Weekly at 02:00 Monday Vietnam time, or manual | `--reconcile-days=30` | Historical and current configured terms for the previous 30 days |
 
@@ -294,25 +294,35 @@ final record counts but should never include either secret.
 
 ## Required configuration
 
-### GitHub environment secrets
+### GitHub production environment
 
 ```text
+Secrets:
 CANVAS_BASE_URL
 CANVAS_ACCESS_TOKEN
 CANVAS_ACCOUNT_ID
-CANVAS_ENROLLMENT_TERM_IDS
-OLYMPIA_API_BASE_URL
-CANVAS_SYNC_API_KEY
+AWS_DEPLOY_ROLE_ARN
+OLYMPIA_RDS_CONNECTION_STRING (optional direct override)
+
+Variables:
+AWS_REGION
+APP_RUNNER_SERVICE_ARN
 ```
 
-The deployed backend separately requires:
+When `OLYMPIA_RDS_CONNECTION_STRING` is absent, the workflow assumes `AWS_DEPLOY_ROLE_ARN` and
+reads `ConnectionStrings__DefaultConnection` from the deployed App Runner service. The role must
+retain the same `apprunner:DescribeService` permission used by backend deployment and, when App
+Runner references a secret instead of a literal runtime variable, read access to that secret.
+
+The deployed backend separately requires these values for its optional HTTP sync endpoint:
 
 ```text
 CanvasSync__ApiKey
 ConnectionStrings__DefaultConnection
 ```
 
-`CANVAS_SYNC_API_KEY` and `CanvasSync__ApiKey` must contain the same value.
+Any caller of that endpoint must send a key matching `CanvasSync__ApiKey`; the GitHub workflows use
+the direct ETL path and do not depend on an HTTP request remaining open.
 
 ### Local execution
 
@@ -320,7 +330,7 @@ After configuring the user secrets described in the project README and starting 
 `http://localhost:5279`, run one of:
 
 ```bash
-# Complete configured 2026 scope
+# Complete configured scope since September 2025
 dotnet run --project backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj -- --sync-all
 
 # Daily watermark-driven behavior

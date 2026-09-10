@@ -182,7 +182,7 @@ the variable selector.
 
 ## Sync modes
 
-- `sync-all`: manual historical reload for the configured academic terms beginning in 2026.
+- `sync-all`: manual replacement for the configured academic terms covering 2025-2026 and 2026-2027.
 - `incremental`: daily watermark-based run with overlap; watermark advances only after success.
 - `reconcile-days=N`: bounded replay used to catch late Canvas corrections.
 

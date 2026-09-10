@@ -189,7 +189,9 @@ internal sealed partial class CanvasSyncService
         await Task.WhenAll(
             assignmentsTask, sectionsTask, groupsTask, gradingPeriodsTask, enrollmentsTask, submissionsTask);
 
-        var gradingPeriods = await gradingPeriodsTask;
+        var gradingPeriods = (await gradingPeriodsTask)
+            .Where(period => GradingPeriodOverlapsCourseTerm(period, course))
+            .ToList();
         var gradingPeriodTasks = gradingPeriods.Select(async gradingPeriod =>
             new GradingPeriodEnrollments(
                 gradingPeriod,
@@ -251,8 +253,11 @@ internal sealed partial class CanvasSyncService
         course.CanvasGradeSourceAccountId = grade?.AccountId;
         course.EnrollmentTermId = sourceCourse.EnrollmentTermId ?? sourceCourse.Term?.Id;
         course.EnrollmentTermName = sourceCourse.Term?.Name;
-        course.StartAt = sourceCourse.StartAt;
-        course.EndAt = sourceCourse.EndAt;
+        // Most Olympia courses inherit dates from their enrollment term and leave the course-level
+        // fields null. Keep the effective dates so reporting and grading-period selection use the
+        // actual Canvas term rather than the ETL execution year.
+        course.StartAt = sourceCourse.StartAt ?? sourceCourse.Term?.StartAt;
+        course.EndAt = sourceCourse.EndAt ?? sourceCourse.Term?.EndAt;
 
         var sections = await _db.CanvasCourseSections
             .Where(item => item.CanvasCourseId == sourceCourse.Id)
@@ -900,6 +905,21 @@ internal sealed partial class CanvasSyncService
         enrollment.Grades?.UnpostedFinalGrade is not null ||
         enrollment.OverrideScore is not null ||
         enrollment.Grades?.OverrideScore is not null;
+
+    private static bool GradingPeriodOverlapsCourseTerm(
+        CanvasGradingPeriodDto period, CanvasCourseDto course)
+    {
+        if (course.Term?.GradingPeriodGroupId is { } groupId &&
+            period.GradingPeriodGroupId is { } periodGroupId)
+        {
+            return periodGroupId == groupId;
+        }
+
+        var courseStart = course.StartAt ?? course.Term?.StartAt;
+        var courseEnd = course.EndAt ?? course.Term?.EndAt;
+        return (courseStart is null || period.EndDate is null || period.EndDate >= courseStart) &&
+            (courseEnd is null || period.StartDate is null || period.StartDate <= courseEnd);
+    }
 
     private static string? Limit(string? value, int maxLength)
     {

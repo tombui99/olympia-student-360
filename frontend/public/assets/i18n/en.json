@@ -376,7 +376,7 @@
   "studentProfile.stats.projectsHint": "Active out of all recorded projects",
   "studentProfile.trendTitle": "Behaviour trend",
   "studentProfile.trendHintRecent": "{count} records in the last 6 months, grouped by incident date",
-  "studentProfile.trendHintYear": "{count} records in school year {year}, from August to July",
+  "studentProfile.trendHintYear": "{count} records in school year {year}, from September to August",
   "studentProfile.trendSource": "Source: Student behaviour log (StudentBehaviour)",
   "studentProfile.trendSeries": "Behaviour records",
   "studentProfile.trendRecords": "records",

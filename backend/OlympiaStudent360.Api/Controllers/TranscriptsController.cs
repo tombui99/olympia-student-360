@@ -139,6 +139,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
 
         var scores = context.CanvasCourseScores.AsNoTracking()
             .Where(score =>
+                (score.GradingPeriodStartDate == null || score.GradingPeriodStartDate <= DateTime.UtcNow) &&
                 score.Enrollment!.Course!.EnrollmentTermName != null &&
                 score.Enrollment.Course.EnrollmentTermName != "" &&
                 score.Student != null &&
@@ -154,6 +155,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             .GroupBy(score => new
             {
                 AcademicYear = score.Enrollment!.Course!.EnrollmentTermName!,
+                score.GradingPeriodEndDate,
                 GradeLevel = score.Enrollment!.Course!.CanvasGradeLevel ??
                     score.Student!.GradeLevel ?? score.Student.CanvasGradeLevel!,
                 Subject = score.Enrollment.Course.Name ?? score.Enrollment.Course.CourseCode ?? "—",
@@ -163,6 +165,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             .Select(group => new
             {
                 group.Key.AcademicYear,
+                group.Key.GradingPeriodEndDate,
                 group.Key.GradeLevel,
                 group.Key.Subject,
                 group.Key.CourseName,
@@ -176,13 +179,15 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             .ToListAsync();
 
         var rows = groupedRows.Select(row => new AggregateRow(
-            DashboardPeriodNormalizer.AcademicYear(row.AcademicYear),
+            DashboardPeriodNormalizer.AcademicYear(row.AcademicYear, row.GradingPeriodEndDate),
             row.GradeLevel,
             row.Subject.Trim(),
             row.CourseName.Trim(),
             NormalizeTerm(row.Term),
             row.Average,
-            row.RecordCount)).ToList();
+            row.RecordCount))
+            .Where(row => DashboardPeriodNormalizer.IsAcademicYear(row.AcademicYear))
+            .ToList();
         var derivedRows = rows.Select(row => new
         {
             row.AcademicYear,
@@ -333,9 +338,14 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        var (academicYearStart, academicYearEnd) =
+            DashboardPeriodNormalizer.AcademicYearRange(academicYear);
         var baseQuery = context.CanvasCourseScores.AsNoTracking()
-            .WhereMatchesAny(score => score.Enrollment!.Course!.EnrollmentTermName, academicYearAliases)
+            .WhereMatchesAny(score => score.Enrollment!.Course!.EnrollmentTermName,
+                academicYearAliases, score => score.GradingPeriodEndDate >= academicYearStart &&
+                    score.GradingPeriodEndDate < academicYearEnd)
             .Where(score => score.StudentProfileId != null && score.Student != null &&
+                    (score.GradingPeriodStartDate == null || score.GradingPeriodStartDate <= DateTime.UtcNow) &&
                     (score.Enrollment!.Course!.CanvasGradeLevel ?? score.Student.GradeLevel ??
                         score.Student.CanvasGradeLevel) == gradeLevel &&
                 (score.EnrollmentOverrideScore != null || score.GradesOverrideScore != null ||
@@ -410,8 +420,20 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             recordsQuery = recordsQuery.Where(score =>
                 (score.Enrollment!.Course!.Name ?? score.Enrollment.Course.CourseCode) == subject.Trim());
         if (!string.IsNullOrWhiteSpace(term))
-            recordsQuery = recordsQuery.Where(score =>
-                (score.GradingPeriodTitle ?? score.Enrollment!.Course!.EnrollmentTermName) == term.Trim());
+        {
+            var normalizedTerm = DashboardPeriodNormalizer.Term(term);
+            var termAliases = (await context.CanvasCourseScores.AsNoTracking()
+                    .Where(score => score.GradingPeriodTitle != null)
+                    .Select(score => score.GradingPeriodTitle!)
+                    .Distinct()
+                    .ToListAsync())
+                .Where(value => DashboardPeriodNormalizer.Term(value)
+                    .Equals(normalizedTerm, StringComparison.OrdinalIgnoreCase))
+                .Append(term.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            recordsQuery = recordsQuery.WhereMatchesAny(score => score.GradingPeriodTitle, termAliases);
+        }
 
         var totalRecords = await recordsQuery.CountAsync();
         var rawRecords = await recordsQuery
@@ -506,26 +528,17 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
 
     private static int TermOrder(string value)
     {
-        var normalized = value.ToLowerInvariant();
-        if (normalized.Contains('1')) return 1;
-        if (normalized.Contains('2')) return 2;
+        var normalized = DashboardPeriodNormalizer.Term(value);
+        if (normalized == "hk1") return 1;
+        if (normalized == "hk2") return 2;
         if (normalized.Contains('3')) return 3;
         if (normalized.Contains('4')) return 4;
         return normalized is "cả năm" or "year" or "full year" ? 9 : 8;
     }
 
     private static bool IsSemester(string value, int semester)
-    {
-        var normalized = value.Trim().ToLowerInvariant();
-        return normalized.Contains($"semester {semester}") ||
-            normalized.Contains($"semester{semester}") ||
-            normalized.Contains($"term {semester}") ||
-            normalized.Contains($"term{semester}") ||
-            normalized.Contains($"học kỳ {semester}") ||
-            normalized.Contains($"hk{semester}") ||
-            normalized == $"s{semester}" ||
-            normalized == $"s{semester}f";
-    }
+        => DashboardPeriodNormalizer.Term(value)
+            .Equals($"hk{semester}", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsYear(string value)
     {
@@ -536,7 +549,9 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
     private static string NormalizeTerm(string value)
     {
         var normalized = value.Trim();
-        return IsYear(normalized) ? "YR" : normalized;
+        if (IsYear(normalized) || DashboardPeriodNormalizer.IsAcademicYear(normalized)) return "YR";
+        var canonical = DashboardPeriodNormalizer.Term(normalized);
+        return canonical is "hk1" or "hk2" ? canonical : normalized;
     }
 
     private static double? AverageAvailable(params double?[] values)

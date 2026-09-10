@@ -193,24 +193,30 @@ For a scoped Canvas developer key, allow the corresponding `url:GET|...` scopes,
 permission to read account users, courses, enrollments, grades, and submissions. Seeing
 `sis_user_id` additionally requires permission to view SIS information.
 
-Configure these GitHub `production` environment secrets:
+Configure these GitHub `production` environment values. The RDS connection secret is optional;
+when it is absent, the workflow reads the connection already configured on App Runner.
 
 ```txt
-CANVAS_BASE_URL          https://your-school.instructure.com
-CANVAS_ACCESS_TOKEN      Canvas API token with account/course grade access
-CANVAS_ACCOUNT_ID        Canvas root account id (often 1; verify in your instance)
-CANVAS_ENROLLMENT_TERM_IDS  Comma-separated Canvas term ids selected for daily sync
-OLYMPIA_API_BASE_URL     Public HTTPS URL of the Olympia backend
-CANVAS_SYNC_API_KEY      Shared high-entropy key configured on the backend as CanvasSync:ApiKey
+Secrets:
+CANVAS_BASE_URL                 https://your-school.instructure.com
+CANVAS_ACCESS_TOKEN             Canvas API token with account/course grade access
+CANVAS_ACCOUNT_ID               Canvas root account id (often 1; verify in your instance)
+AWS_DEPLOY_ROLE_ARN             Existing deployment role used by the backend workflow
+OLYMPIA_RDS_CONNECTION_STRING   Optional direct override
+
+Variables:
+AWS_REGION
+APP_RUNNER_SERVICE_ARN
 ```
 
 Run `.github/workflows/sync-canvas-all.yml` manually once for the initial import. Olympia's workflow
-is deliberately bounded to enrollment terms 333, 334, 335, 337, and 338: the academic terms beginning
-in 2026. It rereads assignments, submissions, enrollments, course grades, and grading-period grades
-for those terms and establishes the first successful watermark.
+is deliberately bounded to enrollment terms 227-232 and 333-340, covering the 2025-2026 and
+2026-2027 school years that overlap calendar year 2026. It rereads assignments, submissions,
+enrollments, course grades, and grading-period grades for those terms and establishes the first
+successful watermark.
 
-After bootstrap, `.github/workflows/sync-canvas.yml` runs daily at 01:00 Vietnam time. The backend,
-not the runner clock, reads the last successful watermark and subtracts the configured two-hour
+After bootstrap, `.github/workflows/sync-canvas.yml` is the incremental workflow. The importer
+reads the last successful watermark and subtracts the configured two-hour
 overlap. Canvas submissions are queried separately with `submitted_since` and `graded_since`, then
 deduplicated before upsert. The watermark advances to the run's captured start time only after every
 course succeeds. A failed or cancelled run leaves the previous successful watermark unchanged, so
@@ -229,8 +235,8 @@ timeout. The hidden prompt keeps the Canvas token out of shell history:
 ```bash
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:BaseUrl" "https://lms.theolympiaschools.edu.vn"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:AccountId" "1"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:EnrollmentTermIds" "232,333,334,335,336,337,338,339,340"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:SyncAllEnrollmentTermIds" "232,333,334,335,336,337,338,339,340"
+dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:EnrollmentTermIds" "333,334,335,336,337,338,339,340"
+dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:SyncAllEnrollmentTermIds" "227,228,229,230,231,232,333,334,335,336,337,338,339,340"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:WatermarkOverlapMinutes" "120"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:CreateMissingStudentProfiles" "true"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "ConnectionStrings:DefaultConnection" "Server=localhost;Port=3306;Database=olympia_student_360;User=root;Password=YOUR_PASSWORD;"
@@ -261,9 +267,14 @@ official SIS grade takes precedence when SIS is imported. See `docs/canvas-etl-s
 field-by-field contract and `docs/canvas-etl-dotnet-guide.md` for the .NET runtime, watermark,
 retry, transaction, and GitHub Actions flow.
 
-The Canvas GitHub workflows use the production environment secret
-`OLYMPIA_RDS_CONNECTION_STRING` and run this same direct import. Their runner must have network
-access to RDS; use a VPC-connected self-hosted runner or an ECS/Fargate task when RDS is private.
+The Canvas GitHub workflows use the optional production environment secret
+`OLYMPIA_RDS_CONNECTION_STRING`, or obtain the deployed App Runner service's existing
+`ConnectionStrings__DefaultConnection` through the configured AWS deployment role. They run this
+same direct import. Their runner must have network access to RDS; use a VPC-connected self-hosted
+runner or an ECS/Fargate task when RDS is private.
+The automatic App Runner fallback uses the existing `AWS_DEPLOY_ROLE_ARN` secret plus the
+`AWS_REGION` and `APP_RUNNER_SERVICE_ARN` production environment variables already used by the
+backend deployment workflow.
 Do not route a complete import through App Runner's HTTP endpoint: the import can take several
 minutes and must outlive an HTTP request.
 

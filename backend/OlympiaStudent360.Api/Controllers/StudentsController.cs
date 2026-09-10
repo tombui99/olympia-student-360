@@ -626,7 +626,7 @@ public class StudentsController : ControllerBase
             settings);
 
         // Behaviours and projects re-scope to the selected school year (records carry an
-        // academic year; older ones fall back to their date within the Aug–Jul range).
+        // academic year; older ones fall back to their date within the September-based range).
         var behaviourItems = FilterByAcademicYear(student.Behaviours, hasYearFilter, academicYear,
             behaviour => behaviour.AcademicYear, behaviour => behaviour.IncidentDate);
         var projectItems = FilterByAcademicYear(student.Projects, hasYearFilter, academicYear,
@@ -704,7 +704,8 @@ public class StudentsController : ControllerBase
                 })
                 .ToList(),
             MentalHealthRecords = student.MentalHealthRecords
-                .Where(record => !hasYearFilter || record.AcademicYear == academicYear)
+                .Where(record => !hasYearFilter || DashboardPeriodNormalizer.AcademicYear(record.AcademicYear)
+                    == academicYear)
                 .OrderByDescending(record => record.RecordDate)
                 .Select(ToMentalHealthDto)
                 .ToList(),
@@ -734,7 +735,7 @@ public class StudentsController : ControllerBase
         if (!string.IsNullOrWhiteSpace(academicYear)
             && int.TryParse(academicYear.Split('-')[0], out var schoolYearStart))
         {
-            start = new DateTime(schoolYearStart, 8, 1);
+            start = new DateTime(schoolYearStart, DashboardPeriodNormalizer.SchoolYearStartMonth, 1);
             monthCount = 12;
         }
         else
@@ -825,10 +826,13 @@ public class StudentsController : ControllerBase
         // Headline tiles/courses reflect one focus year (the selected year, or the latest on
         // record by default); the journey below always spans every year.
         var year = await ResolveCanvasYear(studentProfileId, focusYear);
-        var latestScores = scoreQuery.Where(score =>
-            score.Enrollment!.Course!.EnrollmentTermName == year);
-        var latestSubmissions = submissionQuery.Where(submission =>
-            submission.Assignment!.Course!.EnrollmentTermName == year);
+        var yearAliases = year is null ? [] : await CanvasAcademicYearAliases(year);
+        var latestScores = year is null
+            ? scoreQuery.Where(_ => false)
+            : FilterCanvasScoresByAcademicYear(scoreQuery, year, yearAliases);
+        var latestSubmissions = year is null
+            ? submissionQuery.Where(_ => false)
+            : FilterCanvasSubmissionsByAcademicYear(submissionQuery, year, yearAliases);
         var gradedSubmissions = latestSubmissions.Where(submission => submission.WorkflowState == "graded");
 
         var enrolledCourses = await latestScores
@@ -861,32 +865,48 @@ public class StudentsController : ControllerBase
             .GroupBy(score => new
             {
                 AcademicYear = score.Enrollment!.Course!.EnrollmentTermName,
-                Term = score.GradingPeriodTitle ?? score.Enrollment.Course.EnrollmentTermName
+                Term = score.GradingPeriodTitle ?? score.Enrollment.Course.EnrollmentTermName,
+                score.GradingPeriodEndDate
             })
             .Select(group => new
             {
                 group.Key.AcademicYear,
                 group.Key.Term,
+                group.Key.GradingPeriodEndDate,
                 AverageGrade = group.Average(score => score.FinalScore!.Value),
-                CourseCount = group.Select(score => score.Enrollment!.CanvasCourseId).Distinct().Count()
+                CourseCount = group.Select(score => score.Enrollment!.CanvasCourseId).Distinct().Count(),
+                RecordCount = group.Count()
             })
             .ToListAsync();
         var journey = journeyRows
             .Select(item =>
             {
-                var label = $"{item.AcademicYear} {item.Term}".Trim();
-                return new StudentCanvasJourneyPointDto
+                var academicYear = DashboardPeriodNormalizer.AcademicYear(
+                    item.AcademicYear!, item.GradingPeriodEndDate);
+                var normalizedTerm = DashboardPeriodNormalizer.Term(item.Term ?? "");
+                return new
                 {
-                    AcademicYear = item.AcademicYear!,
-                    Term = item.Term,
-                    GradeLevel = null,
-                    Label = label,
-                    AverageGrade = Math.Round((decimal)item.AverageGrade, 1),
-                    CourseCount = item.CourseCount
+                    AcademicYear = academicYear,
+                    Term = normalizedTerm is "hk1" or "hk2" ? normalizedTerm : "YR",
+                    item.AverageGrade,
+                    item.CourseCount,
+                    item.RecordCount
                 };
             })
-            .OrderBy(point => point.AcademicYear)
-            .ThenBy(point => point.Term)
+            .Where(item => DashboardPeriodNormalizer.IsAcademicYear(item.AcademicYear))
+            .GroupBy(item => new { item.AcademicYear, item.Term })
+            .Select(group => new StudentCanvasJourneyPointDto
+            {
+                AcademicYear = group.Key.AcademicYear,
+                Term = group.Key.Term,
+                GradeLevel = null,
+                Label = $"{group.Key.AcademicYear} {group.Key.Term}",
+                AverageGrade = Math.Round((decimal)(group.Sum(item => item.AverageGrade * item.RecordCount) /
+                    group.Sum(item => item.RecordCount)), 1),
+                CourseCount = group.Sum(item => item.CourseCount)
+            })
+            .OrderBy(point => DashboardPeriodNormalizer.AcademicYearStart(point.AcademicYear))
+            .ThenBy(point => point.Term == "hk1" ? 1 : point.Term == "hk2" ? 2 : 3)
             .ToList();
 
         var courseGradesPage = await LoadCanvasCourseGrades(studentProfileId, year, 1, 10);
@@ -923,37 +943,51 @@ public class StudentsController : ControllerBase
     {
         var requested = string.IsNullOrWhiteSpace(requestedYear) || requestedYear == "all"
             ? null
-            : requestedYear.Trim();
+            : DashboardPeriodNormalizer.AcademicYear(requestedYear.Trim());
         if (requested is not null)
         {
-            var requestedExists = await _context.CanvasCourseScores.AsNoTracking().AnyAsync(score =>
-                    score.StudentProfileId == studentProfileId &&
-                    score.Enrollment!.Course!.EnrollmentTermName == requested)
-                || await _context.CanvasSubmissions.AsNoTracking().AnyAsync(submission =>
-                    submission.StudentProfileId == studentProfileId &&
-                    submission.Assignment!.Course!.EnrollmentTermName == requested);
+            var aliases = await CanvasAcademicYearAliases(requested);
+            var requestedExists = await FilterCanvasScoresByAcademicYear(
+                    _context.CanvasCourseScores.AsNoTracking()
+                        .Where(score => score.StudentProfileId == studentProfileId), requested, aliases)
+                .AnyAsync()
+                || await FilterCanvasSubmissionsByAcademicYear(
+                    _context.CanvasSubmissions.AsNoTracking()
+                        .Where(submission => submission.StudentProfileId == studentProfileId), requested, aliases)
+                .AnyAsync();
             if (requestedExists)
             {
                 return requested;
             }
         }
 
-        var scoreYear = await _context.CanvasCourseScores.AsNoTracking()
+        var scoreYears = await _context.CanvasCourseScores.AsNoTracking()
             .Where(score => score.StudentProfileId == studentProfileId &&
                 score.Enrollment!.Course!.EnrollmentTermName != null)
-            .Select(score => score.Enrollment!.Course!.EnrollmentTermName)
-            .OrderByDescending(year => year)
-            .FirstOrDefaultAsync();
-        var submissionYear = await _context.CanvasSubmissions.AsNoTracking()
+            .Select(score => new
+            {
+                Label = score.Enrollment!.Course!.EnrollmentTermName!,
+                Date = score.GradingPeriodEndDate
+            })
+            .Distinct()
+            .ToListAsync();
+        var submissionYears = await _context.CanvasSubmissions.AsNoTracking()
             .Where(submission => submission.StudentProfileId == studentProfileId &&
                 submission.Assignment!.Course!.EnrollmentTermName != null)
-            .Select(submission => submission.Assignment!.Course!.EnrollmentTermName)
-            .OrderByDescending(year => year)
-            .FirstOrDefaultAsync();
+            .Select(submission => new
+            {
+                Label = submission.Assignment!.Course!.EnrollmentTermName!,
+                Date = submission.CachedDueDate ?? submission.Assignment.DueAt ??
+                    submission.GradedAt ?? submission.SubmittedAt
+            })
+            .Distinct()
+            .ToListAsync();
 
-        return new[] { scoreYear, submissionYear }
-            .Where(year => year is not null)
-            .OrderByDescending(year => year)
+        return scoreYears.Select(item => DashboardPeriodNormalizer.AcademicYear(item.Label, item.Date))
+            .Concat(submissionYears.Select(item => DashboardPeriodNormalizer.AcademicYear(item.Label, item.Date)))
+            .Where(DashboardPeriodNormalizer.IsAcademicYear)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(DashboardPeriodNormalizer.AcademicYearStart)
             .FirstOrDefault();
     }
 
@@ -961,9 +995,12 @@ public class StudentsController : ControllerBase
         int studentProfileId, string? academicYear, int page, int pageSize)
     {
         (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
-        var query = _context.CanvasCourseScores.AsNoTracking()
-            .Where(score => score.StudentProfileId == studentProfileId &&
-                score.Enrollment!.Course!.EnrollmentTermName == academicYear);
+        var aliases = academicYear is null ? [] : await CanvasAcademicYearAliases(academicYear);
+        var baseQuery = _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.StudentProfileId == studentProfileId);
+        var query = academicYear is null
+            ? baseQuery.Where(_ => false)
+            : FilterCanvasScoresByAcademicYear(baseQuery, academicYear, aliases);
         var totalCount = await query.CountAsync();
         var totalPages = TotalPages(totalCount, pageSize);
         page = ClampPage(page, totalPages);
@@ -1055,9 +1092,12 @@ public class StudentsController : ControllerBase
         int studentProfileId, string? academicYear, string category, int page, int pageSize)
     {
         (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
-        var query = _context.CanvasSubmissions.AsNoTracking()
-            .Where(submission => submission.StudentProfileId == studentProfileId
-                && submission.Assignment!.Course!.EnrollmentTermName == academicYear);
+        var aliases = academicYear is null ? [] : await CanvasAcademicYearAliases(academicYear);
+        var baseQuery = _context.CanvasSubmissions.AsNoTracking()
+            .Where(submission => submission.StudentProfileId == studentProfileId);
+        var query = academicYear is null
+            ? baseQuery.Where(_ => false)
+            : FilterCanvasSubmissionsByAcademicYear(baseQuery, academicYear, aliases);
         query = category switch
         {
             "graded" => query.Where(submission => submission.WorkflowState == "graded"),
@@ -1112,6 +1152,47 @@ public class StudentsController : ControllerBase
         };
     }
 
+    private async Task<string[]> CanvasAcademicYearAliases(string academicYear)
+    {
+        var labels = await _context.CanvasCourses.AsNoTracking()
+            .Where(course => course.EnrollmentTermName != null && course.EnrollmentTermName != "")
+            .Select(course => course.EnrollmentTermName!)
+            .Distinct()
+            .ToListAsync();
+        return labels.Where(label => DashboardPeriodNormalizer.AcademicYear(label)
+                .Equals(academicYear, StringComparison.OrdinalIgnoreCase))
+            .Append(academicYear)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IQueryable<CanvasCourseScore> FilterCanvasScoresByAcademicYear(
+        IQueryable<CanvasCourseScore> query, string academicYear, IReadOnlyCollection<string> aliases)
+    {
+        var (start, end) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
+        return query.WhereMatchesAny(score => score.Enrollment!.Course!.EnrollmentTermName,
+            aliases, score => score.GradingPeriodEndDate >= start && score.GradingPeriodEndDate < end);
+    }
+
+    private static IQueryable<CanvasSubmission> FilterCanvasSubmissionsByAcademicYear(
+        IQueryable<CanvasSubmission> query, string academicYear, IReadOnlyCollection<string> aliases)
+    {
+        var (start, end) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
+        return query.WhereMatchesAny(submission => submission.Assignment!.Course!.EnrollmentTermName,
+                aliases, submission =>
+                    (submission.CachedDueDate ?? submission.Assignment!.DueAt ?? submission.GradedAt ??
+                        submission.SubmittedAt) >= start &&
+                    (submission.CachedDueDate ?? submission.Assignment!.DueAt ?? submission.GradedAt ??
+                        submission.SubmittedAt) < end)
+            .Where(submission =>
+                (submission.CachedDueDate ?? submission.Assignment!.DueAt ?? submission.GradedAt ??
+                    submission.SubmittedAt) == null ||
+                (submission.CachedDueDate ?? submission.Assignment!.DueAt ?? submission.GradedAt ??
+                    submission.SubmittedAt) >= start &&
+                (submission.CachedDueDate ?? submission.Assignment!.DueAt ?? submission.GradedAt ??
+                    submission.SubmittedAt) < end);
+    }
+
     private static (int Page, int PageSize) NormalizeCanvasPaging(int page, int pageSize) =>
         (Math.Max(1, page), Math.Clamp(pageSize, 1, 50));
 
@@ -1153,17 +1234,12 @@ public class StudentsController : ControllerBase
         {
             return items.ToList();
         }
-        var (start, end) = AcademicYearRange(academicYear);
-        return items.Where(item => yearSelector(item) == academicYear
+        var (start, end) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
+        return items.Where(item =>
+            (!string.IsNullOrWhiteSpace(yearSelector(item)) &&
+                DashboardPeriodNormalizer.AcademicYear(yearSelector(item)!) == academicYear)
             || (yearSelector(item) == null && dateSelector(item) >= start && dateSelector(item) < end))
             .ToList();
-    }
-
-    // School year runs August–July.
-    private static (DateTime Start, DateTime End) AcademicYearRange(string academicYear)
-    {
-        var startYear = int.TryParse(academicYear.Split('-')[0], out var value) ? value : DateTime.UtcNow.Year;
-        return (new DateTime(startYear, 8, 1), new DateTime(startYear + 1, 8, 1));
     }
 
     private static StudentMentalHealthRecordDto ToMentalHealthDto(StudentMentalHealthRecord record) => new()

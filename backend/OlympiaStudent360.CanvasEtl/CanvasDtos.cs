@@ -4,14 +4,18 @@ namespace OlympiaStudent360.CanvasEtl;
 
 internal sealed record CanvasTermDto(
     [property: JsonPropertyName("id")] long Id,
-    [property: JsonPropertyName("name")] string? Name);
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("start_at")] DateTime? StartAt,
+    [property: JsonPropertyName("end_at")] DateTime? EndAt,
+    [property: JsonPropertyName("grading_period_group_id")] long? GradingPeriodGroupId);
 
 internal sealed record CanvasGradingPeriodDto(
     [property: JsonPropertyName("id")] long Id,
     [property: JsonPropertyName("title")] string? Title,
     [property: JsonPropertyName("start_date")] DateTime? StartDate,
     [property: JsonPropertyName("end_date")] DateTime? EndDate,
-    [property: JsonPropertyName("weight")] double? Weight);
+    [property: JsonPropertyName("weight")] double? Weight,
+    [property: JsonPropertyName("grading_period_group_id")] long? GradingPeriodGroupId);
 
 internal sealed record CanvasGradingPeriodsDto(
     [property: JsonPropertyName("grading_periods")] List<CanvasGradingPeriodDto> GradingPeriods);
