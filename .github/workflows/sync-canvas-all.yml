@@ -19,10 +19,10 @@ jobs:
       Canvas__BaseUrl: ${{ secrets.CANVAS_BASE_URL }}
       Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
       Canvas__AccountId: ${{ secrets.CANVAS_ACCOUNT_ID }}
-      # Olympia academic terms beginning in 2026. Club, extracurricular, and administrative terms are excluded.
-      Canvas__SyncAllEnrollmentTermIds: "333,334,335,337,338"
-      Backend__BaseUrl: ${{ secrets.OLYMPIA_API_BASE_URL }}
-      Backend__SyncApiKey: ${{ secrets.CANVAS_SYNC_API_KEY }}
+      # Active IB plus every Canvas enrollment term created for the 2026-2027 school year.
+      Canvas__SyncAllEnrollmentTermIds: "232,333,334,335,336,337,338,339,340"
+      Canvas__CreateMissingStudentProfiles: "true"
+      ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
 
     steps:
       - name: Check out source
@@ -39,7 +39,14 @@ jobs:
           dotnet build backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
             --configuration Release --no-restore
 
-      - name: Upsert all Canvas history from 2026
+      - name: Verify direct RDS configuration
+        run: |
+          if [ -z "$ConnectionStrings__DefaultConnection" ]; then
+            echo "Missing production secret OLYMPIA_RDS_CONNECTION_STRING."
+            exit 1
+          fi
+
+      - name: Replace all Canvas data from 2026 directly in RDS
         run: |
           dotnet run --project backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
-            --configuration Release --no-build -- --sync-all
+            --configuration Release --no-build -- --sync-all --replace

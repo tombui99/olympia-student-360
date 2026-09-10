@@ -11,7 +11,14 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.2" />
+    <Compile Remove="CanvasApiClient.cs" />
+    <Compile Remove="CanvasDtos.cs" />
+    <Compile Remove="CanvasEtlOptions.cs" />
     <Compile Remove="CanvasSyncService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OlympiaStudent360.Api\OlympiaStudent360.Api.csproj" />
   </ItemGroup>
 
 </Project>

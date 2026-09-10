@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
@@ -52,7 +53,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
                 Id = student.Id,
                 SISUserId = student.SISUserId,
                 FullName = student.FullName,
-                GradeLevel = student.GradeLevel,
+                GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
                 Homeroom = student.Homeroom
             })
             .ToListAsync();
@@ -98,7 +99,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
                 Id = student.Id,
                 SISUserId = student.SISUserId,
                 FullName = student.FullName,
-                GradeLevel = student.GradeLevel,
+                GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
                 Homeroom = student.Homeroom
             })
             .ToListAsync();
@@ -140,7 +141,10 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             .Where(score =>
                 score.Enrollment!.Course!.EnrollmentTermName != null &&
                 score.Enrollment.Course.EnrollmentTermName != "" &&
-                score.Student != null && score.Student.GradeLevel != null && score.Student.GradeLevel != "" &&
+                score.Student != null &&
+                (score.Enrollment.Course.CanvasGradeLevel != null && score.Enrollment.Course.CanvasGradeLevel != "" ||
+                    (score.Student.GradeLevel ?? score.Student.CanvasGradeLevel) != null &&
+                    (score.Student.GradeLevel ?? score.Student.CanvasGradeLevel) != "") &&
                 (score.EnrollmentOverrideScore != null || score.GradesOverrideScore != null ||
                     score.CurrentScore != null || score.FinalScore != null));
         if (studentId != null)
@@ -150,7 +154,8 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             .GroupBy(score => new
             {
                 AcademicYear = score.Enrollment!.Course!.EnrollmentTermName!,
-                GradeLevel = score.Student!.GradeLevel!,
+                GradeLevel = score.Enrollment!.Course!.CanvasGradeLevel ??
+                    score.Student!.GradeLevel ?? score.Student.CanvasGradeLevel!,
                 Subject = score.Enrollment.Course.Name ?? score.Enrollment.Course.CourseCode ?? "—",
                 CourseName = score.Enrollment.Course.Name ?? score.Enrollment.Course.CourseCode ?? "—",
                 Term = score.GradingPeriodTitle ?? score.Enrollment.Course.EnrollmentTermName!
@@ -171,7 +176,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             .ToListAsync();
 
         var rows = groupedRows.Select(row => new AggregateRow(
-            row.AcademicYear,
+            DashboardPeriodNormalizer.AcademicYear(row.AcademicYear),
             row.GradeLevel,
             row.Subject.Trim(),
             row.CourseName.Trim(),
@@ -273,7 +278,8 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             SISUserId = selectedStudent?.SISUserId,
             StudentName = selectedStudent?.FullName,
             DateOfBirth = selectedStudent?.DateOfBirth,
-            GradeLevel = selectedStudent?.GradeLevel,
+            GradeLevel = selectedStudent?.GradeLevel ?? selectedStudent?.CanvasGradeLevel ??
+                years.LastOrDefault()?.Grades.LastOrDefault()?.GradeLevel,
             Homeroom = selectedStudent?.Homeroom,
             Gender = selectedStudent?.Gender ?? selectedStudent?.SISHealthVisits
                 .Where(visit => !string.IsNullOrWhiteSpace(visit.Gender))
@@ -315,10 +321,23 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
         if (academicYear.Length is < 1 or > 100 || gradeLevel.Length is < 1 or > 50)
             return BadRequest(new { Message = "Invalid academic year or grade level." });
 
+        var academicYearAliases = (await context.CanvasCourses.AsNoTracking()
+                .Where(course => course.EnrollmentTermName != null && course.EnrollmentTermName != "")
+                .Select(course => course.EnrollmentTermName!)
+                .Distinct()
+                .ToListAsync())
+            .Where(value => string.Equals(
+                DashboardPeriodNormalizer.AcademicYear(value), academicYear,
+                StringComparison.OrdinalIgnoreCase))
+            .Append(academicYear)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         var baseQuery = context.CanvasCourseScores.AsNoTracking()
-            .Where(score => score.Enrollment!.Course!.EnrollmentTermName == academicYear &&
-                score.StudentProfileId != null && score.Student != null &&
-                    score.Student.GradeLevel == gradeLevel &&
+            .WhereMatchesAny(score => score.Enrollment!.Course!.EnrollmentTermName, academicYearAliases)
+            .Where(score => score.StudentProfileId != null && score.Student != null &&
+                    (score.Enrollment!.Course!.CanvasGradeLevel ?? score.Student.GradeLevel ??
+                        score.Student.CanvasGradeLevel) == gradeLevel &&
                 (score.EnrollmentOverrideScore != null || score.GradesOverrideScore != null ||
                     score.CurrentScore != null || score.FinalScore != null));
 

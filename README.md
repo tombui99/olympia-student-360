@@ -157,28 +157,24 @@ The next backend startup will recreate the database. It will seed the admin user
 
 ## Canvas Daily ETL
 
-The `OlympiaStudent360.CanvasEtl` command calls the authenticated backend endpoint
-`POST /api/canvas-sync`. The backend then imports the account student directory, courses,
-assignments, student enrollments and course grades, and submissions through the Canvas REST API.
-It follows Canvas pagination, retries rate limits and transient server errors, and upserts through
-the backend's EF Core data layer. The console job never connects to MySQL. The Olympia schema
-remains the target contract: duplicate Canvas section
-enrollments are collapsed into one student/course score, effective submission due dates are used
-when available, and Canvas metadata is normalized into Olympia's reporting dimensions. Student
-identity is resolved using the durable Canvas user id first, with SIS id as a fallback:
+The `OlympiaStudent360.CanvasEtl` command is a durable direct Canvas-to-MySQL import; it does not
+route a long-running sync through an HTTP request. It imports the account hierarchy, student user
+directory, courses, sections/classes, assignments, student enrollments and grades, and submissions
+through the Canvas REST API. It follows Canvas pagination, retries rate limits and transient server
+errors, and performs idempotent EF Core upserts. Student identity is resolved using the durable
+Canvas user id first, with SIS id as a fallback:
 
 ```txt
 StudentProfile.CanvasUserId == Canvas user.id
 StudentProfile.SISUserId == Canvas user.sis_user_id (when Canvas exposes it)
 ```
 
-SIS is the source of truth for `StudentProfile`. Canvas never creates or deletes student profiles
-and never updates names, grade levels, homerooms, campuses, or other SIS-owned fields. The Canvas
-account user directory is used only as an identity lookup: `Canvas user.sis_user_id` must exactly
-match an existing `StudentProfile.SISUserId`. After a successful match, the ETL may store
-`CanvasUserId` as a cross-reference. Unmatched Canvas enrollments, scores, and submissions remain
-in the warehouse with a null `StudentProfileId` and are relinked on a later run after SIS has
-created the student profile. Ambiguous identity matches stop the job rather than merging records.
+SIS remains the future source of truth for official names and demographics. Until SIS arrives, the
+ETL can create a minimal profile using the exact Canvas `sis_user_id` as both key and placeholder
+display name; no Canvas name is guessed or promoted to an official SIS name. A separate
+`CanvasGradeLevel` fallback is derived only from structured Canvas grade-account membership.
+Official SIS `GradeLevel` takes precedence after SIS is imported. Ambiguous identity matches stop
+the job rather than merging records.
 
 The ETL uses these Canvas API operations (all responses are paginated):
 
@@ -226,33 +222,29 @@ courses in the configured current terms on each daily run. The weekly
 `.github/workflows/reconcile-canvas.yml` job reloads the previous 30 days across the 2025 and current
 terms to catch late grading corrections. All three workflows share one concurrency group.
 
-For a local run, store credentials in the ETL project's .NET user-secret store. The hidden prompts
-keep both keys out of shell history. Configure the same sync key in the backend and ETL projects:
+For a local run, store credentials in the ETL project's .NET user-secret store. The ETL connects
+directly to Canvas and MySQL, so a long import is not tied to a browser, API request, or web-host
+timeout. The hidden prompt keeps the Canvas token out of shell history:
 
 ```bash
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:BaseUrl" "https://lms.theolympiaschools.edu.vn"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:AccountId" "1"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:EnrollmentTermIds" "337"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:SyncAllEnrollmentTermIds" "333,334,335,337,338"
+dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:EnrollmentTermIds" "232,333,334,335,336,337,338,339,340"
+dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:SyncAllEnrollmentTermIds" "232,333,334,335,336,337,338,339,340"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:WatermarkOverlapMinutes" "120"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Backend:BaseUrl" "http://localhost:5279"
+dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:CreateMissingStudentProfiles" "true"
+dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "ConnectionStrings:DefaultConnection" "Server=localhost;Port=3306;Database=olympia_student_360;User=root;Password=YOUR_PASSWORD;"
 
 read -s "CANVAS_TOKEN?Canvas token: "; echo
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:AccessToken" "$CANVAS_TOKEN"
 unset CANVAS_TOKEN
 
-read -s "CANVAS_SYNC_KEY?Canvas sync API key: "; echo
-dotnet user-secrets set --project backend/OlympiaStudent360.Api "CanvasSync:ApiKey" "$CANVAS_SYNC_KEY"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Backend:SyncApiKey" "$CANVAS_SYNC_KEY"
-unset CANVAS_SYNC_KEY
-
-dotnet run --project backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj -- --sync-all
+dotnet run --project backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj -- --sync-all --replace
 ```
 
-Environment variables such as `Canvas__AccessToken`, `Backend__BaseUrl`, and
-`Backend__SyncApiKey` override local user secrets, which is how the GitHub Actions job supplies
-production credentials. The backend retains its own RDS connection configuration. Do not commit
-or log either API credential.
+Environment variables such as `Canvas__AccessToken` and
+`ConnectionStrings__DefaultConnection` override local user secrets. Do not commit or log either
+the Canvas credential or a database connection string.
 
 Use `-- --sync-all` for a complete manual reconciliation; it requires
 `Canvas:SyncAllEnrollmentTermIds`. Use `-- --incremental` for a watermark-driven local run or
@@ -261,16 +253,19 @@ Append `-- --replace` only to a full, non-incremental sync when intentionally re
 warehouse rows; the CLI rejects replacement with incremental or reconciliation responses.
 Scheduled daily jobs use `Canvas__EnrollmentTermIds` and limit the account query to available,
 published courses with student enrollments. Full and reconciliation runs additionally include
-completed courses. Canvas warehouse tables store Canvas-aligned source fields only. There is no
-manual course mapping file and no stored Olympia subject, year, period, or grade-level inference.
-Reports join Canvas course names, enrollment-term names, grading-period titles, assignments, and
-SIS-owned student dimensions at query time. See `docs/canvas-etl-simple-guide.md` for the exact
+completed courses. Canvas warehouse tables preserve Canvas accounts, users, courses, sections,
+enrollments, grades, assignments, and submissions separately from future SIS-owned classes and
+student demographics. There is no manual course mapping file. A Canvas grade fallback is derived
+only from the structured Canvas grade-account hierarchy and never by parsing a course title; an
+official SIS grade takes precedence when SIS is imported. See `docs/canvas-etl-simple-guide.md` for the exact
 field-by-field contract and `docs/canvas-etl-dotnet-guide.md` for the .NET runtime, watermark,
 retry, transaction, and GitHub Actions flow.
 
-GitHub-hosted runners only require HTTPS access to the Olympia backend; RDS can remain private to
-the backend network. The backend endpoint requires the dedicated sync key and passes the Canvas
-token only in a request header. Rotate both credentials if either is exposed.
+The Canvas GitHub workflows use the production environment secret
+`OLYMPIA_RDS_CONNECTION_STRING` and run this same direct import. Their runner must have network
+access to RDS; use a VPC-connected self-hosted runner or an ECS/Fargate task when RDS is private.
+Do not route a complete import through App Runner's HTTP endpoint: the import can take several
+minutes and must outlive an HTTP request.
 
 ## Run With Local MySQL
 

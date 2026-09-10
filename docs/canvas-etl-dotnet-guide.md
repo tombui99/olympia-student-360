@@ -182,20 +182,22 @@ Canvas syncs do not run at the same time.
 
 ## Student identity linking
 
-Canvas is not allowed to create or overwrite official students.
+Canvas is not allowed to overwrite official SIS student identity or demographics.
 
 The ETL reads Canvas account users only for their Canvas user ID and `sis_user_id`. It then:
 
 1. Looks for an existing SIS-owned `StudentProfile` with the same `SISUserId`.
 2. Stores the Canvas user ID as a cross-reference when the match is unambiguous.
 3. Links enrollments, score facts, and submissions to that existing profile.
-4. Leaves `StudentProfileId` null when SIS has not provided a matching student yet.
+4. When enabled, creates a minimal fallback profile keyed and displayed by the exact Canvas
+   `sis_user_id` (or an explicit `canvas-user-ID` key when Canvas has no SIS ID).
 
 A later run relinks unmatched historical facts after SIS data becomes available. Conflicting Canvas
 and SIS identities stop the run instead of guessing or merging students incorrectly.
 
-The ETL does not copy Canvas names, grade levels, homerooms, demographics, or other Canvas profile
-values into the SIS-owned student record.
+The ETL does not copy Canvas names, homerooms, campuses, or demographics into SIS-owned fields. It
+stores `CanvasGradeLevel` separately, derived only from an explicit Canvas grade-account ancestor;
+official SIS `GradeLevel` remains distinct and takes precedence in reporting.
 
 ## Validation and transformation
 
@@ -220,15 +222,17 @@ never presented as a Canvas ID.
 
 Each course is saved in its own MySQL transaction.
 
-For a course, `CanvasSyncService`:
+Before processing courses, `CanvasSyncService` upserts the Canvas account hierarchy and Canvas user
+directory. For a course, it then:
 
 1. Inserts or updates `CanvasCourses` by `CanvasCourseId`.
-2. Inserts or updates `CanvasAssignments` by `CanvasAssignmentId`.
-3. Inserts or updates `CanvasEnrollments` by `CanvasEnrollmentId`.
-4. Inserts or updates overall and grading-period rows in `CanvasCourseScores`.
-5. Inserts or updates `CanvasSubmissions` by `CanvasSubmissionId`.
-6. Removes stale authoritative children when the current response is complete.
-7. Commits the course transaction.
+2. Inserts or updates `CanvasCourseSections` by `CanvasSectionId`.
+3. Inserts or updates `CanvasAssignments` by `CanvasAssignmentId`.
+4. Inserts or updates `CanvasEnrollments` by `CanvasEnrollmentId`, including exact section membership.
+5. Inserts or updates overall and grading-period rows in `CanvasCourseScores`.
+6. Inserts or updates `CanvasSubmissions` by `CanvasSubmissionId`.
+7. Removes stale authoritative children when the current response is complete.
+8. Commits the course transaction.
 
 Assignments, enrollments, and score totals are fully read for a selected course, so missing rows can
 be removed. Submissions are pruned only during an unbounded full response; they are not pruned from

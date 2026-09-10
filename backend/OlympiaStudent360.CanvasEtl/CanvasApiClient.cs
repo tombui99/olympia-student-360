@@ -33,7 +33,10 @@ internal sealed partial class CanvasApiClient
             : _options.IncludeCompletedCourses
                 ? "&with_enrollments=true&enrollment_type[]=student&published=true&state[]=available&state[]=completed"
                 : "&with_enrollments=true&enrollment_type[]=student&published=true&state[]=available";
-        var termIds = _options.IncludeAllCourses || _options.EnrollmentTermIds.Count == 0
+        // Even an all-state import must stay inside the explicitly configured terms. The old
+        // implementation silently dropped the term filter when IncludeAllCourses was enabled,
+        // which could turn a current-year rebuild into an account-wide historical import.
+        var termIds = _options.EnrollmentTermIds.Count == 0
             ? new long?[] { null }
             : _options.EnrollmentTermIds.Select(id => (long?)id).ToArray();
         var courses = new Dictionary<long, CanvasCourseDto>();
@@ -70,6 +73,23 @@ internal sealed partial class CanvasApiClient
     public Task<List<CanvasUserDto>> GetStudents(CancellationToken cancellationToken) => GetAll<CanvasUserDto>(
         $"api/v1/accounts/{Escape(_options.AccountId)}/users" +
         $"?per_page={_options.PerPage}&enrollment_type=student&sort=id",
+        cancellationToken);
+
+    public async Task<List<CanvasAccountDto>> GetAccounts(CancellationToken cancellationToken)
+    {
+        var root = await GetOne<CanvasAccountDto>(
+            $"api/v1/accounts/{Escape(_options.AccountId)}", cancellationToken);
+        var descendants = await GetAll<CanvasAccountDto>(
+            $"api/v1/accounts/{Escape(_options.AccountId)}/sub_accounts" +
+            $"?recursive=true&per_page={_options.PerPage}", cancellationToken);
+        return descendants.Append(root).GroupBy(account => account.Id)
+            .Select(group => group.First()).OrderBy(account => account.Id).ToList();
+    }
+
+    public Task<List<CanvasCourseSectionDto>> GetSections(
+        long courseId,
+        CancellationToken cancellationToken) => GetAll<CanvasCourseSectionDto>(
+        $"api/v1/courses/{courseId}/sections?per_page={_options.PerPage}&include[]=total_students",
         cancellationToken);
 
     public Task<List<CanvasAssignmentDto>> GetAssignments(long courseId, CancellationToken cancellationToken) =>
@@ -158,6 +178,16 @@ internal sealed partial class CanvasApiClient
         }
 
         return results;
+    }
+
+    private async Task<T> GetOne<T>(string path, CancellationToken cancellationToken)
+    {
+        var uri = new Uri(_options.BaseUri, path);
+        EnsureTrustedCanvasUri(uri);
+        using var response = await SendWithRetry(uri, cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        return await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException($"Canvas returned an empty JSON response for {uri.AbsolutePath}.");
     }
 
     private async Task<HttpResponseMessage> SendWithRetry(Uri uri, CancellationToken cancellationToken)

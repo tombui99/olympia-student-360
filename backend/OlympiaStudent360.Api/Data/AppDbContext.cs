@@ -28,7 +28,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<DashboardMetric> DashboardMetrics { get; set; }
     public DbSet<DashboardMetricObservation> DashboardMetricObservations { get; set; }
     public DbSet<DashboardPreference> DashboardPreferences { get; set; }
+    public DbSet<CanvasAccount> CanvasAccounts { get; set; }
+    public DbSet<CanvasUser> CanvasUsers { get; set; }
     public DbSet<CanvasCourse> CanvasCourses { get; set; }
+    public DbSet<CanvasCourseSection> CanvasCourseSections { get; set; }
     public DbSet<CanvasAssignment> CanvasAssignments { get; set; }
     public DbSet<CanvasEnrollment> CanvasEnrollments { get; set; }
     public DbSet<CanvasCourseScore> CanvasCourseScores { get; set; }
@@ -101,6 +104,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<StudentProfile>()
             .Property(s => s.Gender)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.CanvasGradeLevel)
             .HasMaxLength(50);
 
         modelBuilder.Entity<StudentProfile>()
@@ -383,9 +390,56 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             course.Property(c => c.Name).HasMaxLength(255);
             course.Property(c => c.CourseCode).HasMaxLength(100);
             course.Property(c => c.WorkflowState).HasMaxLength(50);
+            course.Property(c => c.CanvasGradeLevel).HasMaxLength(50);
             course.Property(c => c.EnrollmentTermName).HasMaxLength(100);
             course.HasIndex(c => c.CanvasCourseId).IsUnique();
+            course.HasIndex(c => c.CanvasAccountId);
+            course.HasIndex(c => c.CanvasGradeLevel);
             course.HasIndex(c => c.EnrollmentTermId);
+        });
+
+        modelBuilder.Entity<CanvasAccount>(account =>
+        {
+            account.Property(item => item.CreatedAt).HasColumnName("WarehouseCreatedAt");
+            account.Property(item => item.UpdatedAt).HasColumnName("WarehouseUpdatedAt");
+            account.Property(item => item.SisAccountId).HasMaxLength(255);
+            account.Property(item => item.Name).HasMaxLength(255);
+            account.Property(item => item.WorkflowState).HasMaxLength(50);
+            account.HasIndex(item => item.CanvasAccountId).IsUnique();
+            account.HasIndex(item => item.ParentAccountId);
+            account.HasIndex(item => item.SisAccountId);
+        });
+
+        modelBuilder.Entity<CanvasUser>(user =>
+        {
+            user.Property(item => item.CreatedAt).HasColumnName("WarehouseCreatedAt");
+            user.Property(item => item.UpdatedAt).HasColumnName("WarehouseUpdatedAt");
+            user.Property(item => item.SisUserId).HasMaxLength(100);
+            user.Property(item => item.IntegrationId).HasMaxLength(255);
+            user.Property(item => item.LoginId).HasMaxLength(255);
+            user.Property(item => item.Name).HasMaxLength(255);
+            user.Property(item => item.ShortName).HasMaxLength(255);
+            user.Property(item => item.SortableName).HasMaxLength(255);
+            user.Property(item => item.Email).HasMaxLength(255);
+            user.HasIndex(item => item.CanvasUserId).IsUnique();
+            user.HasIndex(item => item.SisUserId);
+        });
+
+        modelBuilder.Entity<CanvasCourseSection>(section =>
+        {
+            section.Property(item => item.CreatedAt).HasColumnName("WarehouseCreatedAt");
+            section.Property(item => item.UpdatedAt).HasColumnName("WarehouseUpdatedAt");
+            section.Property(item => item.SisSectionId).HasMaxLength(255);
+            section.Property(item => item.SisCourseId).HasMaxLength(255);
+            section.Property(item => item.IntegrationId).HasMaxLength(255);
+            section.Property(item => item.Name).HasMaxLength(255);
+            section.HasIndex(item => item.CanvasSectionId).IsUnique();
+            section.HasIndex(item => item.CanvasCourseId);
+            section.HasIndex(item => item.SisSectionId);
+            section.HasOne(item => item.Course).WithMany(item => item.Sections)
+                .HasForeignKey(item => item.CanvasCourseId)
+                .HasPrincipalKey(item => item.CanvasCourseId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<CanvasAssignment>(assignment =>
@@ -410,15 +464,24 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             enrollment.Property(e => e.CreatedAt).HasColumnName("WarehouseCreatedAt");
             enrollment.Property(e => e.UpdatedAt).HasColumnName("WarehouseUpdatedAt");
             enrollment.Property(e => e.Type).HasMaxLength(50);
+            enrollment.Property(e => e.Role).HasMaxLength(100);
             enrollment.Property(e => e.EnrollmentState).HasMaxLength(50);
             enrollment.Property(e => e.SisUserId).HasMaxLength(100);
+            enrollment.Property(e => e.SisSectionId).HasMaxLength(255);
+            enrollment.Property(e => e.SisCourseId).HasMaxLength(255);
+            enrollment.Property(e => e.SisAccountId).HasMaxLength(255);
             enrollment.HasIndex(e => e.CanvasEnrollmentId).IsUnique();
             enrollment.HasIndex(e => e.CanvasUserId);
+            enrollment.HasIndex(e => e.CanvasCourseSectionId);
             enrollment.HasIndex(e => e.StudentProfileId);
             enrollment.HasOne(e => e.Course).WithMany(c => c.Enrollments)
                 .HasForeignKey(e => e.CanvasCourseId)
                 .HasPrincipalKey(c => c.CanvasCourseId)
                 .OnDelete(DeleteBehavior.Cascade);
+            enrollment.HasOne(e => e.Section).WithMany()
+                .HasForeignKey(e => e.CanvasCourseSectionId)
+                .HasPrincipalKey(e => e.CanvasSectionId)
+                .OnDelete(DeleteBehavior.SetNull);
             enrollment.HasOne(e => e.Student).WithMany()
                 .HasForeignKey(e => e.StudentProfileId)
                 .OnDelete(DeleteBehavior.SetNull);
@@ -429,6 +492,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             score.Property(s => s.CreatedAt).HasColumnName("WarehouseCreatedAt");
             score.Property(s => s.UpdatedAt).HasColumnName("WarehouseUpdatedAt");
             score.Property(s => s.GradingPeriodTitle).HasMaxLength(100);
+            score.Property(s => s.CurrentGrade).HasMaxLength(50);
+            score.Property(s => s.FinalGrade).HasMaxLength(50);
+            score.Property(s => s.UnpostedCurrentGrade).HasMaxLength(50);
+            score.Property(s => s.UnpostedFinalGrade).HasMaxLength(50);
             score.HasIndex(s => s.WarehouseScoreFactId).IsUnique();
             score.HasIndex(s => s.StudentProfileId);
             score.HasOne(s => s.Enrollment).WithMany(e => e.Scores)
@@ -447,6 +514,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             submission.Property(s => s.Grade).HasMaxLength(50);
             submission.Property(s => s.WorkflowState).HasMaxLength(50);
             submission.Property(s => s.SubmissionType).HasMaxLength(50);
+            submission.Property(s => s.LatePolicyStatus).HasMaxLength(50);
             submission.HasIndex(s => s.CanvasSubmissionId).IsUnique();
             submission.HasIndex(s => s.CanvasAssignmentId);
             submission.HasIndex(s => s.StudentProfileId);

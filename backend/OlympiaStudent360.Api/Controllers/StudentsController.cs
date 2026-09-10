@@ -37,8 +37,9 @@ public class StudentsController : ControllerBase
         (page, pageSize) = NormalizePaging(page, pageSize);
         var visible = VisibleStudents();
         var availableGrades = (await visible
-            .Where(student => student.GradeLevel != null && student.GradeLevel != "")
-            .Select(student => student.GradeLevel!)
+            .Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) != null &&
+                (student.GradeLevel ?? student.CanvasGradeLevel) != "")
+            .Select(student => (student.GradeLevel ?? student.CanvasGradeLevel)!)
             .Distinct()
             .ToListAsync())
             .OrderBy(value => int.TryParse(value, out var number) ? number : int.MaxValue)
@@ -58,7 +59,7 @@ public class StudentsController : ControllerBase
         }
         if (!string.IsNullOrWhiteSpace(grade))
         {
-            query = query.Where(student => student.GradeLevel == grade.Trim());
+            query = query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == grade.Trim());
         }
 
         var settings = await ClassificationSettings();
@@ -77,7 +78,7 @@ public class StudentsController : ControllerBase
             student.Id,
             student.SISUserId,
             student.FullName,
-            student.GradeLevel,
+            GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
             student.Homeroom,
             student.Campus,
             student.EducationLevel,
@@ -175,7 +176,7 @@ public class StudentsController : ControllerBase
                     Id = entry.Student.Id,
                     SISUserId = entry.Student.SISUserId,
                     FullName = entry.Student.FullName,
-                    GradeLevel = entry.Student.GradeLevel,
+                    GradeLevel = entry.Student.GradeLevel ?? entry.Student.CanvasGradeLevel,
                     Homeroom = entry.Student.Homeroom,
                     BehaviourCount = entry.Student.Behaviours.Count,
                     PositiveBehaviourCount = entry.Student.Behaviours.Count(StudentClassificationService.IsCommendationBehaviour),
@@ -258,7 +259,7 @@ public class StudentsController : ControllerBase
                 StudentId = entry.Student.Id,
                 SISUserId = entry.Student.SISUserId,
                 StudentName = entry.Student.FullName,
-                GradeLevel = entry.Student.GradeLevel,
+                GradeLevel = entry.Student.GradeLevel ?? entry.Student.CanvasGradeLevel,
                 Homeroom = entry.Student.Homeroom,
                 IncidentDate = new[]
                     {
@@ -356,7 +357,7 @@ public class StudentsController : ControllerBase
                 Id = student.Id,
                 SISUserId = student.SISUserId,
                 FullName = student.FullName,
-                GradeLevel = student.GradeLevel,
+                GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
                 Homeroom = student.Homeroom
             })
             .ToListAsync();
@@ -639,7 +640,7 @@ public class StudentsController : ControllerBase
             Id = student.Id,
             SISUserId = student.SISUserId,
             FullName = student.FullName,
-            GradeLevel = student.GradeLevel,
+            GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
             Homeroom = student.Homeroom,
             Campus = student.Campus,
             EducationLevel = student.EducationLevel,

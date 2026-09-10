@@ -25,6 +25,9 @@ public class StudentProfile : BaseEntity
     public string? PhoneNumber { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
+    /// <summary>Current fallback grade derived from structured Canvas grade-account membership.</summary>
+    public string? CanvasGradeLevel { get; set; }
+    /// <summary>SIS-owned grade. This takes precedence over CanvasGradeLevel in reporting.</summary>
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
     public string? Campus { get; set; }
@@ -241,11 +244,32 @@ public class DashboardPreference : BaseEntity
 // ---------------------------------------------------------------------------
 // Canvas LMS warehouse tables.
 //
-// These are Olympia-shaped warehouse facts populated from the Canvas REST API. They
-// deliberately do not mirror every Canvas resource. Canvas ids are retained for
-// idempotent upserts, while student identity and reporting dimensions are translated
-// into Olympia's StudentProfile/AcademicYear/Term/Subject vocabulary.
+// These are source-preserving warehouse records populated from the Canvas REST API.
+// Canvas-owned users, accounts, courses and sections remain separate from the future
+// SIS-owned student/class dimensions. Canvas ids are retained for idempotent upserts.
 // ---------------------------------------------------------------------------
+
+public class CanvasAccount : BaseEntity
+{
+    public long CanvasAccountId { get; set; }
+    public long? ParentAccountId { get; set; }
+    public long? RootAccountId { get; set; }
+    public string? SisAccountId { get; set; }
+    public string? Name { get; set; }
+    public string? WorkflowState { get; set; }
+}
+
+public class CanvasUser : BaseEntity
+{
+    public long CanvasUserId { get; set; }
+    public string? SisUserId { get; set; }
+    public string? IntegrationId { get; set; }
+    public string? LoginId { get; set; }
+    public string? Name { get; set; }
+    public string? ShortName { get; set; }
+    public string? SortableName { get; set; }
+    public string? Email { get; set; }
+}
 
 public class CanvasCourse : BaseEntity
 {
@@ -255,12 +279,34 @@ public class CanvasCourse : BaseEntity
     public string? Name { get; set; }
     public string? CourseCode { get; set; }
     public string? WorkflowState { get; set; }
+    public long? CanvasAccountId { get; set; }
+    public long? CanvasRootAccountId { get; set; }
+    /// <summary>Grade derived only from a structured Canvas grade account ancestor.</summary>
+    public string? CanvasGradeLevel { get; set; }
+    public long? CanvasGradeSourceAccountId { get; set; }
     public long? EnrollmentTermId { get; set; }
     public string? EnrollmentTermName { get; set; }
     public DateTime? StartAt { get; set; }
     public DateTime? EndAt { get; set; }
     public ICollection<CanvasAssignment> Assignments { get; set; } = [];
+    public ICollection<CanvasCourseSection> Sections { get; set; } = [];
     public ICollection<CanvasEnrollment> Enrollments { get; set; } = [];
+}
+
+/// <summary>A Canvas course section/class. Future SIS classes will use a separate SIS-owned table.</summary>
+public class CanvasCourseSection : BaseEntity
+{
+    public long CanvasSectionId { get; set; }
+    public long CanvasCourseId { get; set; }
+    public CanvasCourse? Course { get; set; }
+    public string? SisSectionId { get; set; }
+    public string? SisCourseId { get; set; }
+    public string? IntegrationId { get; set; }
+    public string? Name { get; set; }
+    public DateTime? StartAt { get; set; }
+    public DateTime? EndAt { get; set; }
+    public int? TotalStudents { get; set; }
+    public bool? RestrictEnrollmentsToSectionDates { get; set; }
 }
 
 public class CanvasAssignment : BaseEntity
@@ -276,6 +322,11 @@ public class CanvasAssignment : BaseEntity
     public long? AssignmentGroupId { get; set; }
     public string? AssignmentGroupName { get; set; }
     public string? GradingType { get; set; }
+    public DateTime? UnlockAt { get; set; }
+    public DateTime? LockAt { get; set; }
+    public bool Published { get; set; }
+    public bool OmitFromFinalGrade { get; set; }
+    public int? Position { get; set; }
     public ICollection<CanvasSubmission> Submissions { get; set; } = [];
 }
 
@@ -288,8 +339,23 @@ public class CanvasEnrollment : BaseEntity
     public CanvasCourse? Course { get; set; }
     /// <summary>Canvas enrollment type, e.g. StudentEnrollment, TeacherEnrollment.</summary>
     public string? Type { get; set; }
+    public string? Role { get; set; }
+    public long? RoleId { get; set; }
     public string? EnrollmentState { get; set; }
     public string? SisUserId { get; set; }
+    public long? CanvasCourseSectionId { get; set; }
+    public CanvasCourseSection? Section { get; set; }
+    public string? SisSectionId { get; set; }
+    public string? SisCourseId { get; set; }
+    public string? SisAccountId { get; set; }
+    public DateTime? SourceCreatedAt { get; set; }
+    public DateTime? SourceUpdatedAt { get; set; }
+    public DateTime? StartAt { get; set; }
+    public DateTime? EndAt { get; set; }
+    public DateTime? LastActivityAt { get; set; }
+    public DateTime? LastAttendedAt { get; set; }
+    public long? TotalActivityTimeSeconds { get; set; }
+    public bool LimitPrivilegesToCourseSection { get; set; }
     public int? StudentProfileId { get; set; }
     public StudentProfile? Student { get; set; }
     public ICollection<CanvasCourseScore> Scores { get; set; } = [];
@@ -311,6 +377,14 @@ public class CanvasCourseScore : BaseEntity
     public double? GradingPeriodWeight { get; set; }
     public double? CurrentScore { get; set; }
     public double? FinalScore { get; set; }
+    public double? CurrentPoints { get; set; }
+    public string? CurrentGrade { get; set; }
+    public string? FinalGrade { get; set; }
+    public double? UnpostedCurrentScore { get; set; }
+    public double? UnpostedFinalScore { get; set; }
+    public double? UnpostedCurrentPoints { get; set; }
+    public string? UnpostedCurrentGrade { get; set; }
+    public string? UnpostedFinalGrade { get; set; }
     public double? EnrollmentOverrideScore { get; set; }
     public double? GradesOverrideScore { get; set; }
 }
@@ -338,6 +412,11 @@ public class CanvasSubmission : BaseEntity
     public bool Missing { get; set; }
     public bool? Excused { get; set; }
     public long? SecondsLate { get; set; }
+    public int? Attempt { get; set; }
+    public DateTime? PostedAt { get; set; }
+    public long? GraderId { get; set; }
+    public double? PointsDeducted { get; set; }
+    public string? LatePolicyStatus { get; set; }
 }
 
 /// <summary>Durable high-water mark and last-run status for one Canvas account.</summary>

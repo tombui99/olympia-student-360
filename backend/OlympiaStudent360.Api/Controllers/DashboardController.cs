@@ -53,7 +53,7 @@ public class DashboardController : ControllerBase
         // Measurement cycles come from the imported/observation sources that actually store them.
         var academicYears = (await AcademicYearValues().Distinct().ToListAsync())
             .Select(DashboardPeriodNormalizer.AcademicYear)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Where(DashboardPeriodNormalizer.IsAcademicYear)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(DashboardPeriodNormalizer.AcademicYearStart)
             .ThenByDescending(value => value, StringComparer.OrdinalIgnoreCase)
@@ -82,8 +82,11 @@ public class DashboardController : ControllerBase
                 .Select(item => item.EducationLevel!)
                 .Concat(_context.DashboardMetricObservations.Where(item => item.EducationLevel != null)
                     .Select(item => item.EducationLevel!)).Distinct().ToListAsync()),
-            GradeLevels = CleanOptions(await students.Where(item => item.GradeLevel != null)
-                .Select(item => item.GradeLevel!)
+            GradeLevels = GradeOptions(await students
+                .Where(item => (item.GradeLevel ?? item.CanvasGradeLevel) != null)
+                .Select(item => (item.GradeLevel ?? item.CanvasGradeLevel)!)
+                .Concat(_context.CanvasCourses.Where(item => item.CanvasGradeLevel != null)
+                    .Select(item => item.CanvasGradeLevel!))
                 .Concat(_context.DashboardMetricObservations.Where(item => item.GradeLevel != null)
                     .Select(item => item.GradeLevel!)).Distinct().ToListAsync()),
             Homerooms = CleanOptions(await students.Where(item => item.Homeroom != null)
@@ -94,7 +97,7 @@ public class DashboardController : ControllerBase
             {
                 Id = s.Id, SISUserId = s.SISUserId, FullName = s.FullName,
                 Campus = s.Campus, EducationLevel = s.EducationLevel,
-                GradeLevel = s.GradeLevel, Homeroom = s.Homeroom, Program = s.Program
+                GradeLevel = s.GradeLevel ?? s.CanvasGradeLevel, Homeroom = s.Homeroom, Program = s.Program
             }).ToListAsync(),
             MeasurementCycles = CleanOptions(await _context.DashboardMetricObservations
                 .Where(item => item.MeasurementCycle != null).Select(item => item.MeasurementCycle!)
@@ -568,7 +571,14 @@ public class DashboardController : ControllerBase
         var rank = studentIds.Select((id, index) => new { id, index }).ToDictionary(item => item.id, item => item.index);
         var students = await _context.StudentProfiles.AsNoTracking()
             .Where(student => studentIds.Contains(student.Id))
-            .Select(student => new { student.Id, student.SISUserId, student.FullName, student.GradeLevel, student.Homeroom })
+            .Select(student => new
+            {
+                student.Id,
+                student.SISUserId,
+                student.FullName,
+                GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
+                student.Homeroom
+            })
             .ToListAsync();
 
         var recordsByStudent = scoped
@@ -663,7 +673,8 @@ public class DashboardController : ControllerBase
         var query = _context.StudentBehaviours.AsNoTracking().AsQueryable();
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
-        if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
+        if (HasFilter(grade)) query = query.Where(item =>
+            (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
         if (HasFilter(program))
             query = query.Where(item => item.Program == program ||
@@ -686,7 +697,8 @@ public class DashboardController : ControllerBase
         var query = _context.StudentProjects.AsNoTracking().AsQueryable();
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
-        if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
+        if (HasFilter(grade)) query = query.Where(item =>
+            (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
         if (HasFilter(program))
             query = query.Where(item => item.Program == program ||
@@ -707,7 +719,8 @@ public class DashboardController : ControllerBase
         var query = _context.StudentMentalHealthRecords.AsNoTracking().AsQueryable();
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
-        if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
+        if (HasFilter(grade)) query = query.Where(item =>
+            (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student.Program == program);
         if (HasFilter(year)) query = query.Where(item => item.AcademicYear == year);
@@ -720,7 +733,8 @@ public class DashboardController : ControllerBase
         var query = _context.SISHealthVisits.AsNoTracking().Where(item => item.SISUserId != null);
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
-        if (HasFilter(grade)) query = query.Where(item => item.Student!.GradeLevel == grade);
+        if (HasFilter(grade)) query = query.Where(item =>
+            (item.Student!.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         // Health visits store an exam timestamp; scope to the selected academic year (Aug–Jul).
@@ -739,7 +753,8 @@ public class DashboardController : ControllerBase
         var query = _context.StudentBusAttendanceRecords.AsNoTracking().AsQueryable();
         if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
-        if (HasFilter(grade)) query = query.Where(item => item.Student.GradeLevel == grade);
+        if (HasFilter(grade)) query = query.Where(item =>
+            (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student.Program == program);
         if (yearAliases.Count > 0)
@@ -773,7 +788,8 @@ public class DashboardController : ControllerBase
         var query = _context.CanvasSubmissions.AsNoTracking().Where(item => item.StudentProfileId != null);
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
-        if (HasFilter(grade)) query = query.Where(item => item.Student!.GradeLevel == grade);
+        if (HasFilter(grade)) query = query.Where(item =>
+            (item.Assignment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Assignment!.Course!.Name == subject);
@@ -796,7 +812,8 @@ public class DashboardController : ControllerBase
             .Where(item => item.StudentProfileId != null);
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
-        if (HasFilter(grade)) query = query.Where(item => item.Student!.GradeLevel == grade);
+        if (HasFilter(grade)) query = query.Where(item =>
+            (item.Enrollment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
         if (HasFilter(homeroom)) query = query.Where(item => item.Student!.Homeroom == homeroom);
         if (HasFilter(program)) query = query.Where(item => item.Student!.Program == program);
         if (HasFilter(subject)) query = query.Where(item => item.Enrollment!.Course!.Name == subject);
@@ -845,11 +862,16 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(grade))
         {
-            behaviours = behaviours.Where(item => item.Student.GradeLevel == grade);
-            projects = projects.Where(item => item.Student.GradeLevel == grade);
-            mentalHealth = mentalHealth.Where(item => item.Student.GradeLevel == grade);
-            healthVisits = healthVisits.Where(item => item.Student!.GradeLevel == grade);
-            busRecords = busRecords.Where(item => item.Student.GradeLevel == grade);
+            behaviours = behaviours.Where(item =>
+                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
+            projects = projects.Where(item =>
+                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
+            mentalHealth = mentalHealth.Where(item =>
+                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
+            healthVisits = healthVisits.Where(item =>
+                (item.Student!.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
+            busRecords = busRecords.Where(item =>
+                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
         }
         if (HasFilter(homeroom))
         {
@@ -1013,8 +1035,10 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(grade))
         {
-            submissions = submissions.Where(item => item.Student!.GradeLevel == grade);
-            scores = scores.Where(item => item.Student!.GradeLevel == grade);
+            submissions = submissions.Where(item =>
+                (item.Assignment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
+            scores = scores.Where(item =>
+                (item.Enrollment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel) == grade);
         }
         if (HasFilter(homeroom))
         {
@@ -1344,7 +1368,7 @@ public class DashboardController : ControllerBase
                 Id = candidate.Student.Id,
                 SISUserId = candidate.Student.SISUserId,
                 FullName = candidate.Student.FullName,
-                GradeLevel = candidate.Student.GradeLevel,
+                GradeLevel = candidate.Student.GradeLevel ?? candidate.Student.CanvasGradeLevel,
                 Homeroom = candidate.Student.Homeroom,
                 RiskLevel = candidate.RiskLevel
             })
@@ -1476,6 +1500,13 @@ public class DashboardController : ControllerBase
         values.Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static List<string> GradeOptions(IEnumerable<string> values) =>
+        values.Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => int.TryParse(value, out var grade) ? grade : int.MaxValue)
+            .ThenBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private IQueryable<string> AcademicYearValues() =>

@@ -1,6 +1,8 @@
-using System.Net.Http.Json;
 using System.Reflection;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using OlympiaStudent360.Api.Data;
 using OlympiaStudent360.CanvasEtl;
 
 try
@@ -22,7 +24,9 @@ try
     {
         throw new InvalidOperationException($"Unknown arguments: {string.Join(", ", unexpected)}");
     }
-    var selectedModes = (syncAll ? 1 : 0) + (incremental ? 1 : 0) + (reconciliationDays is null ? 0 : 1);
+
+    var selectedModes = (syncAll ? 1 : 0) + (incremental ? 1 : 0) +
+        (reconciliationDays is null ? 0 : 1);
     if (selectedModes > 1)
     {
         throw new InvalidOperationException(
@@ -51,15 +55,18 @@ try
     if (syncAll && selectedTermIds.Count == 0)
     {
         throw new InvalidOperationException(
-            "--sync-all requires Canvas:SyncAllEnrollmentTermIds so nonacademic Canvas courses are not imported.");
+            "--sync-all requires Canvas:SyncAllEnrollmentTermIds so the import stays inside explicit Canvas terms.");
     }
     if (!syncAll && selectedTermIds.Count == 0)
     {
         throw new InvalidOperationException(
             "Incremental and reconciliation modes require configured Canvas enrollment term ids.");
     }
-    var backendBaseUri = RequiredHttpsOrLoopbackUri(configuration, "Backend:BaseUrl");
-    var syncApiKey = Required(configuration, "Backend:SyncApiKey");
+
+    var connectionString = Required(configuration, "ConnectionStrings:DefaultConnection");
+    var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
+        .UseMySQL(connectionString)
+        .Options;
 
     using var shutdown = new CancellationTokenSource();
     Console.CancelKeyPress += (_, eventArgs) =>
@@ -68,39 +75,35 @@ try
         shutdown.Cancel();
     };
 
-    using var httpClient = new HttpClient
-    {
-        BaseAddress = backendBaseUri,
-        Timeout = syncAll ? TimeSpan.FromHours(8) : TimeSpan.FromHours(2)
-    };
-    httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-        "OlympiaStudent360-CanvasETL/1.0 (+https://theolympiaschools.edu.vn)");
-    httpClient.DefaultRequestHeaders.TryAddWithoutValidation("X-Olympia-Sync-Key", syncApiKey);
-    httpClient.DefaultRequestHeaders.TryAddWithoutValidation("X-Canvas-Access-Token", canvasOptions.AccessToken);
+    await using var db = new AppDbContext(dbOptions);
+    using var httpClient = new HttpClient();
+    var mode = syncAll ? "sync-all" : reconciliationDays is not null ? "reconcile" : "incremental";
+    Console.WriteLine(
+        $"Starting direct Canvas-to-MySQL {mode} for term ids {string.Join(",", selectedTermIds)}. " +
+        "No backend HTTP request is involved.");
 
-    Console.WriteLine($"Triggering Canvas sync through {backendBaseUri}api/canvas-sync.");
-    using var response = await httpClient.PostAsJsonAsync(
-        "api/canvas-sync",
-        new CanvasSyncRequest(
-            canvasOptions.BaseUri.GetLeftPart(UriPartial.Authority),
+    var result = await new CanvasDirectImportRunner().Run(
+        db,
+        httpClient,
+        new CanvasDirectImportRequest(
+            canvasOptions.BaseUri,
+            canvasOptions.AccessToken,
             canvasOptions.AccountId,
             replaceExisting,
             canvasOptions.AllowEmptyCourses,
             canvasOptions.AllowEmptyStudents,
-            false,
+            syncAll || canvasOptions.IncludeAllCourses,
+            canvasOptions.CreateMissingStudentProfiles,
             selectedTermIds,
-            syncAll ? "sync-all" : reconciliationDays is not null ? "reconcile" : "incremental",
+            mode,
             canvasOptions.WatermarkOverlapMinutes,
-            reconciliationDays),
+            reconciliationDays,
+            canvasOptions.PerPage),
         shutdown.Token);
-    var responseBody = await response.Content.ReadAsStringAsync(shutdown.Token);
-    if (!response.IsSuccessStatusCode)
-    {
-        throw new HttpRequestException(
-            $"Backend Canvas sync endpoint returned HTTP {(int)response.StatusCode}: {Trim(responseBody, 1000)}");
-    }
 
-    Console.WriteLine($"Backend Canvas sync completed: {responseBody}");
+    Console.WriteLine(
+        $"Canvas import completed at {result.CompletedAtUtc:O}: " +
+        JsonSerializer.Serialize(result.Summary));
     return 0;
 }
 catch (OperationCanceledException)
@@ -122,21 +125,6 @@ static string Required(IConfiguration configuration, string name)
         : throw new InvalidOperationException($"Required configuration value {name} is not configured.");
 }
 
-static Uri RequiredHttpsOrLoopbackUri(IConfiguration configuration, string name)
-{
-    var value = Required(configuration, name).TrimEnd('/') + "/";
-    if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
-        (uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback))
-    {
-        throw new InvalidOperationException($"{name} must use HTTPS, except for loopback testing.");
-    }
-
-    return uri;
-}
-
-static string Trim(string value, int maxLength) =>
-    value.Length <= maxLength ? value : value[..maxLength] + "...";
-
 static int ParseReconciliationDays(string argument)
 {
     var value = argument[(argument.IndexOf('=') + 1)..];
@@ -144,15 +132,3 @@ static int ParseReconciliationDays(string argument)
         ? days
         : throw new InvalidOperationException("--reconcile-days must be from 1 through 90.");
 }
-
-internal sealed record CanvasSyncRequest(
-    string BaseUrl,
-    string AccountId,
-    bool ReplaceExisting,
-    bool AllowEmptyCourses,
-    bool AllowEmptyStudents,
-    bool IncludeAllCourses,
-    IReadOnlyList<long> EnrollmentTermIds,
-    string Mode,
-    int OverlapMinutes,
-    int? ReconciliationDays);

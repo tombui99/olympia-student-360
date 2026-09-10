@@ -9,9 +9,9 @@ SIS remains the source of truth for official student identity and demographics.
 ## The flow
 
 ```text
-GitHub Action
-  -> calls the protected Olympia backend sync endpoint
-  -> backend calls Canvas APIs
+GitHub Action or local CLI
+  -> runs the durable Canvas ETL process
+  -> ETL calls Canvas APIs
   -> backend validates relationships
   -> backend upserts Canvas values into MySQL
   -> reports join and calculate from those stored values
@@ -22,13 +22,16 @@ runs. The watermark advances only after the entire run succeeds.
 
 ## APIs and destinations
 
-This is the current implemented flow. The ETL does not convert a Canvas course into an
-Olympia-defined subject, school year, semester, or grade level.
+This is the current implemented flow. The ETL does not invent an Olympia subject, school year, or
+semester. It derives a reporting grade only from an explicit Canvas grade-account ancestor such as
+`LH_KHOI08`; it never parses a course title to guess a grade.
 
 | Canvas request | What we read | What the ETL actually does | Destination |
 |---|---|---|---|
-| `GET /api/v1/accounts/:account_id/users?enrollment_type=student` | Canvas user `id` and `sis_user_id` | Uses `sis_user_id` only to find an existing SIS-owned student. On a match, saves Canvas `id` as `StudentProfile.CanvasUserId`. It does **not** create a student or copy Canvas names or demographics. | Link on existing `StudentProfiles` only |
+| `GET /api/v1/accounts/:account_id/sub_accounts?recursive=true` | Exact account hierarchy, names, states, and SIS account IDs | Preserves account records and identifies explicit grade-account ancestors. | `CanvasAccounts` |
+| `GET /api/v1/accounts/:account_id/users?enrollment_type=student` | Canvas user identity fields | Preserves the Canvas directory. When SIS is absent, creates a minimal linked profile whose display name is the exact `sis_user_id` (or `canvas-user-ID` when absent), without copying/guessing demographics. | `CanvasUsers`, link/fallback in `StudentProfiles` |
 | `GET /api/v1/accounts/:account_id/courses?include[]=term` | Course `id`, `sis_course_id`, `name`, `course_code`, `workflow_state`, term ID/name, and start/end dates | Copies those Canvas fields directly. Course filters vary by sync mode and configured enrollment terms. A course returned by Canvas as `deleted` causes its matching warehouse course and dependent Canvas rows to be removed. | `CanvasCourses` |
+| `GET /api/v1/courses/:course_id/sections` | Exact section/class IDs, names, SIS references, dates, and student totals | Preserves Canvas classes separately; future SIS classes remain an independent SIS-owned dimension. | `CanvasCourseSections` |
 | `GET /api/v1/courses/:course_id/assignment_groups` | Assignment-group `id` and `name` | Uses the group ID to attach the exact Canvas group name to assignments. There is no separate assignment-group table and no Olympia-generated group name. | `AssignmentGroupId` and `AssignmentGroupName` on `CanvasAssignments` |
 | `GET /api/v1/courses/:course_id/assignments` | Assignment `id`, `name`, `points_possible`, `due_at`, `workflow_state`, `assignment_group_id`, and `grading_type` | Copies the values directly and relates the assignment to the Canvas course from the request path. | `CanvasAssignments` |
 | `GET /api/v1/courses/:course_id/grading_periods` | Period `id`, `title`, start/end dates, and weight | Does not invent semester labels. The exact Canvas period metadata is attached to score facts returned by the period-specific enrollment request. There is no standalone grading-period table. | Grading-period columns on `CanvasCourseScores` |
@@ -59,8 +62,9 @@ full/reconciliation run reads the broader configured course scope without the su
 | `start_at` | `StartAt` | Exact |
 | `end_at` | `EndAt` | Exact |
 
-There are no stored Olympia `ReportingSubject`, `ReportingAcademicYear`, `ReportingPeriod`, or
-`ReportingGradeLevel` columns. There is no manual Canvas course mapping file.
+There are no stored Olympia `ReportingSubject`, `ReportingAcademicYear`, or `ReportingPeriod`
+columns. `CanvasGradeLevel` and its source account ID are derived only from the stored Canvas account
+hierarchy. There is no manual Canvas course mapping file.
 
 ### Assignments
 
@@ -142,7 +146,8 @@ Reports join the raw relationships at query time:
 - course label: Canvas course `name` (or Canvas `course_code` when displaying a missing name);
 - academic-term label: Canvas `term.name`;
 - grading period: Canvas grading-period `title`;
-- grade level, homeroom, campus, and official student identity: SIS `StudentProfile`;
+- grade level: the course's structured Canvas grade account, then official SIS grade, then the
+  student's current Canvas grade fallback; homeroom/campus and official identity remain SIS-owned;
 - assignment percentage: Canvas submission `score / assignment.points_possible`;
 - effective due date for reporting: Canvas `cached_due_date ?? assignment.due_at`.
 

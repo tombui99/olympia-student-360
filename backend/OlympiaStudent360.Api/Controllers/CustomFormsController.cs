@@ -253,7 +253,9 @@ public class CustomFormsController : ControllerBase
     private static CustomFormResponseDto ToResponse(CustomFormResponse item) => new()
     {
         Id = item.Id, StudentProfileId = item.StudentProfileId, StudentId = item.Student.SISUserId,
-        StudentName = item.Student.FullName, GradeLevel = item.Student.GradeLevel, Homeroom = item.Student.Homeroom,
+        StudentName = item.Student.FullName,
+        GradeLevel = item.Student.GradeLevel ?? item.Student.CanvasGradeLevel,
+        Homeroom = item.Student.Homeroom,
         RespondentName = item.RespondentName, RespondentRelationship = item.RespondentRelationship,
         RespondentEmail = item.RespondentEmail, RespondentPhone = item.RespondentPhone,
         Answers = Answers(item.AnswersJson), QuestionSnapshot = Definition(item.QuestionSnapshotJson), SubmittedAt = item.CreatedAt
@@ -311,7 +313,9 @@ public class PublicCustomFormsController : ControllerBase
         return Ok(new VerifiedFormStudentDto
         {
             AccessToken = token, ExpiresAt = expires, StudentProfileId = student.Id, StudentId = student.SISUserId,
-            StudentName = student.FullName, GradeLevel = student.GradeLevel, Homeroom = student.Homeroom,
+            StudentName = student.FullName,
+            GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
+            Homeroom = student.Homeroom,
             Form = new PublicFormDto
             {
                 PublicId = form.PublicId, Title = form.Title, Description = form.Description,
@@ -355,7 +359,7 @@ public class PublicCustomFormsController : ControllerBase
             {
                 StudentId = student.SISUserId,
                 StudentName = student.FullName,
-                GradeLevel = student.GradeLevel,
+                GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
                 Homeroom = student.Homeroom
             })
             .ToListAsync();

@@ -13,6 +13,10 @@ public static partial class DashboardPeriodNormalizer
     {
         var trimmed = value.Trim();
         var match = AcademicYearPattern().Match(trimmed);
+        if (!match.Success)
+        {
+            match = CompactAcademicYearPattern().Match(trimmed);
+        }
         if (!match.Success ||
             !TryExpandYear(match.Groups["start"].Value, null, out var start) ||
             !TryExpandYear(match.Groups["end"].Value, start, out var end) ||
@@ -23,6 +27,9 @@ public static partial class DashboardPeriodNormalizer
 
         return $"{start:D4}-{end:D4}";
     }
+
+    public static bool IsAcademicYear(string value) =>
+        CanonicalAcademicYearPattern().IsMatch(AcademicYear(value));
 
     public static string Term(string value)
     {
@@ -54,6 +61,14 @@ public static partial class DashboardPeriodNormalizer
 
     [GeneratedRegex(@"(?<!\d)(?<start>(?:19|20)?\d{2})\s*[-\u2013\u2014/]\s*(?<end>(?:19|20)?\d{2})(?!\d)", RegexOptions.CultureInvariant)]
     private static partial Regex AcademicYearPattern();
+
+    // Canvas also uses compact source labels such as 2627_TERM_CLUB. Treat only adjacent
+    // two-digit years as an academic year; unrelated numeric course labels remain untouched.
+    [GeneratedRegex(@"(?<!\d)(?<start>\d{2})(?<end>\d{2})(?!\d)", RegexOptions.CultureInvariant)]
+    private static partial Regex CompactAcademicYearPattern();
+
+    [GeneratedRegex(@"^(?:19|20)\d{2}-(?:19|20)\d{2}$", RegexOptions.CultureInvariant)]
+    private static partial Regex CanonicalAcademicYearPattern();
 
     [GeneratedRegex(@"(?:semester|term|học\s*kỳ|hoc\s*ky|hk)\s*(?<semester>[12])(?!\d)|^s(?<semester>[12])f?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SemesterPattern();

@@ -22,10 +22,10 @@ jobs:
       Canvas__BaseUrl: ${{ secrets.CANVAS_BASE_URL }}
       Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
       Canvas__AccountId: ${{ secrets.CANVAS_ACCOUNT_ID }}
-      Canvas__EnrollmentTermIds: ${{ secrets.CANVAS_ENROLLMENT_TERM_IDS }}
+      Canvas__EnrollmentTermIds: "232,333,334,335,336,337,338,339,340"
       Canvas__WatermarkOverlapMinutes: "120"
-      Backend__BaseUrl: ${{ secrets.OLYMPIA_API_BASE_URL }}
-      Backend__SyncApiKey: ${{ secrets.CANVAS_SYNC_API_KEY }}
+      Canvas__CreateMissingStudentProfiles: "true"
+      ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
 
     steps:
       - name: Check out source
@@ -41,6 +41,13 @@ jobs:
           dotnet restore backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj
           dotnet build backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
             --configuration Release --no-restore
+
+      - name: Verify direct RDS configuration
+        run: |
+          if [ -z "$ConnectionStrings__DefaultConnection" ]; then
+            echo "Missing production secret OLYMPIA_RDS_CONNECTION_STRING."
+            exit 1
+          fi
 
       - name: Sync Canvas into RDS
         run: |
