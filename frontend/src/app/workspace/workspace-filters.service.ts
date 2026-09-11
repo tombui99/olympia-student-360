@@ -86,6 +86,12 @@ export class WorkspaceFiltersService {
     });
   }
 
+  periodOptions(): Observable<Pick<WorkspaceFilterOptions, 'academicYears' | 'terms'>> {
+    return this.http.get<WorkspaceFilterOptions>(`${this.basePath}/api/dashboard/filter-options`, {
+      params: { periodOnly: 'true' },
+    });
+  }
+
   load(): Observable<WorkspaceFilterSet> {
     return this.http.get<DashboardPreference>(`${this.basePath}/api/dashboard/preference`).pipe(
       tap((preference) => this.preference = preference),

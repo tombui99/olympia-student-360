@@ -311,7 +311,7 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit() {
     forkJoin({
-      options: this.workspaceFilters.options().pipe(catchError(() => of({ academicYears: [], terms: [] }))),
+      options: this.workspaceFilters.periodOptions().pipe(catchError(() => of({ academicYears: [], terms: [] }))),
       filters: this.workspaceFilters.load().pipe(catchError(() => of(defaultFilterSet()))),
     }).subscribe({
       next: ({ options, filters }) => this.initializePeriod(options.academicYears, options.terms, filters),
