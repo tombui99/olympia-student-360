@@ -241,7 +241,6 @@ export class ReportBuilderService {
         }
         return metrics;
       }),
-      catchError(() => of([])),
     );
   }
 

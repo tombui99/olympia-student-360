@@ -71,6 +71,7 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
+builder.Services.AddMemoryCache();
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("public-forms", context => RateLimitPartition.GetFixedWindowLimiter(

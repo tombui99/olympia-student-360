@@ -1,10 +1,11 @@
 import { NgClass, NgFor, NgIf } from '@angular/common';
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
-import { timeout } from 'rxjs';
+import { catchError, finalize, forkJoin, of, Subscription, tap, timeout } from 'rxjs';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
 import {
@@ -404,6 +405,23 @@ interface ChartImageExporter {
               class="mt-5 min-h-72 rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-4"
               [ngClass]="{ 'min-h-[29rem]': isWideChart(chart) }"
             >
+              <ng-container *ngIf="chartLoadFailed(chart); else chartData">
+                <div class="grid min-h-56 place-items-center text-center">
+                  <div>
+                    <p class="font-semibold text-red-700">
+                      {{ languageService.t('workspace.chartLoadError') }}
+                    </p>
+                    <button
+                      class="mt-4 rounded-md border border-[#d8d0df] bg-white px-4 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+                      type="button"
+                      (click)="retryChartData()"
+                    >
+                      {{ languageService.t('workspace.retryCharts') }}
+                    </button>
+                  </div>
+                </div>
+              </ng-container>
+              <ng-template #chartData>
               <ng-container *ngIf="chart.explorer">
                 <div
                   echarts
@@ -486,6 +504,7 @@ interface ChartImageExporter {
                 </div>
               </ng-template>
               </ng-container>
+              </ng-template>
             </div>
           </article>
         </div>
@@ -1346,6 +1365,7 @@ export class WorkspaceDetailComponent implements OnInit {
 
   readonly customReports = signal<CustomReport[]>([]);
   readonly systemUsers = signal<SystemUser[]>([]);
+  private systemUsersLoaded = false;
   readonly selectedReportId = signal<string | null>(null);
   readonly sheetMounted = signal(false);
   readonly sheetOpen = signal(false);
@@ -1355,8 +1375,9 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly metricVariables = this.reportBuilderService.metricVariables;
   readonly workspaceLoading = signal(true);
   private renderCycle = 0;
-  private loadingDataRequests = 0;
   private readonly workspaceRequestTimeoutMs = 15_000;
+  private dataLoadSubscription?: Subscription;
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly drilldownMounted = signal(false);
   readonly drilldownOpen = signal(false);
@@ -1403,8 +1424,10 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly aiReportError = signal<string | null>(null);
 
   readonly exploreOptions = signal<CanvasExploreOptions>({ datasets: [] });
+  private exploreOptionsLoaded = false;
   /** Cached explore results keyed by chart id (explorer charts fetch on filter change). */
   readonly exploreResults = signal<Record<string, CanvasExploreResult>>({});
+  readonly chartLoadErrors = signal<ReadonlySet<string>>(new Set());
   /** Count reportable charts without performing the expensive canvas image export. */
   readonly aiReportChartCount = computed(() => {
     const report = this.selectedReport();
@@ -1420,8 +1443,6 @@ export class WorkspaceDetailComponent implements OnInit {
       return this.chartMetrics(chart).some((metric) => metric.series.length > 0);
     }).length;
   });
-  private explorerRequestVersion = 0;
-
   /** Active filters, resolved to human-readable label/value pairs for the snapshot header. */
   readonly appliedFilters = computed<{ label: string; value: string }[]>(() => {
     const filters = this.filters();
@@ -1469,75 +1490,54 @@ export class WorkspaceDetailComponent implements OnInit {
 
   ngOnInit() {
     this.selectedReportId.set(this.route.snapshot.paramMap.get('workspaceId'));
-    this.customReports.set(this.reportBuilderService.loadReports());
-    this.loadFilterOptions(this.selectedReport()?.serverId);
-
     this.reportBuilderService.loadRemoteReports()
       .pipe(timeout(this.workspaceRequestTimeoutMs))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (remoteReports) => {
           if (!remoteReports.length) {
-            if (this.selectedReport()) this.loadMetrics();
-            else this.workspaceLoading.set(false);
+            this.workspaceLoading.set(false);
             return;
           }
           this.customReports.set(remoteReports);
           this.reportBuilderService.saveReports(remoteReports);
           const report = this.selectedReport();
-          this.loadFilterOptions(report?.serverId);
           if (!report?.serverId) {
             this.filters.set(defaultFilterSet());
             this.chartOrder.set([]);
-            this.loadMetrics();
+            this.workspaceLoading.set(false);
             return;
           }
-          this.workspaceFilters.loadWorkspace(report.serverId)
-            .pipe(timeout(this.workspaceRequestTimeoutMs))
-            .subscribe({
-              next: (filters) => {
-                this.filters.set(filters);
-                this.reconcileFilters();
-                this.chartOrder.set(this.workspaceFilters.loadWorkspaceChartOrder());
-                this.loadMetrics();
-              },
-              error: () => {
-                this.filters.set(defaultFilterSet());
-                this.chartOrder.set([]);
-                this.loadMetrics();
-              },
-            });
+          this.initializeWorkspace(report.serverId);
         },
-        error: () => {
-          if (this.selectedReport()) this.loadMetrics();
-          else this.workspaceLoading.set(false);
-        },
+        error: () => this.workspaceLoading.set(false),
       });
 
-    this.reportBuilderService.loadSystemUsers().subscribe((users) => this.systemUsers.set(users));
-    this.reportBuilderService.loadExploreOptions().subscribe((options) => this.exploreOptions.set(options));
   }
 
-  private loadedFilterOptionsFor: number | null | undefined = undefined;
+  private initializeWorkspace(reportId: number): void {
+    forkJoin({
+      options: this.workspaceFilters.options(reportId).pipe(
+        timeout(this.workspaceRequestTimeoutMs),
+        catchError(() => of(null)),
+      ),
+      filters: this.workspaceFilters.loadWorkspace(reportId).pipe(
+        timeout(this.workspaceRequestTimeoutMs),
+        catchError(() => of(defaultFilterSet())),
+      ),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ options, filters }) => {
+      this.filters.set(filters);
+      this.chartOrder.set(this.workspaceFilters.loadWorkspaceChartOrder());
 
-  private loadFilterOptions(reportId?: number): void {
-    const scope = reportId ?? null;
-    if (this.loadedFilterOptionsFor === scope) return;
-    this.loadedFilterOptionsFor = scope;
-    this.workspaceFilters.options(reportId).subscribe({
-      next: (options) => {
-        // Ignore a late unscoped response after the remote workspace has been resolved.
-        if (this.loadedFilterOptionsFor !== scope) return;
+      if (options) {
         this.options.set(options);
         this.filterOptionsLoaded = true;
         if (this.reconcileFilters()) {
-          const workspaceId = this.selectedReport()?.serverId;
-          if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
-          if (this.selectedReport()) this.loadMetrics();
+          this.workspaceFilters.saveWorkspace(reportId, this.filters());
         }
-      },
-      error: () => {
-        if (this.loadedFilterOptionsFor === scope) this.filterOptionsLoaded = true;
-      },
+      }
+
+      this.loadMetrics();
     });
   }
 
@@ -1680,20 +1680,62 @@ export class WorkspaceDetailComponent implements OnInit {
     }
 
     const cycle = ++this.renderCycle;
+    this.dataLoadSubscription?.unsubscribe();
     const params = this.filterParams();
     const explorerCharts = report.charts.filter((chart) => !!chart.explorer);
+    const hasMetricCharts = report.charts.some((chart) => !chart.explorer && chart.metrics.length > 0);
 
     this.workspaceLoading.set(true);
-    this.loadingDataRequests = 1 + explorerCharts.length;
     this.exploreResults.set({});
+    this.chartLoadErrors.set(new Set());
 
-    this.reportBuilderService.loadMetricVariables(params)
-      .pipe(timeout(this.workspaceRequestTimeoutMs))
-      .subscribe({
-        next: () => this.completeChartDataRequest(cycle),
-        error: () => this.completeChartDataRequest(cycle),
-      });
-    this.loadExplorerCharts(cycle, params, explorerCharts);
+    const requests = [];
+    if (hasMetricCharts) {
+      requests.push(this.reportBuilderService.loadMetricVariables(params).pipe(
+        timeout(this.workspaceRequestTimeoutMs),
+        catchError(() => {
+          this.markChartLoadErrors(report.charts
+            .filter((chart) => !chart.explorer && chart.metrics.length > 0)
+            .map((chart) => chart.id));
+          return of([]);
+        }),
+      ));
+    } else {
+      this.metricVariables.set([]);
+    }
+
+    for (const chart of explorerCharts) {
+      if (!chart.explorer) continue;
+      const { dataset, dimension, measure } = chart.explorer;
+      requests.push(this.reportBuilderService.loadExplore({ ...params, dataset, dimension, measure }).pipe(
+        timeout(this.workspaceRequestTimeoutMs),
+        tap((result) => {
+          if (cycle === this.renderCycle) {
+            this.exploreResults.update((current) => ({ ...current, [chart.id]: result }));
+          }
+        }),
+        catchError(() => {
+          this.markChartLoadErrors([chart.id]);
+          return of(null);
+        }),
+      ));
+    }
+
+    if (!requests.length) {
+      this.workspaceLoading.set(false);
+      return;
+    }
+
+    this.dataLoadSubscription = forkJoin(requests).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => {
+        if (cycle === this.renderCycle) {
+          // Data completion is the only loading boundary. Chart painting continues
+          // independently and never keeps the page-blocking overlay open.
+          this.workspaceLoading.set(false);
+        }
+      }),
+    ).subscribe();
   }
 
   private filterParams(): Record<string, string> {
@@ -1705,40 +1747,16 @@ export class WorkspaceDetailComponent implements OnInit {
     }).filter(([, value]) => !!value)) as Record<string, string>;
   }
 
-  /** Fetch aggregated data for every explorer chart in the selected report. */
-  private loadExplorerCharts(
-    cycle: number,
-    base: Record<string, string>,
-    explorerCharts: CustomChart[],
-  ): void {
-    const requestVersion = ++this.explorerRequestVersion;
-    for (const chart of explorerCharts) {
-      if (!chart.explorer) continue;
-      const { dataset, dimension, measure } = chart.explorer;
-      this.reportBuilderService
-        .loadExplore({ ...base, dataset, dimension, measure })
-        .pipe(timeout(this.workspaceRequestTimeoutMs))
-        .subscribe({
-          next: (result) => {
-            if (cycle === this.renderCycle && requestVersion === this.explorerRequestVersion) {
-              this.exploreResults.update((current) => ({ ...current, [chart.id]: result }));
-            }
-            this.completeChartDataRequest(cycle);
-          },
-          error: () => this.completeChartDataRequest(cycle),
-        });
-    }
+  chartLoadFailed(chart: CustomChart): boolean {
+    return this.chartLoadErrors().has(chart.id);
   }
 
-  private completeChartDataRequest(cycle: number): void {
-    if (cycle !== this.renderCycle) return;
+  retryChartData(): void {
+    this.loadMetrics();
+  }
 
-    this.loadingDataRequests = Math.max(0, this.loadingDataRequests - 1);
-    if (this.loadingDataRequests > 0) return;
-
-    // Data completion is the only loading boundary. Chart painting continues
-    // independently and never keeps the page-blocking overlay open.
-    this.workspaceLoading.set(false);
+  private markChartLoadErrors(chartIds: string[]): void {
+    this.chartLoadErrors.update((current) => new Set([...current, ...chartIds]));
   }
 
   startEditWorkspace() {
@@ -1747,15 +1765,17 @@ export class WorkspaceDetailComponent implements OnInit {
       return;
     }
 
-    this.workspaceDraft = {
-      title: report.title,
-      description: report.description,
+    this.loadSystemUsersForEditor(() => {
+      this.workspaceDraft = {
+        title: report.title,
+        description: report.description,
 
-      sharedWith: report.sharedWith.filter((username) =>
-        this.systemUsers().some((user) => user.username === username),
-      ),
-    };
-    this.openSheet('workspace');
+        sharedWith: report.sharedWith.filter((username) =>
+          this.systemUsers().some((user) => user.username === username),
+        ),
+      };
+      this.openSheet('workspace');
+    });
   }
 
   saveWorkspaceDraft() {
@@ -1775,7 +1795,7 @@ export class WorkspaceDetailComponent implements OnInit {
   startCreateChart() {
     this.chartDraft = this.emptyChartDraft();
     this.chartDraft.title = this.languageService.t('workspace.defaultNewChartTitle');
-    this.openSheet('chart');
+    this.loadChartBuilderOptions(() => this.openSheet('chart'));
   }
 
   startEditChart(chart: CustomChart) {
@@ -1791,7 +1811,42 @@ export class WorkspaceDetailComponent implements OnInit {
       dimension: chart.explorer?.dimension ?? '',
       measure: chart.explorer?.measure ?? '',
     };
-    this.openSheet('chart');
+    this.loadChartBuilderOptions(() => this.openSheet('chart'));
+  }
+
+  private loadSystemUsersForEditor(ready: () => void): void {
+    if (this.systemUsersLoaded) {
+      ready();
+      return;
+    }
+
+    this.reportBuilderService.loadSystemUsers()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((users) => {
+        this.systemUsers.set(users);
+        this.systemUsersLoaded = true;
+        ready();
+      });
+  }
+
+  private loadChartBuilderOptions(ready: () => void): void {
+    const exploreRequest = this.exploreOptionsLoaded
+      ? of(this.exploreOptions())
+      : this.reportBuilderService.loadExploreOptions();
+    const metricRequest = this.metricVariables().length
+      ? of(this.metricVariables())
+      : this.reportBuilderService.loadMetricVariables(this.filterParams()).pipe(
+          timeout(this.workspaceRequestTimeoutMs),
+          catchError(() => of([])),
+        );
+
+    forkJoin({ explore: exploreRequest, metrics: metricRequest })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(({ explore }) => {
+        this.exploreOptions.set(explore);
+        this.exploreOptionsLoaded = true;
+        ready();
+      });
   }
 
   saveChartDraft() {

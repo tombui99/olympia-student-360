@@ -702,7 +702,7 @@ export class WorkspaceComponent implements OnInit {
   });
 
   ngOnInit() {
-    this.reportBuilderService.loadMetricVariables({}).subscribe();
+    this.reportBuilderService.loadMetricVariables({}).subscribe({ error: () => undefined });
     const reports = this.reportBuilderService.loadReports();
     this.customReports.set(reports);
     this.selectFirstInSection();

@@ -81,6 +81,24 @@ interface RiskRow {
 
       <p class="-mt-3 text-xs text-[#9a91a3]">{{ languageService.t('dashboard.period.rosterNote') }}</p>
 
+      @if (periodLoading()) {
+        <div
+          class="grid min-h-72 place-items-center rounded-lg border border-[#ebe6ef] bg-white p-10 shadow-[0_12px_35px_rgba(50,18,79,0.08)]"
+          role="status"
+          aria-live="polite"
+        >
+          <div class="text-center">
+            <span class="mx-auto block h-10 w-10 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span>
+            <p class="mt-4 text-sm font-semibold text-[#5f5368]">
+              {{ languageService.t('dashboard.loading') }}
+            </p>
+          </div>
+        </div>
+      } @else if (loadFailed() && !overview()) {
+        <div class="rounded-lg border border-red-200 bg-red-50 p-8 text-center text-sm text-red-700">
+          {{ languageService.t('dashboard.loadError') }}
+        </div>
+      } @else {
       <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.students') }}</p>
@@ -214,6 +232,7 @@ interface RiskRow {
           </div>
         </section>
       </div>
+      }
     </section>
   `,
 })
@@ -226,6 +245,7 @@ export class DashboardComponent implements OnInit {
   readonly topAtRisk = signal<DashboardAttentionStudent[]>([]);
   readonly atRiskLoading = signal(true);
   readonly periodLoading = signal(true);
+  readonly loadFailed = signal(false);
 
   readonly years = signal<string[]>([]);
   readonly terms = signal<string[]>([]);
@@ -311,6 +331,7 @@ export class DashboardComponent implements OnInit {
 
   private loadOverview(): void {
     const requestId = ++this.overviewRequestId;
+    this.loadFailed.set(false);
     this.atRiskLoading.set(true);
     this.periodLoading.set(true);
     this.overviewService.overview(this.selectedYear || undefined, this.selectedTerm).subscribe({
@@ -331,6 +352,7 @@ export class DashboardComponent implements OnInit {
       },
       error: () => {
         if (requestId === this.overviewRequestId) {
+          this.loadFailed.set(true);
           this.atRiskLoading.set(false);
           this.periodLoading.set(false);
         }

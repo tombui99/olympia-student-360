@@ -19,6 +19,7 @@ import {
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { LanguageService } from '../core/language/language.service';
+import { ApiLoadingService } from '../core/loading/api-loading.service';
 
 interface NavItem {
   path: string;
@@ -182,8 +183,25 @@ interface NavSection {
           </div>
         </header>
 
-        <main class="px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
-          <router-outlet />
+        <main class="relative min-h-[calc(100vh-73px)] px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+          @if (apiLoading.loading()) {
+            <div
+              class="absolute inset-0 z-40 grid min-h-[calc(100vh-73px)] place-items-center bg-[#f6f4ef] px-6"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <div class="text-center">
+                <span class="mx-auto block h-12 w-12 animate-spin rounded-full border-4 border-[#e5ddea] border-t-[#6d3a91]"></span>
+                <p class="mt-4 text-sm font-semibold text-[#5f5368]">
+                  {{ languageService.t('common.loading') }}
+                </p>
+              </div>
+            </div>
+          }
+          <div [attr.aria-busy]="apiLoading.loading()">
+            <router-outlet />
+          </div>
         </main>
       </div>
     </div>
@@ -390,6 +408,7 @@ export class MainLayoutComponent {
   constructor(
     readonly authService: AuthenticationService,
     readonly languageService: LanguageService,
+    readonly apiLoading: ApiLoadingService,
   ) {}
 
   visibleItems(section: NavSection): NavItem[] {

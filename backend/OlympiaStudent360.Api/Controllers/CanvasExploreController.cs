@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
@@ -21,10 +22,12 @@ namespace OlympiaStudent360.Api.Controllers;
 public class CanvasExploreController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IMemoryCache _cache;
 
-    public CanvasExploreController(AppDbContext context)
+    public CanvasExploreController(AppDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
     }
 
     [HttpGet("options")]
@@ -52,6 +55,13 @@ public class CanvasExploreController : ControllerBase
         if (measureOption == null)
         {
             return BadRequest($"Unknown measure '{measure}' for dataset '{dataset}'.");
+        }
+
+        var cacheKey = ExploreCacheKey(dataset, dimension, measure, year, term, campus, level,
+            grade, homeroom, studentId?.ToString(), program, subject);
+        if (_cache.TryGetValue<CanvasExploreResultDto>(cacheKey, out var cached) && cached is not null)
+        {
+            return Ok(cached);
         }
 
         var f = await BuildFilters(year, term, campus, level, grade, homeroom, studentId, program, subject);
@@ -85,7 +95,7 @@ public class CanvasExploreController : ControllerBase
             ? grouped.OrderBy(row => row.Key).ToList()
             : grouped.OrderByDescending(row => row.Value).ThenBy(row => row.Key).ToList();
 
-        return Ok(new CanvasExploreResultDto
+        var result = new CanvasExploreResultDto
         {
             Dataset = dataset,
             Dimension = dimension,
@@ -93,7 +103,9 @@ public class CanvasExploreController : ControllerBase
             Unit = measureOption.Unit,
             Aggregation = aggregation,
             Rows = grouped
-        });
+        };
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        return Ok(result);
     }
 
     [HttpGet("drilldown")]
@@ -570,6 +582,13 @@ public class CanvasExploreController : ControllerBase
     private static string Text(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value.Trim();
     private static string Month(DateTime? date) => date?.ToString("yyyy-MM") ?? "—";
     private static string TermLabel(string? term) => Text(term);
+
+    private static string ExploreCacheKey(params string?[] values) =>
+        "dashboard:canvas-explore:" + string.Join('|', values.Select(value =>
+        {
+            var normalized = value?.Trim().ToLowerInvariant() ?? "";
+            return $"{normalized.Length}:{normalized}";
+        }));
 
     private static CanvasExploreOptionsDto BuildOptions() => new()
     {

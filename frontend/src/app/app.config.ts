@@ -16,6 +16,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { provideEchartsCore } from 'ngx-echarts';
 import { routes } from './app.routes';
 import { authInterceptor } from './core/auth/auth.interceptor';
+import { apiLoadingInterceptor } from './core/loading/api-loading.interceptor';
 import { BASE_PATH } from './api/variables';
 import { environment } from '../environments/environment';
 
@@ -38,7 +39,7 @@ echarts.use([
 export const appConfig: ApplicationConfig = {
   providers: [
     provideRouter(routes),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    provideHttpClient(withInterceptors([authInterceptor, apiLoadingInterceptor])),
     provideEchartsCore({ echarts }),
     { provide: BASE_PATH, useValue: environment.apiUrl },
   ],

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
@@ -35,36 +36,53 @@ public class DashboardController : ControllerBase
                 ("Hạn nộp", row.DueAt?.ToString("dd/MM/yyyy HH:mm"))));
 
     private readonly AppDbContext _context;
+    private readonly IMemoryCache _cache;
 
-    public DashboardController(AppDbContext context)
+    public DashboardController(AppDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
     }
 
     [HttpGet("filter-options")]
     public async Task<ActionResult<DashboardFilterOptionsDto>> FilterOptions([FromQuery] int? reportId)
     {
+        var cacheKey = $"dashboard-filter-options:{reportId?.ToString() ?? "all"}";
+        if (_cache.TryGetValue<DashboardFilterOptionsDto>(cacheKey, out var cached) && cached is not null)
+        {
+            return Ok(cached);
+        }
+
         var canvasOnly = reportId.HasValue && await IsCanvasOnlyReport(reportId.Value);
-        // Only expose dimensions attached to rows that can contribute to a dashboard chart.
-        // Catalogue-only courses and placeholder-only students otherwise create selections that
-        // correctly match a database row but can never produce a chart value.
-        var canvasScoreStudentIds = _context.CanvasCourseScores.AsNoTracking()
+
+        // Scan each Canvas fact table once for reportable student/course membership. The previous
+        // implementation independently rescanned the full submissions warehouse for students,
+        // subjects and grades, which became expensive once the warehouse reached ~500k rows.
+        var canvasMemberships = await _context.CanvasCourseScores.AsNoTracking()
             .Where(item => item.StudentProfileId != null &&
                 (item.FinalScore != null || item.CurrentScore != null) &&
                 (item.GradingPeriodEndDate != null || item.Enrollment!.Course!.EndAt != null))
-            .Select(item => item.StudentProfileId!.Value);
-        var canvasSubmissionStudentIds = _context.CanvasSubmissions.AsNoTracking()
-            .Where(item => item.StudentProfileId != null &&
-                (item.SubmittedAt != null ||
-                 (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
-                  (item.GradedAt != null || item.SubmittedAt != null)) ||
-                 (item.Missing && item.Excused != true &&
-                  (item.CachedDueDate != null || item.Assignment!.DueAt != null))))
-            .Select(item => item.StudentProfileId!.Value);
-        var dataStudentIds = await canvasScoreStudentIds
-            .Concat(canvasSubmissionStudentIds)
+            .Select(item => new
+            {
+                StudentId = item.StudentProfileId!.Value,
+                CourseId = item.Enrollment!.CanvasCourseId
+            })
+            .Concat(_context.CanvasSubmissions.AsNoTracking()
+                .Where(item => item.StudentProfileId != null &&
+                    (item.SubmittedAt != null ||
+                     (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
+                      (item.GradedAt != null || item.SubmittedAt != null)) ||
+                     (item.Missing && item.Excused != true &&
+                      (item.CachedDueDate != null || item.Assignment!.DueAt != null))))
+                .Select(item => new
+                {
+                    StudentId = item.StudentProfileId!.Value,
+                    CourseId = item.CanvasCourseId
+                }))
             .Distinct()
             .ToListAsync();
+
+        var dataStudentIds = canvasMemberships.Select(item => item.StudentId).Distinct().ToList();
         if (!canvasOnly)
         {
             var importedStudentIds = await _context.StudentBehaviours.Select(item => item.StudentProfileId)
@@ -79,36 +97,61 @@ public class DashboardController : ControllerBase
                 .ToListAsync();
             dataStudentIds = dataStudentIds.Concat(importedStudentIds).Distinct().ToList();
         }
-        var students = VisibleStudents().Where(item => dataStudentIds.Contains(item.Id));
+
+        // Load the selected student dimension once, then derive all student-owned options in
+        // memory. This replaces six nearly identical StudentProfiles queries and round trips.
+        var students = await VisibleStudents()
+            .Where(item => dataStudentIds.Contains(item.Id))
+            .OrderBy(item => item.FullName)
+            .Select(item => new DashboardStudentOptionDto
+            {
+                Id = item.Id,
+                SISUserId = item.SISUserId,
+                FullName = item.FullName,
+                Campus = item.Campus,
+                EducationLevel = item.EducationLevel,
+                GradeLevel = item.GradeLevel ?? item.CanvasGradeLevel,
+                Homeroom = item.Homeroom,
+                Program = item.Program
+            })
+            .ToListAsync();
+
+        var reportableCourseIds = canvasMemberships.Select(item => item.CourseId).Distinct().ToList();
+        var canvasCourses = await _context.CanvasCourses.AsNoTracking()
+            .Where(item => reportableCourseIds.Contains(item.CanvasCourseId))
+            .Select(item => new { item.Name, item.CanvasGradeLevel })
+            .ToListAsync();
 
         // Academic years / terms / subjects are sourced from the real data (Canvas warehouse,
         // academic periods and the imported student records) — not the legacy demo metrics.
         // Source-system aliases are normalized after loading so labels such as
         // "Năm học 25-26 THCS G6-8" and "2025-2026" become one selectable year.
         // Measurement cycles come from the imported/observation sources that actually store them.
-        var canvasScorePeriods = await _context.CanvasCourseScores.AsNoTracking()
+        // Period rows still use exact fact dates so multi-year Canvas courses expose every year
+        // that actually has data. Both Canvas tables are combined into one database round trip.
+        var canvasPeriods = await _context.CanvasCourseScores.AsNoTracking()
             .Where(item => item.StudentProfileId != null &&
                 (item.FinalScore != null || item.CurrentScore != null) &&
                 (item.GradingPeriodEndDate != null || item.Enrollment!.Course!.EndAt != null))
             .Select(item => new
             {
                 Label = item.Enrollment!.Course!.EnrollmentTermName,
-                Date = item.GradingPeriodEndDate ?? item.Enrollment.Course.EndAt
+                Date = item.GradingPeriodEndDate ?? item.Enrollment.Course.EndAt,
+                Term = item.GradingPeriodTitle
             })
-            .Distinct()
-            .ToListAsync();
-        var canvasSubmissionPeriods = await _context.CanvasSubmissions.AsNoTracking()
-            .Where(item => item.StudentProfileId != null &&
-                (item.SubmittedAt != null ||
-                 (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
-                  (item.GradedAt != null || item.SubmittedAt != null)) ||
-                 (item.Missing && item.Excused != true &&
-                  (item.CachedDueDate != null || item.Assignment!.DueAt != null))))
-            .Select(item => new
-            {
-                Label = item.Assignment!.Course!.EnrollmentTermName,
-                Date = item.CachedDueDate ?? item.Assignment.DueAt ?? item.GradedAt ?? item.SubmittedAt
-            })
+            .Concat(_context.CanvasSubmissions.AsNoTracking()
+                .Where(item => item.StudentProfileId != null &&
+                    (item.SubmittedAt != null ||
+                     (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
+                      (item.GradedAt != null || item.SubmittedAt != null)) ||
+                     (item.Missing && item.Excused != true &&
+                      (item.CachedDueDate != null || item.Assignment!.DueAt != null))))
+                .Select(item => new
+                {
+                    Label = item.Assignment!.Course!.EnrollmentTermName,
+                    Date = item.CachedDueDate ?? item.Assignment.DueAt ?? item.GradedAt ?? item.SubmittedAt,
+                    Term = (string?)null
+                }))
             .Distinct()
             .ToListAsync();
         var importedAcademicYears = canvasOnly
@@ -131,8 +174,7 @@ public class DashboardController : ControllerBase
                 .Select(item => item.ExamTime.Date)
                 .Distinct()
                 .ToListAsync();
-        var academicYears = canvasScorePeriods
-            .Concat(canvasSubmissionPeriods)
+        var academicYears = canvasPeriods
             .Select(item => item.Date.HasValue
                 ? DashboardPeriodNormalizer.AcademicYear(item.Date.Value)
                 : DashboardPeriodNormalizer.AcademicYear(item.Label ?? ""))
@@ -143,115 +185,81 @@ public class DashboardController : ControllerBase
             .OrderByDescending(DashboardPeriodNormalizer.AcademicYearStart)
             .ThenByDescending(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var termValues = canvasOnly
-            ? await _context.CanvasCourseScores.AsNoTracking()
-                .Where(item => item.StudentProfileId != null && item.GradingPeriodTitle != null &&
-                    (item.FinalScore != null || item.CurrentScore != null))
-                .Select(item => item.GradingPeriodTitle!)
+        var importedTerms = canvasOnly
+            ? []
+            : await _context.AcademicPeriods.AsNoTracking().Select(item => item.Term)
+                .Concat(_context.DashboardMetricObservations.Where(item => item.Term != null)
+                    .Select(item => item.Term!))
+                .Concat(_context.StudentBehaviours.Where(item => item.Term != null)
+                    .Select(item => item.Term!))
+                .Concat(_context.StudentProjects.Where(item => item.Term != null)
+                    .Select(item => item.Term!))
+                .Concat(_context.StudentBusAttendanceRecords.Where(item => item.Term != null)
+                    .Select(item => item.Term!))
                 .Distinct()
-                .ToListAsync()
-            : await TermValues().Distinct().ToListAsync();
-        var terms = termValues
+                .ToListAsync();
+        var terms = canvasPeriods.Where(item => item.Term != null).Select(item => item.Term!)
+            .Concat(importedTerms)
             .Select(DashboardPeriodNormalizer.Term)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var reportableCanvasSubjects = _context.CanvasCourseScores
-            .Where(item => item.StudentProfileId != null && item.Enrollment!.Course!.Name != null &&
-                (item.FinalScore != null || item.CurrentScore != null) &&
-                (item.GradingPeriodEndDate != null || item.Enrollment.Course.EndAt != null))
-            .Select(item => item.Enrollment!.Course!.Name!)
-            .Concat(_context.CanvasSubmissions
-                .Where(item => item.StudentProfileId != null && item.Assignment!.Course!.Name != null &&
-                    (item.SubmittedAt != null ||
-                     (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
-                      (item.GradedAt != null || item.SubmittedAt != null)) ||
-                     (item.Missing && item.Excused != true &&
-                      (item.CachedDueDate != null || item.Assignment.DueAt != null))))
-                .Select(item => item.Assignment!.Course!.Name!));
-        var reportableCanvasGradeLevels = _context.CanvasCourseScores
-            .Where(item => item.StudentProfileId != null && item.Enrollment!.Course!.CanvasGradeLevel != null &&
-                (item.FinalScore != null || item.CurrentScore != null) &&
-                (item.GradingPeriodEndDate != null || item.Enrollment.Course.EndAt != null))
-            .Select(item => item.Enrollment!.Course!.CanvasGradeLevel!)
-            .Concat(_context.CanvasSubmissions
-                .Where(item => item.StudentProfileId != null &&
-                    item.Assignment!.Course!.CanvasGradeLevel != null &&
-                    (item.SubmittedAt != null ||
-                     (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
-                      (item.GradedAt != null || item.SubmittedAt != null)) ||
-                     (item.Missing && item.Excused != true &&
-                      (item.CachedDueDate != null || item.Assignment.DueAt != null))))
-                .Select(item => item.Assignment!.Course!.CanvasGradeLevel!));
+        var reportableCanvasSubjects = canvasCourses.Where(item => item.Name != null).Select(item => item.Name!);
+        var reportableCanvasGradeLevels = canvasCourses.Where(item => item.CanvasGradeLevel != null)
+            .Select(item => item.CanvasGradeLevel!);
         var subjectValues = canvasOnly
-            ? await reportableCanvasSubjects.Distinct().ToListAsync()
-            : await reportableCanvasSubjects
-                .Concat(_context.StudentProjects.Where(p => p.Subject != null).Select(p => p.Subject!))
+            ? reportableCanvasSubjects.ToList()
+            : reportableCanvasSubjects.Concat(await _context.StudentProjects
+                .Where(p => p.Subject != null).Select(p => p.Subject!)
                 .Concat(_context.StudentBehaviours.Where(b => b.Subject != null).Select(b => b.Subject!))
                 .Concat(_context.DashboardMetricObservations.Where(item => item.Subject != null)
                     .Select(item => item.Subject!))
                 .Distinct()
-                .ToListAsync();
+                .ToListAsync());
+
+        var observedCampuses = canvasOnly ? [] : await _context.DashboardMetricObservations
+            .Where(item => item.Campus != null).Select(item => item.Campus!).Distinct().ToListAsync();
+        var observedEducationLevels = canvasOnly ? [] : await _context.DashboardMetricObservations
+            .Where(item => item.EducationLevel != null).Select(item => item.EducationLevel!).Distinct().ToListAsync();
+        var observedGradeLevels = canvasOnly ? [] : await _context.DashboardMetricObservations
+            .Where(item => item.GradeLevel != null).Select(item => item.GradeLevel!).Distinct().ToListAsync();
+        var observedHomerooms = canvasOnly ? [] : await _context.DashboardMetricObservations
+            .Where(item => item.Homeroom != null).Select(item => item.Homeroom!).Distinct().ToListAsync();
+        var measurementCycles = canvasOnly ? [] : await _context.DashboardMetricObservations
+            .Where(item => item.MeasurementCycle != null).Select(item => item.MeasurementCycle!)
+            .Concat(_context.StudentBehaviours.Where(item => item.MeasurementCycle != null)
+                .Select(item => item.MeasurementCycle!))
+            .Concat(_context.StudentProjects.Where(item => item.MeasurementCycle != null)
+                .Select(item => item.MeasurementCycle!)).Distinct().ToListAsync();
+        var importedPrograms = canvasOnly ? [] : await _context.DashboardMetricObservations
+            .Where(item => item.Program != null).Select(item => item.Program!)
+            .Concat(_context.StudentBehaviours.Where(item => item.Program != null)
+                .Select(item => item.Program!))
+            .Concat(_context.StudentProjects.Where(item => item.Program != null)
+                .Select(item => item.Program!)).Distinct().ToListAsync();
 
         var result = new DashboardFilterOptionsDto
         {
             AcademicYears = academicYears,
             Terms = terms,
-            Campuses = CleanOptions(canvasOnly
-                ? await students.Where(item => item.Campus != null).Select(item => item.Campus!).Distinct().ToListAsync()
-                : await students.Where(item => item.Campus != null).Select(item => item.Campus!)
-                    .Concat(_context.DashboardMetricObservations.Where(item => item.Campus != null)
-                        .Select(item => item.Campus!)).Distinct().ToListAsync()),
-            EducationLevels = CleanOptions(canvasOnly
-                ? await students.Where(item => item.EducationLevel != null)
-                    .Select(item => item.EducationLevel!).Distinct().ToListAsync()
-                : await students.Where(item => item.EducationLevel != null)
-                    .Select(item => item.EducationLevel!)
-                    .Concat(_context.DashboardMetricObservations.Where(item => item.EducationLevel != null)
-                        .Select(item => item.EducationLevel!)).Distinct().ToListAsync()),
-            GradeLevels = GradeOptions(canvasOnly
-                ? await students.Where(item => (item.GradeLevel ?? item.CanvasGradeLevel) != null)
-                    .Select(item => (item.GradeLevel ?? item.CanvasGradeLevel)!)
-                    .Concat(reportableCanvasGradeLevels).Distinct().ToListAsync()
-                : await students.Where(item => (item.GradeLevel ?? item.CanvasGradeLevel) != null)
-                    .Select(item => (item.GradeLevel ?? item.CanvasGradeLevel)!)
-                    .Concat(reportableCanvasGradeLevels)
-                    .Concat(_context.DashboardMetricObservations.Where(item => item.GradeLevel != null)
-                        .Select(item => item.GradeLevel!)).Distinct().ToListAsync()),
-            Homerooms = CleanOptions(canvasOnly
-                ? await students.Where(item => item.Homeroom != null)
-                    .Select(item => item.Homeroom!).Distinct().ToListAsync()
-                : await students.Where(item => item.Homeroom != null)
-                    .Select(item => item.Homeroom!)
-                    .Concat(_context.DashboardMetricObservations.Where(item => item.Homeroom != null)
-                        .Select(item => item.Homeroom!)).Distinct().ToListAsync()),
-            Students = await students.OrderBy(s => s.FullName).Select(s => new DashboardStudentOptionDto
-            {
-                Id = s.Id, SISUserId = s.SISUserId, FullName = s.FullName,
-                Campus = s.Campus, EducationLevel = s.EducationLevel,
-                GradeLevel = s.GradeLevel ?? s.CanvasGradeLevel, Homeroom = s.Homeroom, Program = s.Program
-            }).ToListAsync(),
-            MeasurementCycles = canvasOnly
-                ? []
-                : CleanOptions(await _context.DashboardMetricObservations
-                    .Where(item => item.MeasurementCycle != null).Select(item => item.MeasurementCycle!)
-                    .Concat(_context.StudentBehaviours.Where(item => item.MeasurementCycle != null)
-                        .Select(item => item.MeasurementCycle!))
-                    .Concat(_context.StudentProjects.Where(item => item.MeasurementCycle != null)
-                        .Select(item => item.MeasurementCycle!)).Distinct().ToListAsync()),
-            Programs = CleanOptions(canvasOnly
-                ? await students.Where(item => item.Program != null)
-                    .Select(item => item.Program!).Distinct().ToListAsync()
-                : await students.Where(item => item.Program != null).Select(item => item.Program!)
-                    .Concat(_context.DashboardMetricObservations.Where(item => item.Program != null)
-                        .Select(item => item.Program!))
-                    .Concat(_context.StudentBehaviours.Where(item => item.Program != null)
-                        .Select(item => item.Program!))
-                    .Concat(_context.StudentProjects.Where(item => item.Program != null)
-                        .Select(item => item.Program!)).Distinct().ToListAsync()),
+            Campuses = CleanOptions(students.Where(item => item.Campus != null).Select(item => item.Campus!)
+                .Concat(observedCampuses)),
+            EducationLevels = CleanOptions(students.Where(item => item.EducationLevel != null)
+                .Select(item => item.EducationLevel!).Concat(observedEducationLevels)),
+            GradeLevels = GradeOptions(students.Where(item => item.GradeLevel != null)
+                .Select(item => item.GradeLevel!).Concat(reportableCanvasGradeLevels)
+                .Concat(observedGradeLevels)),
+            Homerooms = CleanOptions(students.Where(item => item.Homeroom != null)
+                .Select(item => item.Homeroom!).Concat(observedHomerooms)),
+            Students = students,
+            MeasurementCycles = CleanOptions(measurementCycles),
+            Programs = CleanOptions(students.Where(item => item.Program != null).Select(item => item.Program!)
+                .Concat(importedPrograms)),
             Subjects = CleanOptions(subjectValues)
         };
+
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
         return Ok(result);
     }
 
@@ -340,6 +348,13 @@ public class DashboardController : ControllerBase
         [FromQuery] string? homeroom, [FromQuery] int? studentId,
         [FromQuery] string? program, [FromQuery] string? subject)
     {
+        var cacheKey = DashboardCacheKey("metrics", year, term, cycle, campus, level, grade,
+            homeroom, studentId?.ToString(), program, subject);
+        if (_cache.TryGetValue<List<DashboardMetricDto>>(cacheKey, out var cached) && cached is not null)
+        {
+            return Ok(cached);
+        }
+
         var yearAliases = await AcademicYearAliases(year);
         var termAliases = await TermAliases(term);
         var query = _context.DashboardMetricObservations.AsNoTracking()
@@ -393,6 +408,7 @@ public class DashboardController : ControllerBase
             .OrderBy(metric => metric.Category)
             .ThenBy(metric => metric.Label)
             .ToList();
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
         return Ok(result);
     }
 
@@ -1488,6 +1504,13 @@ public class DashboardController : ControllerBase
 
     private static bool HasFilter(string? value) =>
         !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "all", StringComparison.OrdinalIgnoreCase);
+
+    private static string DashboardCacheKey(string operation, params string?[] values) =>
+        $"dashboard:{operation}:" + string.Join('|', values.Select(value =>
+        {
+            var normalized = value?.Trim().ToLowerInvariant() ?? "";
+            return $"{normalized.Length}:{normalized}";
+        }));
 
     [HttpGet("overview")]
     public async Task<ActionResult<DashboardOverviewDto>> Overview(
