@@ -285,9 +285,15 @@ data.
 
 | Workflow | Trigger | .NET mode | Scope |
 |---|---|---|---|
-| `.github/workflows/sync-canvas-all.yml` | Manual | `--sync-all --replace` | All configured terms since September 2025 |
-| `.github/workflows/sync-canvas.yml` | Daily at 01:00 Vietnam time | `--incremental` | Current configured terms since watermark minus overlap |
-| `.github/workflows/reconcile-canvas.yml` | Weekly at 02:00 Monday Vietnam time, or manual | `--reconcile-days=30` | Historical and current configured terms for the previous 30 days |
+| `backend/sql/export-local-canvas-for-rds.sh` | Local command, followed by MySQL Workbench | Baseline SQL transfer | Verified local Canvas warehouse plus its successful watermark |
+| `.github/workflows/sync-canvas.yml` | Manual; daily schedule template is currently commented | `--incremental` | Current configured terms since watermark minus overlap |
+| `.github/workflows/reconcile-canvas.yml` | Manual; weekly schedule template is currently commented | `--reconcile-days=30` | Historical and current configured terms for the previous 30 days |
+
+The generated baseline SQL is stored under `backend/sql/generated/` and is intentionally ignored by
+Git because it contains private Canvas data. Run it with MySQL Workbench's **File > Run SQL Script**
+command rather than opening the large file in an editor tab. Once it succeeds, normal imports use
+the transferred `CanvasSyncStates.LastSuccessfulWatermarkUtc`; the one-time GitHub full-sync
+workflow is not retained.
 
 GitHub treats a non-zero console exit code as a failed job. The workflow log includes the backend's
 final record counts but should never include either secret.
