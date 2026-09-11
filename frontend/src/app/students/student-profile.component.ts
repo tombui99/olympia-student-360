@@ -539,9 +539,22 @@ type ProfileSection =
 
         @if (activeSection() === 'learning') {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-          <div class="border-b border-[#ebe6ef] p-6">
-            <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.canvas.title') }}</h3>
-            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.canvas.hint') }}</p>
+          <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#ebe6ef] p-6">
+            <div>
+              <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.canvas.title') }}</h3>
+              <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.canvas.hint') }}</p>
+            </div>
+            <a
+              class="inline-flex items-center gap-2 rounded-md border border-[#6d3a91] bg-[#f7f1fb] px-4 py-2.5 text-sm font-semibold text-[#4a1b73] transition hover:bg-[#efe2f7] focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
+              [routerLink]="['/transcripts/student', profile.id]"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6M8 13h8M8 17h5" />
+              </svg>
+              {{ languageService.t('studentProfile.canvas.viewFullTranscript') }}
+              <span aria-hidden="true">→</span>
+            </a>
           </div>
 
           @if (profile.canvas.hasData) {
@@ -618,7 +631,28 @@ type ProfileSection =
 
             <div class="grid items-stretch gap-5 border-t border-[#ebe6ef] p-6 xl:grid-cols-2">
               <div class="flex min-w-0 flex-col">
-                <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.courseGrades') }}</h4>
+                <div class="flex min-h-9 flex-wrap items-center justify-between gap-3">
+                  <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.courseGrades') }}</h4>
+                  @if (profile.canvas.courseGradesTotalPages > 1) {
+                    <div class="flex flex-wrap items-center gap-3 text-xs text-[#7c7284]">
+                      <span>{{ paginationSummary(profile.canvas.courseGradesPage, profile.canvas.courseGradesTotalPages, profile.canvas.courseGradesTotalCount) }}</span>
+                      <div class="flex gap-2">
+                        <button
+                          type="button"
+                          class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                          [disabled]="courseGradesLoading() || profile.canvas.courseGradesPage <= 1"
+                          (click)="loadCourseGradesPage(profile.canvas.courseGradesPage - 1)"
+                        >{{ languageService.t('pagination.previous') }}</button>
+                        <button
+                          type="button"
+                          class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                          [disabled]="courseGradesLoading() || profile.canvas.courseGradesPage >= profile.canvas.courseGradesTotalPages"
+                          (click)="loadCourseGradesPage(profile.canvas.courseGradesPage + 1)"
+                        >{{ languageService.t('pagination.next') }}</button>
+                      </div>
+                    </div>
+                  }
+                </div>
                 <div class="mt-3 flex-1 overflow-hidden rounded-md border border-[#ebe6ef]">
                   <div class="hidden grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284] md:grid">
                     <span class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.course') }}</span>
@@ -661,29 +695,31 @@ type ProfileSection =
                     }
                   </div>
                 </div>
-                @if (profile.canvas.courseGradesTotalPages > 1) {
-                  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[#7c7284]">
-                    <span>{{ paginationSummary(profile.canvas.courseGradesPage, profile.canvas.courseGradesTotalPages, profile.canvas.courseGradesTotalCount) }}</span>
-                    <div class="flex gap-2">
-                      <button
-                        type="button"
-                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
-                        [disabled]="courseGradesLoading() || profile.canvas.courseGradesPage <= 1"
-                        (click)="loadCourseGradesPage(profile.canvas.courseGradesPage - 1)"
-                      >{{ languageService.t('pagination.previous') }}</button>
-                      <button
-                        type="button"
-                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
-                        [disabled]="courseGradesLoading() || profile.canvas.courseGradesPage >= profile.canvas.courseGradesTotalPages"
-                        (click)="loadCourseGradesPage(profile.canvas.courseGradesPage + 1)"
-                      >{{ languageService.t('pagination.next') }}</button>
-                    </div>
-                  </div>
-                }
               </div>
 
               <div class="flex min-w-0 flex-col">
-                <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.recentSubmissions') }}</h4>
+                <div class="flex min-h-9 flex-wrap items-center justify-between gap-3">
+                  <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.recentSubmissions') }}</h4>
+                  @if (profile.canvas.recentSubmissionsTotalPages > 1) {
+                    <div class="flex flex-wrap items-center gap-3 text-xs text-[#7c7284]">
+                      <span>{{ paginationSummary(profile.canvas.recentSubmissionsPage, profile.canvas.recentSubmissionsTotalPages, profile.canvas.recentSubmissionsTotalCount) }}</span>
+                      <div class="flex gap-2">
+                        <button
+                          type="button"
+                          class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                          [disabled]="recentSubmissionsLoading() || profile.canvas.recentSubmissionsPage <= 1"
+                          (click)="loadRecentSubmissionsPage(profile.canvas.recentSubmissionsPage - 1)"
+                        >{{ languageService.t('pagination.previous') }}</button>
+                        <button
+                          type="button"
+                          class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
+                          [disabled]="recentSubmissionsLoading() || profile.canvas.recentSubmissionsPage >= profile.canvas.recentSubmissionsTotalPages"
+                          (click)="loadRecentSubmissionsPage(profile.canvas.recentSubmissionsPage + 1)"
+                        >{{ languageService.t('pagination.next') }}</button>
+                      </div>
+                    </div>
+                  }
+                </div>
                 <div class="mt-3 flex-1 space-y-2 rounded-md border border-[#ebe6ef] p-2">
                   @for (submission of profile.canvas.recentSubmissions; track $index) {
                     <div class="rounded-md border border-[#ebe6ef] p-3 xl:flex xl:h-[8.5rem] xl:flex-col xl:justify-center">
@@ -708,25 +744,6 @@ type ProfileSection =
                     <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-6 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noSubmissions') }}</p>
                   }
                 </div>
-                @if (profile.canvas.recentSubmissionsTotalPages > 1) {
-                  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[#7c7284]">
-                    <span>{{ paginationSummary(profile.canvas.recentSubmissionsPage, profile.canvas.recentSubmissionsTotalPages, profile.canvas.recentSubmissionsTotalCount) }}</span>
-                    <div class="flex gap-2">
-                      <button
-                        type="button"
-                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
-                        [disabled]="recentSubmissionsLoading() || profile.canvas.recentSubmissionsPage <= 1"
-                        (click)="loadRecentSubmissionsPage(profile.canvas.recentSubmissionsPage - 1)"
-                      >{{ languageService.t('pagination.previous') }}</button>
-                      <button
-                        type="button"
-                        class="rounded-md border border-[#d8d0df] px-3 py-2 font-semibold text-[#32124f] transition hover:bg-[#f7f3f9] disabled:cursor-not-allowed disabled:opacity-45"
-                        [disabled]="recentSubmissionsLoading() || profile.canvas.recentSubmissionsPage >= profile.canvas.recentSubmissionsTotalPages"
-                        (click)="loadRecentSubmissionsPage(profile.canvas.recentSubmissionsPage + 1)"
-                      >{{ languageService.t('pagination.next') }}</button>
-                    </div>
-                  </div>
-                }
               </div>
             </div>
           } @else {

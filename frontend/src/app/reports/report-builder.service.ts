@@ -1,7 +1,8 @@
-import { HttpClient, HttpResponse } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpResponse } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { catchError, map, Observable, of } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
+import { SKIP_GLOBAL_API_LOADING } from '../core/loading/api-loading.interceptor';
 
 export type ChartKind = 'bar' | 'line' | 'pie' | 'scatter' | 'card';
 
@@ -244,8 +245,15 @@ export class ReportBuilderService {
     );
   }
 
+  loadMetricCatalog(): Observable<MetricVariable[]> {
+    return this.loadMetricVariables({ catalogOnly: 'true' });
+  }
+
   loadMetricDrilldown(params: Record<string, string>): Observable<MetricDrilldown> {
-    return this.http.get<MetricDrilldown>(`${this.basePath}/api/dashboard/metric-drilldown`, { params });
+    return this.http.get<MetricDrilldown>(`${this.basePath}/api/dashboard/metric-drilldown`, {
+      params,
+      context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true),
+    });
   }
 
   loadExploreOptions(): Observable<CanvasExploreOptions> {
@@ -260,7 +268,10 @@ export class ReportBuilderService {
 
   loadExploreDrilldown(params: Record<string, string>): Observable<CanvasExploreDrilldown> {
     return this.http.get<CanvasExploreDrilldown>(
-      `${this.basePath}/api/dashboard/canvas-explore/drilldown`, { params },
+      `${this.basePath}/api/dashboard/canvas-explore/drilldown`, {
+        params,
+        context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true),
+      },
     );
   }
 

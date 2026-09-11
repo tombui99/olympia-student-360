@@ -1112,6 +1112,42 @@ type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
             </button>
           </div>
 
+          <div
+            *ngIf="!explorerDrilldown() && !drilldownUnavailable()"
+            class="flex flex-wrap items-center gap-2 border-b border-[#ebe6ef] bg-[#faf9f6] px-6 py-3"
+          >
+            <label class="relative min-w-0 flex-1">
+              <span class="sr-only">{{ languageService.t('workspace.drilldown.searchPlaceholder') }}</span>
+              <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b8193]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m20 20-3.5-3.5"></path>
+              </svg>
+              <input
+                class="w-full rounded-md border border-[#d8d0df] bg-white py-2.5 pl-9 pr-9 text-sm text-[#32124f] outline-none transition placeholder:text-[#9a91a3] focus:border-[#6d3a91] focus:ring-2 focus:ring-[#6d3a91]/10"
+                type="search"
+                [ngModel]="drilldownSearch()"
+                (ngModelChange)="onDrilldownSearch($event)"
+                [placeholder]="languageService.t('workspace.drilldown.searchPlaceholder')"
+              />
+              <button
+                *ngIf="drilldownSearch()"
+                class="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-sm text-[#6f6877] hover:bg-[#f1edf4]"
+                type="button"
+                [attr.aria-label]="languageService.t('workspace.drilldown.clearSearch')"
+                [attr.title]="languageService.t('workspace.drilldown.clearSearch')"
+                (click)="clearDrilldownSearch()"
+              >×</button>
+            </label>
+            <button
+              *ngIf="hasExpandableDrilldownStudents()"
+              class="whitespace-nowrap rounded-md border border-[#d8d0df] bg-white px-3 py-2.5 text-xs font-semibold text-[#32124f] transition hover:border-[#c6b6d1] hover:bg-[#f7f3f9]"
+              type="button"
+              (click)="toggleAllDrilldownStudents()"
+            >
+              {{ languageService.t(allDrilldownStudentsExpanded() ? 'workspace.drilldown.collapseAll' : 'workspace.drilldown.expandAll') }}
+            </button>
+          </div>
+
           <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <p
               *ngIf="drilldownError()"
@@ -1139,35 +1175,52 @@ type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
               class="space-y-2"
             >
               <li *ngFor="let student of drilldownStudents()">
-                <a
+                <div
                   class="flex items-center gap-3 rounded-lg border border-[#ebe6ef] p-3 transition hover:border-[#d3c6db] hover:bg-[#fdfcff]"
-                  [routerLink]="['/students', student.studentId]"
-                  (click)="closeDrilldown()"
                 >
-                  <span
-                    class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1edf4] text-xs font-bold text-[#5b287d]"
+                  <a
+                    class="flex min-w-0 flex-1 items-center gap-3"
+                    [routerLink]="['/students', student.studentId]"
+                    (click)="closeDrilldown()"
                   >
-                    {{ studentInitials(student.fullName) }}
-                  </span>
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate text-sm font-semibold text-[#32124f]">{{
-                      student.fullName
-                    }}</span>
-                    <span class="mt-0.5 block truncate text-xs text-[#7c7284]">
-                      {{ student.sisUserId }} ·
-                      {{ languageService.t('workspace.drilldown.grade') }}
-                      {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
+                    <span
+                      class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1edf4] text-xs font-bold text-[#5b287d]"
+                    >
+                      {{ studentInitials(student.fullName) }}
                     </span>
-                  </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-semibold text-[#32124f]">{{
+                        student.fullName
+                      }}</span>
+                      <span class="mt-0.5 block truncate text-xs text-[#7c7284]">
+                        {{ student.sisUserId }} ·
+                        {{ languageService.t('workspace.drilldown.grade') }}
+                        {{ student.gradeLevel || '-' }} · {{ student.homeroom || '-' }}
+                      </span>
+                    </span>
+                  </a>
                   <span
                     class="inline-flex shrink-0 items-center gap-2 rounded-full bg-[#f1edf4] px-3 py-1.5 text-sm font-bold text-[#5b287d]"
                     [title]="drilldownMetricLabel()"
                   >
                     {{ formatDrilldownValue(student.value) }}
                   </span>
-                </a>
+                  <button
+                    *ngIf="student.records.length"
+                    class="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[#d8d0df] bg-white text-[#5b287d] transition hover:bg-[#f1edf4]"
+                    type="button"
+                    [attr.aria-expanded]="isDrilldownStudentExpanded(student.studentId)"
+                    [attr.aria-label]="languageService.t(isDrilldownStudentExpanded(student.studentId) ? 'workspace.drilldown.collapse' : 'workspace.drilldown.expand')"
+                    [attr.title]="languageService.t(isDrilldownStudentExpanded(student.studentId) ? 'workspace.drilldown.collapse' : 'workspace.drilldown.expand')"
+                    (click)="toggleDrilldownStudent(student.studentId)"
+                  >
+                    <svg class="h-4 w-4 transition-transform" [class.rotate-180]="isDrilldownStudentExpanded(student.studentId)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="m6 9 6 6 6-6"></path>
+                    </svg>
+                  </button>
+                </div>
                 <div
-                  *ngIf="student.records.length"
+                  *ngIf="student.records.length && isDrilldownStudentExpanded(student.studentId)"
                   class="ml-4 border-l-2 border-[#ebe6ef] py-2 pl-4"
                 >
                   <p class="mb-2 text-xs font-semibold text-[#6f6877]">
@@ -1384,12 +1437,15 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly drilldownMetricId = signal<string | null>(null);
   readonly drilldownMetricLabel = signal<string>('');
   readonly drilldownPeriod = signal<string | null>(null);
+  readonly drilldownSearch = signal('');
+  private readonly expandedDrilldownStudentIds = signal<ReadonlySet<number>>(new Set());
   private readonly drilldownData = signal<MetricDrilldown | null>(null);
   private readonly explorerDrilldownData = signal<CanvasExploreDrilldown | null>(null);
   readonly explorerDrilldown = signal(false);
   private explorerDrilldownSpec: { dataset: string; dimension: string; measure: string; groupKey: string } | null = null;
   private drilldownPeriodStart: string | null = null;
   private drilldownRequestId = 0;
+  private drilldownSearchTimer: number | null = null;
   private readonly drilldownPageSize = 20;
   private readonly chartZoomRanges = new Map<string, { start: number; end: number }>();
   private readonly chartImageExporters = new Map<string, ChartImageExporter>();
@@ -2898,6 +2954,8 @@ export class WorkspaceDetailComponent implements OnInit {
     this.drilldownError.set(null);
     this.drilldownUnavailable.set(false);
     this.drilldownData.set(null);
+    this.drilldownSearch.set('');
+    this.expandedDrilldownStudentIds.set(new Set());
     this.explorerDrilldown.set(false);
     this.explorerDrilldownData.set(null);
     this.explorerDrilldownSpec = null;
@@ -2915,6 +2973,10 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   closeDrilldown(): void {
+    if (this.drilldownSearchTimer !== null) {
+      window.clearTimeout(this.drilldownSearchTimer);
+      this.drilldownSearchTimer = null;
+    }
     this.drilldownOpen.set(false);
     this.drilldownUnmountTimer = window.setTimeout(() => {
       this.drilldownMounted.set(false);
@@ -2941,6 +3003,70 @@ export class WorkspaceDetailComponent implements OnInit {
     }
     const metricId = this.drilldownMetricId();
     if (metricId) this.loadDrilldownData(metricId, this.drilldownPeriodStart, page);
+  }
+
+  onDrilldownSearch(value: string): void {
+    this.drilldownSearch.set(value);
+    if (this.drilldownSearchTimer !== null) {
+      window.clearTimeout(this.drilldownSearchTimer);
+    }
+    this.drilldownSearchTimer = window.setTimeout(() => {
+      this.drilldownSearchTimer = null;
+      const metricId = this.drilldownMetricId();
+      if (metricId && !this.explorerDrilldown()) {
+        this.loadDrilldownData(metricId, this.drilldownPeriodStart, 1);
+      }
+    }, 300);
+  }
+
+  clearDrilldownSearch(): void {
+    if (this.drilldownSearchTimer !== null) {
+      window.clearTimeout(this.drilldownSearchTimer);
+      this.drilldownSearchTimer = null;
+    }
+    this.drilldownSearch.set('');
+    const metricId = this.drilldownMetricId();
+    if (metricId) {
+      this.loadDrilldownData(metricId, this.drilldownPeriodStart, 1);
+    }
+  }
+
+  isDrilldownStudentExpanded(studentId: number): boolean {
+    return this.expandedDrilldownStudentIds().has(studentId);
+  }
+
+  toggleDrilldownStudent(studentId: number): void {
+    const expanded = new Set(this.expandedDrilldownStudentIds());
+    if (expanded.has(studentId)) {
+      expanded.delete(studentId);
+    } else {
+      expanded.add(studentId);
+    }
+    this.expandedDrilldownStudentIds.set(expanded);
+  }
+
+  hasExpandableDrilldownStudents(): boolean {
+    return this.drilldownStudents().some((student) => student.records.length > 0);
+  }
+
+  allDrilldownStudentsExpanded(): boolean {
+    const expandableIds = this.drilldownStudents()
+      .filter((student) => student.records.length > 0)
+      .map((student) => student.studentId);
+    return expandableIds.length > 0
+      && expandableIds.every((studentId) => this.expandedDrilldownStudentIds().has(studentId));
+  }
+
+  toggleAllDrilldownStudents(): void {
+    if (this.allDrilldownStudentsExpanded()) {
+      this.expandedDrilldownStudentIds.set(new Set());
+      return;
+    }
+    this.expandedDrilldownStudentIds.set(new Set(
+      this.drilldownStudents()
+        .filter((student) => student.records.length > 0)
+        .map((student) => student.studentId),
+    ));
   }
 
   private openExplorerDrilldown(chart: CustomChart, groupKey: string): void {
@@ -2994,11 +3120,13 @@ export class WorkspaceDetailComponent implements OnInit {
       level: filters.level, grade: filters.grade, homeroom: filters.homeroom,
       studentId: filters.studentId, program: filters.program, subject: filters.subject,
       periodStart: periodStart ?? '',
+      search: this.drilldownSearch().trim(),
       page: String(page),
       pageSize: String(this.drilldownPageSize),
     }).filter(([, value]) => !!value));
 
     this.drilldownLoading.set(true);
+    this.expandedDrilldownStudentIds.set(new Set());
     const requestId = ++this.drilldownRequestId;
     this.reportBuilderService.loadMetricDrilldown(params).subscribe({
       next: (data) => {

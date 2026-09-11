@@ -530,8 +530,16 @@ public class DashboardController : ControllerBase
         [FromQuery] string? year, [FromQuery] string? term, [FromQuery] string? cycle,
         [FromQuery] string? campus, [FromQuery] string? level, [FromQuery] string? grade,
         [FromQuery] string? homeroom, [FromQuery] int? studentId,
-        [FromQuery] string? program, [FromQuery] string? subject)
+        [FromQuery] string? program, [FromQuery] string? subject,
+        [FromQuery] bool catalogOnly = false)
     {
+        // The workspace landing page only needs metric metadata for its chart picker. Avoid
+        // scanning and materialising the Canvas fact tables until a report actually needs data.
+        if (catalogOnly)
+        {
+            return Ok(await MetricCatalog());
+        }
+
         var cacheKey = DashboardCacheKey("metrics", year, term, cycle, campus, level, grade,
             homeroom, studentId?.ToString(), program, subject);
         if (_cache.TryGetValue<List<DashboardMetricDto>>(cacheKey, out var cached) && cached is not null)
@@ -596,6 +604,41 @@ public class DashboardController : ControllerBase
         return Ok(result);
     }
 
+    private async Task<List<DashboardMetricDto>> MetricCatalog()
+    {
+        const string cacheKey = "dashboard:metric-catalog";
+        if (_cache.TryGetValue<List<DashboardMetricDto>>(cacheKey, out var cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        // This query only reads the small definition table. The EXISTS predicate prevents
+        // inactive stored metrics with no observations from appearing in the picker.
+        var result = await _context.DashboardMetrics.AsNoTracking()
+            .Where(metric => metric.IsActive && metric.Observations.Any())
+            .Select(metric => new DashboardMetricDto
+            {
+                Id = metric.Key,
+                Label = metric.Label,
+                Category = metric.Domain,
+                Source = metric.Source,
+                Dataset = metric.Source,
+                Unit = metric.Unit,
+                SupportsDrilldown = true
+            })
+            .ToListAsync();
+
+        result.AddRange(ImportedMetricCatalog());
+        result.AddRange(CanvasMetricCatalog());
+        result = result
+            .OrderBy(metric => metric.Category)
+            .ThenBy(metric => metric.Label)
+            .ToList();
+
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        return result;
+    }
+
     /// <summary>
     /// Per-student breakdown of a single metric, so the workspace drill-down shows the
     /// students who actually drive the clicked metric (and their attributed value),
@@ -610,6 +653,7 @@ public class DashboardController : ControllerBase
         [FromQuery] string? homeroom, [FromQuery] int? studentId,
         [FromQuery] string? program, [FromQuery] string? subject,
         [FromQuery] DateTime? periodStart,
+        [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
@@ -935,6 +979,24 @@ public class DashboardController : ControllerBase
                     : Math.Round((decimal)group.Sum(item => item.Value), 0)
             })
             .ToDictionary(row => row.StudentId, row => row.Value);
+
+        if (HasFilter(search) && perStudent.Count > 0)
+        {
+            var searchTerm = search!.Trim();
+            var matchingStudentIds = await _context.StudentProfiles.AsNoTracking()
+                .Where(student =>
+                    student.FullName.Contains(searchTerm) ||
+                    student.SISUserId.Contains(searchTerm) ||
+                    (student.GradeLevel != null && student.GradeLevel.Contains(searchTerm)) ||
+                    (student.CanvasGradeLevel != null && student.CanvasGradeLevel.Contains(searchTerm)) ||
+                    (student.Homeroom != null && student.Homeroom.Contains(searchTerm)))
+                .Select(student => student.Id)
+                .ToListAsync();
+            var matchingStudentIdSet = matchingStudentIds.ToHashSet();
+            perStudent = perStudent
+                .Where(row => matchingStudentIdSet.Contains(row.Key))
+                .ToDictionary(row => row.Key, row => row.Value);
+        }
 
         var totalCount = perStudent.Count;
         var totalPages = totalCount == 0 ? 0 : (int)Math.Ceiling((double)totalCount / pageSize);
@@ -1401,6 +1463,22 @@ public class DashboardController : ControllerBase
         ];
     }
 
+    private static List<DashboardMetricDto> ImportedMetricCatalog() =>
+    [
+        CatalogMetric("behaviour-records", "Behaviour records", "Compliance", "StudentBehaviours", "records"),
+        CatalogMetric("concern-behaviour-records", "Concerning behaviour records", "Compliance", "StudentBehaviours", "records"),
+        CatalogMetric("commendation-records", "Commendation records", "Achievement", "StudentBehaviours", "records"),
+        CatalogMetric("project-records", "Student projects", "Achievement", "StudentProjects", "records"),
+        CatalogMetric("active-project-records", "Active student projects", "Achievement", "StudentProjects", "records"),
+        CatalogMetric("mental-health-records", "Mental health records", "Safety", "StudentMentalHealth", "records"),
+        CatalogMetric("high-risk-mental-health", "High-risk mental health records", "Safety", "StudentMentalHealth", "records"),
+        CatalogMetric("health-visit-records", "Health office visits", "Safety", "SISHealthVisits", "records"),
+        CatalogMetric("bus-late-records", "Late bus check-ins", "Safety", "StudentBusAttendance", "records"),
+        CatalogMetric("bus-seatbelt-violations", "Bus seatbelt violations", "Safety", "StudentBusAttendance", "records"),
+        CatalogMetric("bus-late-to-school", "Late morning bus check-ins", "Safety", "StudentBusAttendance", "records"),
+        CatalogMetric("bus-late-from-school", "Late afternoon bus check-ins", "Safety", "StudentBusAttendance", "records")
+    ];
+
     /// <summary>
     /// Metrics derived live from the Canvas warehouse tables (grades and assignments).
     /// These replace the retired Canvas "assumption" demo metrics. They honour the same
@@ -1619,6 +1697,61 @@ public class DashboardController : ControllerBase
             lateMetric
         ];
     }
+
+    private static List<DashboardMetricDto> CanvasMetricCatalog() =>
+    [
+        CatalogMetric(
+            "canvas-final-score-avg", "Average Canvas final_score", "Academics", "Canvas", "%",
+            "CanvasEnrollmentGrades",
+            "Average of non-null Canvas grades.final_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+            "enrollment.grades.final_score", "grading_period.end_date", "course.end_at"),
+        CatalogMetric(
+            "canvas-current-score-avg", "Average Canvas current_score", "Academics", "Canvas", "%",
+            "CanvasEnrollmentGrades",
+            "Average of non-null Canvas grades.current_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+            "enrollment.grades.current_score", "grading_period.end_date", "course.end_at"),
+        CatalogMetric(
+            "canvas-submission-score-percent-avg", "Average Canvas submission score percentage", "Academics", "Canvas", "%",
+            "CanvasSubmissionsAndAssignments",
+            "Reporting calculation: average of Canvas submission.score / Canvas assignment.points_possible × 100 for submissions whose Canvas workflow_state is graded.",
+            "submission.score", "submission.workflow_state", "submission.graded_at",
+            "submission.submitted_at", "assignment.points_possible"),
+        CatalogMetric(
+            "canvas-assignments-submitted", "Canvas submissions with submitted_at", "Academics", "Canvas", "submissions",
+            "CanvasSubmissionsAndAssignments",
+            "Count of Canvas submission records whose submitted_at is non-null.",
+            "submission.submitted_at"),
+        CatalogMetric(
+            "canvas-assignments-graded", "Canvas submissions with workflow_state=graded", "Academics", "Canvas", "submissions",
+            "CanvasSubmissionsAndAssignments",
+            "Count of Canvas submission records whose workflow_state is graded. Undated graded records contribute to the total but not the monthly series.",
+            "submission.workflow_state", "submission.graded_at", "submission.submitted_at"),
+        CatalogMetric(
+            "canvas-assignments-missing", "Canvas submissions flagged missing", "Academics", "Canvas", "submissions",
+            "CanvasSubmissionsAndAssignments",
+            "Count of Canvas submission records where missing=true and excused is not true. Records without a Canvas due date contribute to the total but not the monthly series.",
+            "submission.missing", "submission.excused", "submission.cached_due_date", "assignment.due_at"),
+        CatalogMetric(
+            "canvas-assignments-late", "Canvas submissions flagged late", "Academics", "Canvas", "submissions",
+            "CanvasSubmissionsAndAssignments",
+            "Count of Canvas submission records where late=true. Records without submitted_at contribute to the total but not the monthly series.",
+            "submission.late", "submission.submitted_at")
+    ];
+
+    private static DashboardMetricDto CatalogMetric(
+        string id, string label, string category, string source, string unit,
+        string? dataset = null, string? definition = null, params string[] sourceFields) => new()
+    {
+        Id = id,
+        Label = label,
+        Category = category,
+        Source = source,
+        Dataset = dataset ?? source,
+        Unit = unit,
+        Definition = definition,
+        SourceFields = sourceFields.ToList(),
+        SupportsDrilldown = true
+    };
 
     private static DashboardMetricDto DocumentMetric(
         DashboardMetricDto metric, string definition, params string[] sourceFields)
