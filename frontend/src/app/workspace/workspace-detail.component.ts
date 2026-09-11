@@ -30,9 +30,12 @@ import {
 import {
   defaultFilterSet,
   emptyFilterOptions,
+  LazyWorkspaceFilterField,
+  WorkspaceFilterSearchOption,
   WorkspaceFiltersService,
   WorkspaceFilterSet,
 } from './workspace-filters.service';
+import { SearchableFilterComponent } from './searchable-filter.component';
 
 type WorkspaceSheetMode = 'edit';
 type SheetKind = 'workspace' | 'chart';
@@ -76,9 +79,21 @@ interface ChartImageExporter {
   }): string;
 }
 
+type LazyFilterOptions = Record<LazyWorkspaceFilterField, WorkspaceFilterSearchOption[]>;
+type LazyFilterLoading = Record<LazyWorkspaceFilterField, boolean>;
+type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
+
 @Component({
   selector: 'app-workspace-detail',
-  imports: [FormsModule, NgClass, NgFor, NgIf, NgxEchartsDirective, RouterLink],
+  imports: [
+    FormsModule,
+    NgClass,
+    NgFor,
+    NgIf,
+    NgxEchartsDirective,
+    RouterLink,
+    SearchableFilterComponent,
+  ],
   template: `
     <section class="space-y-7">
       <div
@@ -279,22 +294,35 @@ interface ChartImageExporter {
                   </option>
                 </select>
               </label>
-              <label class="filter-field">
-                <span class="filter-label">{{ languageService.t('workspace.filters.fields.homeroom') }}</span>
-                <select class="filter-select" [ngModel]="filters().homeroom" (ngModelChange)="setFilter('homeroom', $event)">
-                  <option value="">{{ languageService.t('workspace.filters.allHomerooms') }}</option>
-                  <option *ngFor="let homeroom of homeroomOptions()" [value]="homeroom">{{ homeroom }}</option>
-                </select>
-              </label>
-              <label class="filter-field xl:col-span-2">
-                <span class="filter-label">{{ languageService.t('workspace.filters.fields.student') }}</span>
-                <select class="filter-select" [ngModel]="filters().studentId" (ngModelChange)="setFilter('studentId', $event)">
-                  <option value="">{{ languageService.t('workspace.filters.allStudents') }}</option>
-                  <option *ngFor="let student of studentOptions()" [value]="student.id">
-                    {{ student.fullName }} ({{ student.sisUserId }})
-                  </option>
-                </select>
-              </label>
+              <app-searchable-filter
+                [label]="languageService.t('workspace.filters.fields.homeroom')"
+                [placeholder]="languageService.t('workspace.filters.searchPlaceholder')"
+                [selectedValue]="filters().homeroom"
+                [selectedLabel]="selectedLazyLabel('homeroom')"
+                [options]="lazyOptions().homeroom"
+                [loading]="lazyLoading().homeroom"
+                [loadingLabel]="languageService.t('workspace.filters.searching')"
+                [typeToSearchLabel]="languageService.t('workspace.filters.searchPlaceholder')"
+                [noResultsLabel]="languageService.t('workspace.filters.noSearchResults')"
+                [clearLabel]="languageService.t('workspace.filters.clearSearch')"
+                (searchQuery)="searchLazyOptions('homeroom', $event)"
+                (selectionChange)="selectLazyOption('homeroom', $event)"
+              ></app-searchable-filter>
+              <app-searchable-filter
+                class="xl:col-span-2"
+                [label]="languageService.t('workspace.filters.fields.student')"
+                [placeholder]="languageService.t('workspace.filters.searchPlaceholder')"
+                [selectedValue]="filters().studentId"
+                [selectedLabel]="selectedLazyLabel('student')"
+                [options]="lazyOptions().student"
+                [loading]="lazyLoading().student"
+                [loadingLabel]="languageService.t('workspace.filters.searching')"
+                [typeToSearchLabel]="languageService.t('workspace.filters.searchPlaceholder')"
+                [noResultsLabel]="languageService.t('workspace.filters.noSearchResults')"
+                [clearLabel]="languageService.t('workspace.filters.clearSearch')"
+                (searchQuery)="searchLazyOptions('student', $event)"
+                (selectionChange)="selectLazyOption('student', $event)"
+              ></app-searchable-filter>
             </div>
           </fieldset>
 
@@ -310,13 +338,20 @@ interface ChartImageExporter {
                   <option *ngFor="let program of options().programs" [value]="program">{{ program }}</option>
                 </select>
               </label>
-              <label class="filter-field">
-                <span class="filter-label">{{ languageService.t('workspace.filters.fields.subject') }}</span>
-                <select class="filter-select" [ngModel]="filters().subject" (ngModelChange)="setFilter('subject', $event)">
-                  <option value="">{{ languageService.t('workspace.filters.all') }}</option>
-                  <option *ngFor="let subject of options().subjects" [value]="subject">{{ subject }}</option>
-                </select>
-              </label>
+              <app-searchable-filter
+                [label]="languageService.t('workspace.filters.fields.subject')"
+                [placeholder]="languageService.t('workspace.filters.searchPlaceholder')"
+                [selectedValue]="filters().subject"
+                [selectedLabel]="selectedLazyLabel('subject')"
+                [options]="lazyOptions().subject"
+                [loading]="lazyLoading().subject"
+                [loadingLabel]="languageService.t('workspace.filters.searching')"
+                [typeToSearchLabel]="languageService.t('workspace.filters.searchPlaceholder')"
+                [noResultsLabel]="languageService.t('workspace.filters.noSearchResults')"
+                [clearLabel]="languageService.t('workspace.filters.clearSearch')"
+                (searchQuery)="searchLazyOptions('subject', $event)"
+                (selectionChange)="selectLazyOption('subject', $event)"
+              ></app-searchable-filter>
             </div>
           </fieldset>
         </div>
@@ -1305,62 +1340,24 @@ export class WorkspaceDetailComponent implements OnInit {
 
   readonly options = signal(emptyFilterOptions());
   readonly filters = signal<WorkspaceFilterSet>(defaultFilterSet());
+  readonly lazyOptions = signal<LazyFilterOptions>({ homeroom: [], student: [], subject: [] });
+  readonly lazyLoading = signal<LazyFilterLoading>({
+    homeroom: false,
+    student: false,
+    subject: false,
+  });
+  private readonly lazyLabels = signal<LazyFilterLabels>({ homeroom: '', student: '', subject: '' });
+  private readonly lazySearchSubscriptions = new Map<LazyWorkspaceFilterField, Subscription>();
   private filterOptionsLoaded = false;
   private readonly chartOrder = signal<string[]>([]);
 
   readonly educationLevelOptions = computed(() => {
-    const campus = this.filters().campus;
-    if (!campus) return this.options().educationLevels;
-    return [...new Set(this.options().students
-      .filter((student) => student.campus === campus)
-      .map((student) => student.educationLevel)
-      .filter((level): level is string => !!level))]
-      .sort((a, b) => a.localeCompare(b));
+    return this.options().educationLevels;
   });
 
   readonly gradeOptions = computed(() => {
-    const { campus, level } = this.filters();
-    if (!campus && !level) {
-      return [...this.options().gradeLevels]
-        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    }
-    const grades = new Set(
-      this.options().students
-        .filter((student) => (!campus || student.campus === campus) &&
-          (!level || student.educationLevel === level))
-        .map((student) => student.gradeLevel)
-        .filter((grade): grade is string => !!grade),
-    );
-    return [...grades].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  });
-
-  readonly homeroomOptions = computed(() => {
-    const { campus, level, grade } = this.filters();
-    if (!campus && !level && !grade) {
-      return [...this.options().homerooms]
-        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    }
-    const homerooms = new Set(
-      this.options().students
-        .filter((student) =>
-          (!campus || student.campus === campus) &&
-          (!level || student.educationLevel === level) &&
-          (!grade || student.gradeLevel === grade))
-        .map((student) => student.homeroom)
-        .filter((homeroom): homeroom is string => !!homeroom),
-    );
-    return [...homerooms].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  });
-
-  readonly studentOptions = computed(() => {
-    const { campus, level, grade, homeroom } = this.filters();
-    return this.options().students.filter(
-      (student) =>
-        (!campus || student.campus === campus) &&
-        (!level || student.educationLevel === level) &&
-        (!grade || student.gradeLevel === grade) &&
-        (!homeroom || student.homeroom === homeroom),
-    );
+    return [...this.options().gradeLevels]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   });
 
   readonly customReports = signal<CustomReport[]>([]);
@@ -1466,9 +1463,7 @@ export class WorkspaceDetailComponent implements OnInit {
     }
     push('workspace.filters.fields.homeroom', filters.homeroom);
     if (filters.studentId) {
-      const student = this.studentOptions().find((item) => String(item.id) === String(filters.studentId));
-      push('workspace.filters.fields.student',
-        student ? `${student.fullName} (${student.sisUserId})` : filters.studentId);
+      push('workspace.filters.fields.student', this.lazyLabels().student || filters.studentId);
     }
     push('workspace.filters.fields.program', filters.program);
     push('workspace.filters.fields.subject', filters.subject);
@@ -1517,7 +1512,7 @@ export class WorkspaceDetailComponent implements OnInit {
 
   private initializeWorkspace(reportId: number): void {
     forkJoin({
-      options: this.workspaceFilters.options(reportId).pipe(
+      options: this.workspaceFilters.options(reportId, true).pipe(
         timeout(this.workspaceRequestTimeoutMs),
         catchError(() => of(null)),
       ),
@@ -1527,6 +1522,11 @@ export class WorkspaceDetailComponent implements OnInit {
       ),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ options, filters }) => {
       this.filters.set(filters);
+      this.lazyLabels.set({
+        homeroom: filters.homeroom,
+        student: '',
+        subject: filters.subject,
+      });
       this.chartOrder.set(this.workspaceFilters.loadWorkspaceChartOrder());
 
       if (options) {
@@ -1537,8 +1537,61 @@ export class WorkspaceDetailComponent implements OnInit {
         }
       }
 
+      this.resolveSelectedStudentLabel(reportId);
       this.loadMetrics();
     });
+  }
+
+  searchLazyOptions(field: LazyWorkspaceFilterField, query: string): void {
+    this.lazySearchSubscriptions.get(field)?.unsubscribe();
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) {
+      this.lazyOptions.update((options) => ({ ...options, [field]: [] }));
+      this.lazyLoading.update((loading) => ({ ...loading, [field]: false }));
+      return;
+    }
+
+    const reportId = this.selectedReport()?.serverId;
+    if (!reportId) return;
+    this.lazyLoading.update((loading) => ({ ...loading, [field]: true }));
+    const subscription = this.workspaceFilters
+      .searchOptions(field, normalizedQuery, this.filters(), reportId)
+      .pipe(
+        catchError(() => of([] as WorkspaceFilterSearchOption[])),
+        finalize(() => this.lazyLoading.update((loading) => ({ ...loading, [field]: false }))),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((options) => {
+        this.lazyOptions.update((current) => ({ ...current, [field]: options }));
+      });
+    this.lazySearchSubscriptions.set(field, subscription);
+  }
+
+  selectLazyOption(field: LazyWorkspaceFilterField, option: WorkspaceFilterSearchOption | null): void {
+    this.lazyLabels.update((labels) => ({ ...labels, [field]: option?.label ?? '' }));
+    this.lazyOptions.update((options) => ({ ...options, [field]: [] }));
+    const filterKey: keyof WorkspaceFilterSet = field === 'student' ? 'studentId' : field;
+    this.setFilter(filterKey, option?.value ?? '');
+  }
+
+  selectedLazyLabel(field: LazyWorkspaceFilterField): string {
+    return this.lazyLabels()[field];
+  }
+
+  private resolveSelectedStudentLabel(reportId: number): void {
+    const studentId = this.filters().studentId;
+    if (!studentId) return;
+    this.workspaceFilters.searchOptions('student', '', this.filters(), reportId, studentId)
+      .pipe(
+        catchError(() => of([] as WorkspaceFilterSearchOption[])),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((options) => {
+        const selected = options[0];
+        if (selected) {
+          this.lazyLabels.update((labels) => ({ ...labels, student: selected.label }));
+        }
+      });
   }
 
   setFilter(key: keyof WorkspaceFilterSet, value: string): void {
@@ -1561,6 +1614,13 @@ export class WorkspaceDetailComponent implements OnInit {
       }
       return next;
     });
+    if (key === 'campus' || key === 'level' || key === 'grade') {
+      this.lazyLabels.update((labels) => ({ ...labels, homeroom: '', student: '' }));
+      this.lazyOptions.update((options) => ({ ...options, homeroom: [], student: [] }));
+    } else if (key === 'homeroom') {
+      this.lazyLabels.update((labels) => ({ ...labels, student: '' }));
+      this.lazyOptions.update((options) => ({ ...options, student: [] }));
+    }
     const workspaceId = this.selectedReport()?.serverId;
     if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
     this.loadMetrics();
@@ -1568,6 +1628,8 @@ export class WorkspaceDetailComponent implements OnInit {
 
   resetFilters(): void {
     this.filters.set(defaultFilterSet());
+    this.lazyLabels.set({ homeroom: '', student: '', subject: '' });
+    this.lazyOptions.set({ homeroom: [], student: [], subject: [] });
     const workspaceId = this.selectedReport()?.serverId;
     if (workspaceId) this.workspaceFilters.saveWorkspace(workspaceId, this.filters());
     this.loadMetrics();
@@ -1582,30 +1644,9 @@ export class WorkspaceDetailComponent implements OnInit {
     if (next.year && !available.academicYears.includes(next.year)) next.year = '';
     if (next.semester && !available.terms.includes(next.semester)) next.semester = '';
     if (next.campus && !available.campuses.includes(next.campus)) next.campus = '';
-    const campusLevels = next.campus
-      ? available.students.filter((student) => student.campus === next.campus)
-          .map((student) => student.educationLevel)
-      : available.educationLevels;
-    if (next.level && !campusLevels.includes(next.level)) next.level = '';
+    if (next.level && !available.educationLevels.includes(next.level)) next.level = '';
     if (next.program && !available.programs.includes(next.program)) next.program = '';
-    if (next.subject && !available.subjects.includes(next.subject)) next.subject = '';
-
-    const scopedStudents = available.students.filter((student) =>
-      (!next.campus || student.campus === next.campus) &&
-      (!next.level || student.educationLevel === next.level));
-    if (next.grade && !scopedStudents.some((student) => student.gradeLevel === next.grade)) {
-      next.grade = '';
-    }
-    if (next.homeroom && !scopedStudents.some((student) =>
-      (!next.grade || student.gradeLevel === next.grade) && student.homeroom === next.homeroom)) {
-      next.homeroom = '';
-    }
-    if (next.studentId && !scopedStudents.some((student) =>
-      String(student.id) === String(next.studentId) &&
-      (!next.grade || student.gradeLevel === next.grade) &&
-      (!next.homeroom || student.homeroom === next.homeroom))) {
-      next.studentId = '';
-    }
+    if (next.grade && !available.gradeLevels.includes(next.grade)) next.grade = '';
 
     if (JSON.stringify(next) === JSON.stringify(current)) return false;
     this.filters.set(next);

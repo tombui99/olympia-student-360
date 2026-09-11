@@ -38,6 +38,13 @@ export interface WorkspaceFilterOptions {
   subjects: string[];
 }
 
+export type LazyWorkspaceFilterField = 'homeroom' | 'student' | 'subject';
+
+export interface WorkspaceFilterSearchOption {
+  value: string;
+  label: string;
+}
+
 interface DashboardPreference {
   academicYear?: string | null;
   term?: string | null;
@@ -80,16 +87,46 @@ export class WorkspaceFiltersService {
   private preference: DashboardPreference = {};
   private workspacePreference: WorkspacePreference = { chartOrder: [] };
 
-  options(reportId?: number): Observable<WorkspaceFilterOptions> {
+  options(reportId?: number, deferHeavy = false): Observable<WorkspaceFilterOptions> {
     return this.http.get<WorkspaceFilterOptions>(`${this.basePath}/api/dashboard/filter-options`, {
-      params: reportId ? { reportId: String(reportId) } : {},
+      params: {
+        ...(reportId ? { reportId: String(reportId) } : {}),
+        ...(deferHeavy ? { deferHeavy: 'true' } : {}),
+      },
     });
   }
 
-  periodOptions(): Observable<Pick<WorkspaceFilterOptions, 'academicYears' | 'terms'>> {
+  periodOptions(reportId?: number): Observable<Pick<WorkspaceFilterOptions, 'academicYears' | 'terms'>> {
     return this.http.get<WorkspaceFilterOptions>(`${this.basePath}/api/dashboard/filter-options`, {
-      params: { periodOnly: 'true' },
+      params: {
+        periodOnly: 'true',
+        ...(reportId ? { reportId: String(reportId) } : {}),
+      },
     });
+  }
+
+  searchOptions(
+    field: LazyWorkspaceFilterField,
+    query: string,
+    filters: WorkspaceFilterSet,
+    reportId: number,
+    selectedValue?: string,
+  ): Observable<WorkspaceFilterSearchOption[]> {
+    return this.http.get<WorkspaceFilterSearchOption[]>(
+      `${this.basePath}/api/dashboard/filter-option-search`,
+      {
+        params: {
+          field,
+          query,
+          reportId: String(reportId),
+          ...(selectedValue ? { selectedValue } : {}),
+          ...(filters.campus ? { campus: filters.campus } : {}),
+          ...(filters.level ? { level: filters.level } : {}),
+          ...(filters.grade ? { grade: filters.grade } : {}),
+          ...(field === 'student' && filters.homeroom ? { homeroom: filters.homeroom } : {}),
+        },
+      },
+    );
   }
 
   load(): Observable<WorkspaceFilterSet> {

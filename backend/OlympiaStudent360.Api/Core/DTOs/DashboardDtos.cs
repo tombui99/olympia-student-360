@@ -80,6 +80,12 @@ public class DashboardStudentOptionDto
     public string? Program { get; set; }
 }
 
+public class DashboardFilterSearchOptionDto
+{
+    public string Value { get; set; } = default!;
+    public string Label { get; set; } = default!;
+}
+
 public class DashboardPreferenceDto
 {
     public string? AcademicYear { get; set; }

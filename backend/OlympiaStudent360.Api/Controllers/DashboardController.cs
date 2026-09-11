@@ -46,9 +46,11 @@ public class DashboardController : ControllerBase
 
     [HttpGet("filter-options")]
     public async Task<ActionResult<DashboardFilterOptionsDto>> FilterOptions(
-        [FromQuery] int? reportId, [FromQuery] bool periodOnly = false)
+        [FromQuery] int? reportId, [FromQuery] bool periodOnly = false,
+        [FromQuery] bool deferHeavy = false)
     {
-        var cacheKey = $"dashboard-filter-options:{reportId?.ToString() ?? "all"}:{(periodOnly ? "periods" : "full")}";
+        var optionScope = periodOnly ? "periods" : deferHeavy ? "deferred" : "full";
+        var cacheKey = $"dashboard-filter-options:{reportId?.ToString() ?? "all"}:{optionScope}";
         if (_cache.TryGetValue<DashboardFilterOptionsDto>(cacheKey, out var cached) && cached is not null)
         {
             return Ok(cached);
@@ -68,6 +70,59 @@ public class DashboardController : ControllerBase
             };
             _cache.Set(cacheKey, periodResult, TimeSpan.FromMinutes(5));
             return Ok(periodResult);
+        }
+
+        if (deferHeavy)
+        {
+            var studentDimensions = await VisibleStudents()
+                .Select(item => new
+                {
+                    item.Campus,
+                    item.EducationLevel,
+                    GradeLevel = item.GradeLevel ?? item.CanvasGradeLevel,
+                    item.Program
+                })
+                .Distinct()
+                .ToListAsync();
+            var canvasGradeLevels = await _context.CanvasCourses.AsNoTracking()
+                .Where(item => item.CanvasGradeLevel != null)
+                .Select(item => item.CanvasGradeLevel!)
+                .Distinct()
+                .ToListAsync();
+            var observedDimensions = canvasOnly
+                ? []
+                : await _context.DashboardMetricObservations.AsNoTracking()
+                    .Select(item => new { item.Campus, item.EducationLevel, item.GradeLevel })
+                    .Distinct()
+                    .ToListAsync();
+            var deferredImportedPrograms = canvasOnly
+                ? []
+                : await _context.DashboardMetricObservations
+                    .Where(item => item.Program != null).Select(item => item.Program!)
+                    .Concat(_context.StudentBehaviours.Where(item => item.Program != null)
+                        .Select(item => item.Program!))
+                    .Concat(_context.StudentProjects.Where(item => item.Program != null)
+                        .Select(item => item.Program!))
+                    .Distinct()
+                    .ToListAsync();
+            var deferredResult = new DashboardFilterOptionsDto
+            {
+                AcademicYears = academicYears,
+                Terms = terms,
+                Campuses = CleanOptions(studentDimensions.Where(item => item.Campus != null)
+                    .Select(item => item.Campus!).Concat(observedDimensions
+                        .Where(item => item.Campus != null).Select(item => item.Campus!))),
+                EducationLevels = CleanOptions(studentDimensions.Where(item => item.EducationLevel != null)
+                    .Select(item => item.EducationLevel!).Concat(observedDimensions
+                        .Where(item => item.EducationLevel != null).Select(item => item.EducationLevel!))),
+                GradeLevels = GradeOptions(studentDimensions.Where(item => item.GradeLevel != null)
+                    .Select(item => item.GradeLevel!).Concat(canvasGradeLevels).Concat(observedDimensions
+                        .Where(item => item.GradeLevel != null).Select(item => item.GradeLevel!))),
+                Programs = CleanOptions(studentDimensions.Where(item => item.Program != null)
+                    .Select(item => item.Program!).Concat(deferredImportedPrograms))
+            };
+            _cache.Set(cacheKey, deferredResult, TimeSpan.FromMinutes(5));
+            return Ok(deferredResult);
         }
 
         // Scan each Canvas fact table once for reportable student/course membership. The previous
@@ -195,6 +250,114 @@ public class DashboardController : ControllerBase
 
         _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
         return Ok(result);
+    }
+
+    [HttpGet("filter-option-search")]
+    public async Task<ActionResult<List<DashboardFilterSearchOptionDto>>> FilterOptionSearch(
+        [FromQuery] string field, [FromQuery] string? query, [FromQuery] string? selectedValue,
+        [FromQuery] int? reportId, [FromQuery] string? campus, [FromQuery] string? level,
+        [FromQuery] string? grade, [FromQuery] string? homeroom)
+    {
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            return BadRequest("A filter field is required.");
+        }
+
+        var search = Clean(query);
+        var selected = Clean(selectedValue);
+        if (search is null && selected is null)
+        {
+            return Ok(new List<DashboardFilterSearchOptionDto>());
+        }
+
+        var canvasOnly = reportId.HasValue && await IsCanvasOnlyReport(reportId.Value);
+        var students = VisibleStudents();
+        if (canvasOnly)
+        {
+            students = students.Where(item => item.CanvasUserId != null);
+        }
+
+        if (field.Equals("homeroom", StringComparison.OrdinalIgnoreCase))
+        {
+            if (HasFilter(campus)) students = students.Where(item => item.Campus == campus);
+            if (HasFilter(level)) students = students.Where(item => item.EducationLevel == level);
+            if (HasFilter(grade)) students = students.Where(item =>
+                (item.GradeLevel ?? item.CanvasGradeLevel) == grade);
+            if (HasFilter(homeroom)) students = students.Where(item => item.Homeroom == homeroom);
+
+            var values = students.Where(item => item.Homeroom != null).Select(item => item.Homeroom!);
+            if (!canvasOnly && !HasFilter(campus) && !HasFilter(level) && !HasFilter(grade))
+            {
+                values = values.Concat(_context.DashboardMetricObservations
+                    .Where(item => item.Homeroom != null).Select(item => item.Homeroom!));
+            }
+            values = selected is not null
+                ? values.Where(value => value == selected)
+                : values.Where(value => value.Contains(search!));
+            var results = await values.Distinct().OrderBy(value => value).Take(20)
+                .Select(value => new DashboardFilterSearchOptionDto { Value = value, Label = value })
+                .ToListAsync(HttpContext.RequestAborted);
+            return Ok(results);
+        }
+
+        if (field.Equals("student", StringComparison.OrdinalIgnoreCase))
+        {
+            if (HasFilter(campus)) students = students.Where(item => item.Campus == campus);
+            if (HasFilter(level)) students = students.Where(item => item.EducationLevel == level);
+            if (HasFilter(grade)) students = students.Where(item =>
+                (item.GradeLevel ?? item.CanvasGradeLevel) == grade);
+            if (HasFilter(homeroom)) students = students.Where(item => item.Homeroom == homeroom);
+
+            if (selected is not null)
+            {
+                if (!int.TryParse(selected, out var studentId))
+                {
+                    return Ok(new List<DashboardFilterSearchOptionDto>());
+                }
+                students = students.Where(item => item.Id == studentId);
+            }
+            else
+            {
+                students = students.Where(item => item.FullName.Contains(search!) ||
+                    item.SISUserId.Contains(search!));
+            }
+
+            var rows = await students.OrderBy(item => item.FullName).ThenBy(item => item.SISUserId).Take(20)
+                .Select(item => new { item.Id, item.FullName, item.SISUserId })
+                .ToListAsync(HttpContext.RequestAborted);
+            var results = rows.Select(item => new DashboardFilterSearchOptionDto
+            {
+                Value = item.Id.ToString(),
+                Label = $"{item.FullName} ({item.SISUserId})"
+            }).ToList();
+            return Ok(results);
+        }
+
+        if (field.Equals("subject", StringComparison.OrdinalIgnoreCase))
+        {
+            var values = _context.CanvasCourses.AsNoTracking()
+                .Where(item => item.Name != null &&
+                    item.Enrollments.Any(enrollment => enrollment.StudentProfileId != null))
+                .Select(item => item.Name!);
+            if (!canvasOnly)
+            {
+                values = values.Concat(_context.StudentProjects.Where(item => item.Subject != null)
+                        .Select(item => item.Subject!))
+                    .Concat(_context.StudentBehaviours.Where(item => item.Subject != null)
+                        .Select(item => item.Subject!))
+                    .Concat(_context.DashboardMetricObservations.Where(item => item.Subject != null)
+                        .Select(item => item.Subject!));
+            }
+            values = selected is not null
+                ? values.Where(value => value == selected)
+                : values.Where(value => value.Contains(search!));
+            var results = await values.Distinct().OrderBy(value => value).Take(20)
+                .Select(value => new DashboardFilterSearchOptionDto { Value = value, Label = value })
+                .ToListAsync(HttpContext.RequestAborted);
+            return Ok(results);
+        }
+
+        return BadRequest("Only homeroom, student and subject support lazy option search.");
     }
 
     private async Task<(List<string> AcademicYears, List<string> Terms)> LoadFilterPeriods(bool canvasOnly)
