@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 using System.Text.RegularExpressions;
 
@@ -97,16 +98,25 @@ internal sealed partial class CanvasSyncService
 
         var studentsByCode = await _db.StudentProfiles
             .Where(student => student.SISUserId != "")
-            .ToDictionaryAsync(student => student.SISUserId, StringComparer.OrdinalIgnoreCase, cancellationToken);
+            .ToDictionaryAsync(
+                student => StudentIdentityNormalizer.SchoolUsername(student.SISUserId)!,
+                StringComparer.OrdinalIgnoreCase,
+                cancellationToken);
         var studentsByCanvasId = await _db.StudentProfiles
             .Where(student => student.CanvasUserId != null)
             .ToDictionaryAsync(student => student.CanvasUserId!.Value, cancellationToken);
         var sisUserIdByCanvasId = sourceStudents
-            .Where(student => !string.IsNullOrWhiteSpace(student.SisUserId))
+            .Select(student => new
+            {
+                student.Id,
+                SISUserId = StudentIdentityNormalizer.SchoolUsername(
+                    FirstNotBlank(student.SisUserId, student.LoginId, student.Email))
+            })
+            .Where(student => student.SISUserId is not null)
             .GroupBy(student => student.Id)
             .ToDictionary(
                 group => group.Key,
-                group => group.Select(student => student.SisUserId!.Trim()).First());
+                group => group.Select(student => student.SISUserId!).First());
         var accountsById = sourceAccounts.ToDictionary(account => account.Id);
         var totals = new SyncCounts();
         // Canvas throttles large bursts heavily. Keep full/reconciliation reads bounded and use an
@@ -334,19 +344,28 @@ internal sealed partial class CanvasSyncService
             .ToDictionaryAsync(item => item.CanvasEnrollmentId, cancellationToken);
         var sisIdByUser = new Dictionary<long, string>();
         var unmatchedStudentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var retainedSourceEnrollments = new List<CanvasEnrollmentDto>();
 
         foreach (var source in sourceEnrollments)
         {
-            var sisUserId = FirstNotBlank(
+            var sourceSisUserId = FirstNotBlank(
                 source.User?.SisUserId,
                 source.SisUserId,
                 sisUserIdByCanvasId.GetValueOrDefault(source.UserId));
+            var sisUserId = StudentIdentityNormalizer.SchoolUsername(sourceSisUserId);
             var student = ResolveStudent(
                 source.UserId,
                 sisUserId,
                 studentsByCanvasId,
                 studentsByCode,
                 unmatchedStudentIds);
+            if (student is null)
+            {
+                // Once SIS owns the active roster, unmatched Canvas users are intentionally not
+                // materialized as student facts. This keeps former/inactive students out of 360.
+                continue;
+            }
+            retainedSourceEnrollments.Add(source);
             if (!enrollments.TryGetValue(source.Id, out var enrollment))
             {
                 enrollment = new CanvasEnrollment
@@ -369,7 +388,7 @@ internal sealed partial class CanvasSyncService
             enrollment.Role = source.Role;
             enrollment.RoleId = source.RoleId;
             enrollment.EnrollmentState = source.EnrollmentState;
-            enrollment.SisUserId = sisUserId;
+            enrollment.SisUserId = sourceSisUserId;
             enrollment.CanvasCourseSectionId = source.CourseSectionId;
             enrollment.Section = source.CourseSectionId is { } sectionId &&
                 sections.TryGetValue(sectionId, out var section) ? section : null;
@@ -395,7 +414,7 @@ internal sealed partial class CanvasSyncService
         var existingScores = await _db.CanvasCourseScores
             .Where(item => enrollments.Keys.Contains(item.CanvasEnrollmentId))
             .ToDictionaryAsync(item => item.WarehouseScoreFactId, cancellationToken);
-        var scoreSources = sourceEnrollments;
+        var scoreSources = retainedSourceEnrollments;
         var currentScoreIds = new HashSet<long>();
         foreach (var source in scoreSources)
         {
@@ -508,16 +527,20 @@ internal sealed partial class CanvasSyncService
                      item.Id.HasValue && assignments.ContainsKey(item.AssignmentId)))
         {
             var canvasSubmissionId = source.Id!.Value;
-            currentSubmissionIds.Add(canvasSubmissionId);
-            var sisUserId = FirstNotBlank(source.User?.SisUserId,
+            var sisUserId = StudentIdentityNormalizer.SchoolUsername(FirstNotBlank(source.User?.SisUserId,
                 sisIdByUser.GetValueOrDefault(source.UserId),
-                sisUserIdByCanvasId.GetValueOrDefault(source.UserId));
+                sisUserIdByCanvasId.GetValueOrDefault(source.UserId)));
             var student = ResolveStudent(
                 source.UserId,
                 sisUserId,
                 studentsByCanvasId,
                 studentsByCode,
                 unmatchedStudentIds);
+            if (student is null)
+            {
+                continue;
+            }
+            currentSubmissionIds.Add(canvasSubmissionId);
             if (!existingSubmissions.TryGetValue(canvasSubmissionId, out var submission))
             {
                 submission = new CanvasSubmission
@@ -561,7 +584,7 @@ internal sealed partial class CanvasSyncService
         // grades and assignments from continuing to influence dashboard results.
         var assignmentIds = sourceAssignments.Select(item => item.Id).ToHashSet();
         var sectionIds = sourceSections.Select(item => item.Id).ToHashSet();
-        var enrollmentIds = sourceEnrollments.Select(item => item.Id).ToHashSet();
+        var enrollmentIds = retainedSourceEnrollments.Select(item => item.Id).ToHashSet();
         if (syncActivityDetails)
         {
             if (pruneMissingSubmissions)
@@ -587,7 +610,7 @@ internal sealed partial class CanvasSyncService
         {
             Sections = sourceSections.Count,
             Assignments = sourceAssignments.Count,
-            Enrollments = sourceEnrollments.Count,
+            Enrollments = retainedSourceEnrollments.Count,
             Scores = scoreSources.Count + gradingPeriodScoreCount,
             Submissions = currentSubmissionIds.Count,
             UnmatchedStudents = unmatchedStudentIds.Count,
@@ -734,7 +757,9 @@ internal sealed partial class CanvasSyncService
             .ToDictionary(student => student.CanvasUserId!.Value);
         var bySISUserId = profiles
             .Where(student => !string.IsNullOrWhiteSpace(student.SISUserId))
-            .ToDictionary(student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(
+                student => StudentIdentityNormalizer.SchoolUsername(student.SISUserId)!,
+                StringComparer.OrdinalIgnoreCase);
         var counts = new StudentSyncCounts();
 
         foreach (var source in sourceStudents
@@ -745,7 +770,8 @@ internal sealed partial class CanvasSyncService
                 .First())
             .OrderBy(student => student.Id))
         {
-            var sisUserId = Limit(source.SisUserId, 100);
+            var sisUserId = StudentIdentityNormalizer.SchoolUsername(
+                FirstNotBlank(source.SisUserId, source.LoginId, source.Email));
             if (sisUserId is null)
             {
                 counts.MissingSISUserIds++;
@@ -813,7 +839,8 @@ internal sealed partial class CanvasSyncService
             """, cancellationToken);
         linked += await _db.Database.ExecuteSqlRawAsync("""
             UPDATE `CanvasEnrollments` e
-            INNER JOIN `StudentProfiles` p ON p.`SISUserId` = e.`SisUserId`
+            INNER JOIN `StudentProfiles` p
+              ON p.`SISUserId` = LOWER(SUBSTRING_INDEX(TRIM(e.`SisUserId`), '@', 1))
             SET e.`StudentProfileId` = p.`Id`, e.`WarehouseUpdatedAt` = UTC_TIMESTAMP(6)
             WHERE e.`StudentProfileId` IS NULL AND e.`SisUserId` IS NOT NULL
             """, cancellationToken);
@@ -839,6 +866,7 @@ internal sealed partial class CanvasSyncService
             return canvasStudent;
         }
 
+        sisUserId = StudentIdentityNormalizer.SchoolUsername(sisUserId);
         if (sisUserId is not null && studentsByCode.TryGetValue(sisUserId, out var sisStudent))
         {
             return sisStudent;

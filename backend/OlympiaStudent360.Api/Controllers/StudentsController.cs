@@ -55,6 +55,8 @@ public class StudentsController : ControllerBase
             query = query.Where(student =>
                 EF.Functions.Like(student.FullName, pattern, "!") ||
                 EF.Functions.Like(student.SISUserId, pattern, "!") ||
+                student.SISStudentCode != null && EF.Functions.Like(student.SISStudentCode, pattern, "!") ||
+                student.Email != null && EF.Functions.Like(student.Email, pattern, "!") ||
                 student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!"));
         }
         if (!string.IsNullOrWhiteSpace(grade))
@@ -76,6 +78,7 @@ public class StudentsController : ControllerBase
         var rows = query.Select(student => new
         {
             student.Id,
+            student.SISStudentCode,
             student.SISUserId,
             student.FullName,
             GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
@@ -127,7 +130,8 @@ public class StudentsController : ControllerBase
                     settings);
                 return new StudentListItemDto
                 {
-                    Id = student.Id, SISUserId = student.SISUserId, FullName = student.FullName,
+                    Id = student.Id, SISStudentCode = student.SISStudentCode,
+                    SISUserId = student.SISUserId, FullName = student.FullName,
                     GradeLevel = student.GradeLevel, Homeroom = student.Homeroom,
                     Campus = student.Campus, EducationLevel = student.EducationLevel, Program = student.Program,
                     BehaviourCount = student.BehaviourCount,
@@ -638,10 +642,18 @@ public class StudentsController : ControllerBase
         var detail = new StudentProfileDetailDto
         {
             Id = student.Id,
+            SISStudentCode = student.SISStudentCode,
             SISUserId = student.SISUserId,
             FullName = student.FullName,
+            ForeignName = student.ForeignName,
+            Email = student.Email,
+            PhoneNumber = student.PhoneNumber,
+            DateOfBirth = student.DateOfBirth,
+            Gender = student.Gender,
             GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel,
             Homeroom = student.Homeroom,
+            HomeroomCode = student.HomeroomCode,
+            SISStatus = student.SISStatus,
             Campus = student.Campus,
             EducationLevel = student.EducationLevel,
             Program = student.Program,
@@ -696,8 +708,10 @@ public class StudentsController : ControllerBase
                     Id = parent.Id,
                     FullName = parent.FullName,
                     Relationship = parent.Relationship,
+                    Username = parent.Username,
                     PhoneNumber = parent.PhoneNumber,
                     Email = parent.Email,
+                    BirthYear = parent.BirthYear,
                     AgeGroup = parent.AgeGroup,
                     Occupation = parent.Occupation,
                     EmploymentSector = parent.EmploymentSector

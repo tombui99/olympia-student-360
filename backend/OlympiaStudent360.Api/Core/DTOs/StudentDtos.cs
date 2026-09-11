@@ -3,6 +3,7 @@ namespace OlympiaStudent360.Api.Core.DTOs;
 public class StudentListItemDto
 {
     public int Id { get; set; }
+    public string? SISStudentCode { get; set; }
     public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? GradeLevel { get; set; }
@@ -97,10 +98,18 @@ public class StudentCommendationsPageDto
 public class StudentProfileDetailDto
 {
     public int Id { get; set; }
+    public string? SISStudentCode { get; set; }
     public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
+    public string? ForeignName { get; set; }
+    public string? Email { get; set; }
+    public string? PhoneNumber { get; set; }
+    public DateTime? DateOfBirth { get; set; }
+    public string? Gender { get; set; }
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
+    public string? HomeroomCode { get; set; }
+    public string? SISStatus { get; set; }
     public string? Campus { get; set; }
     public string? EducationLevel { get; set; }
     public string? Program { get; set; }
@@ -275,8 +284,10 @@ public class StudentParentDto
     public int Id { get; set; }
     public string FullName { get; set; } = default!;
     public string? Relationship { get; set; }
+    public string? Username { get; set; }
     public string? PhoneNumber { get; set; }
     public string? Email { get; set; }
+    public int? BirthYear { get; set; }
     public string? AgeGroup { get; set; }
     public string? Occupation { get; set; }
     public string? EmploymentSector { get; set; }

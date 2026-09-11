@@ -91,7 +91,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .HasMaxLength(100);
 
         modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.SISStudentCode)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<StudentProfile>()
             .Property(s => s.FullName)
+            .HasMaxLength(255);
+
+        modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.ForeignName)
             .HasMaxLength(255);
 
         modelBuilder.Entity<StudentProfile>()
@@ -118,12 +126,25 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .Property(s => s.Homeroom)
             .HasMaxLength(100);
 
+        modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.HomeroomCode)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<StudentProfile>()
+            .Property(s => s.SISStatus)
+            .HasMaxLength(50);
+
         modelBuilder.Entity<StudentProfile>().Property(s => s.Campus).HasMaxLength(100);
         modelBuilder.Entity<StudentProfile>().Property(s => s.EducationLevel).HasMaxLength(100);
         modelBuilder.Entity<StudentProfile>().Property(s => s.Program).HasMaxLength(100);
 
         modelBuilder.Entity<StudentProfile>()
-            .HasAlternateKey(s => s.SISUserId);
+            .HasIndex(s => s.SISUserId)
+            .IsUnique();
+
+        modelBuilder.Entity<StudentProfile>()
+            .HasIndex(s => s.SISStudentCode)
+            .IsUnique();
 
         modelBuilder.Entity<StudentProfile>()
             .HasIndex(s => s.CanvasUserId)
@@ -186,17 +207,18 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             parent.ToTable("SISStudentParents");
             parent.Property(p => p.FullName).HasMaxLength(255);
             parent.Property(p => p.Relationship).HasMaxLength(50);
+            parent.Property(p => p.Username).HasMaxLength(255);
             parent.Property(p => p.PhoneNumber).HasMaxLength(50);
             parent.Property(p => p.Email).HasMaxLength(255);
             parent.Property(p => p.AgeGroup).HasMaxLength(50);
             parent.Property(p => p.Occupation).HasMaxLength(255);
             parent.Property(p => p.EmploymentSector).HasMaxLength(50);
             parent.Property(p => p.SISUserId).HasMaxLength(100);
-            parent.HasIndex(p => p.SISUserId);
+            parent.HasIndex(p => p.StudentProfileId);
+            parent.HasIndex(p => new { p.StudentProfileId, p.Relationship }).IsUnique();
             parent.HasOne(p => p.Student)
                 .WithMany(s => s.Parents)
-                .HasForeignKey(p => p.SISUserId)
-                .HasPrincipalKey(s => s.SISUserId)
+                .HasForeignKey(p => p.StudentProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -236,11 +258,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             visit.Property(v => v.ExaminedBy).HasMaxLength(255);
             visit.Property(v => v.SISUserId).HasMaxLength(100);
             visit.HasIndex(v => v.SISUserId);
+            visit.HasIndex(v => v.StudentProfileId);
             visit.HasIndex(v => v.ExamTime);
             visit.HasOne(v => v.Student)
                 .WithMany(s => s.SISHealthVisits)
-                .HasForeignKey(v => v.SISUserId)
-                .HasPrincipalKey(s => s.SISUserId)
+                .HasForeignKey(v => v.StudentProfileId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -517,6 +539,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             submission.Property(s => s.LatePolicyStatus).HasMaxLength(50);
             submission.HasIndex(s => s.CanvasSubmissionId).IsUnique();
             submission.HasIndex(s => s.CanvasAssignmentId);
+            submission.HasIndex(s => s.CanvasUserId);
             submission.HasIndex(s => s.StudentProfileId);
             submission.HasOne(s => s.Assignment).WithMany(a => a.Submissions)
                 .HasForeignKey(s => s.CanvasAssignmentId)

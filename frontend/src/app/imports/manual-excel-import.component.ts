@@ -70,7 +70,7 @@ import { ImportHistoryDetailSheetComponent } from './import-history-detail-sheet
               </div>
               <p class="mt-3 line-clamp-2 text-sm leading-5 text-[#6f6877]">{{ languageService.t(module.descriptionKey) }}</p>
               <button
-                *ngIf="canDesign()"
+                *ngIf="canDesign() && module.supportsCustomFields !== false"
                 class="mt-3 inline-flex items-center gap-1.5 self-start text-xs font-semibold text-[#7a5b12] transition hover:text-[#32124f]"
                 type="button"
                 (click)="openDesigner(module.id)"
@@ -81,7 +81,11 @@ import { ImportHistoryDetailSheetComponent } from './import-history-detail-sheet
                 </svg>
                 {{ languageService.t('imports.designer.customize') }}
               </button>
-              <div class="mt-auto grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-4">
+              <div
+                [class]="module.supportsManualEntry !== false
+                  ? 'mt-auto grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-4'
+                  : 'mt-auto pt-4'"
+              >
                 <button
                   class="rounded-md border border-[#d8d0df] px-3 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
                   type="button"
@@ -90,10 +94,11 @@ import { ImportHistoryDetailSheetComponent } from './import-history-detail-sheet
                 >
                   {{ languageService.t('imports.manual.importExcel') }}
                 </button>
-                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#f3eff6] text-[9px] font-bold uppercase leading-none text-[#6f6877]">
+                <span *ngIf="module.supportsManualEntry !== false" class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#f3eff6] text-[9px] font-bold uppercase leading-none text-[#6f6877]">
                   {{ languageService.t('imports.manual.or') }}
                 </span>
                 <button
+                  *ngIf="module.supportsManualEntry !== false"
                   class="rounded-md bg-[#32124f] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#4b2070]"
                   type="button"
                   [attr.data-testid]="'add-manual-' + module.id"
@@ -133,7 +138,7 @@ import { ImportHistoryDetailSheetComponent } from './import-history-detail-sheet
                 <td class="px-6 py-4 text-[#6f6877]">{{ record.importedByName }}</td>
                 <td class="px-6 py-4 text-[#6f6877]">{{ formatDate(record.importedAt) }}</td>
                 <td class="px-6 py-4 text-right">
-                  <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:border-[#9d7caf] hover:bg-[#f8f4fa]" type="button" (click)="historyDetailId.set(record.id)">
+                  <button *ngIf="record.moduleId !== 'sis-students'" class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:border-[#9d7caf] hover:bg-[#f8f4fa]" type="button" (click)="historyDetailId.set(record.id)">
                     {{ languageService.t('imports.historyDetail.view') }}
                   </button>
                 </td>

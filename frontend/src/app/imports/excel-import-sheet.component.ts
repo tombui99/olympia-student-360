@@ -50,9 +50,14 @@ type ParsedImportFile = {
         <section class="rounded-lg border border-[#ebe6ef] bg-[#faf9f6] p-5">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('imports.standardizedTemplate') }}</h3>
-              <p class="mt-1 max-w-lg text-sm leading-6 text-[#6f6877]">{{ languageService.t('imports.templateHint') }}</p>
+              <h3 class="text-lg font-semibold text-[#32124f]">
+                {{ languageService.t(isSisRoster() ? 'imports.sisRoster.sourceTitle' : 'imports.standardizedTemplate') }}
+              </h3>
+              <p class="mt-1 max-w-lg text-sm leading-6 text-[#6f6877]">
+                {{ languageService.t(isSisRoster() ? 'imports.sisRoster.sourceHint' : 'imports.templateHint') }}
+              </p>
             </div>
+            @if (!isSisRoster()) {
             <button
               class="rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
               type="button"
@@ -60,6 +65,7 @@ type ParsedImportFile = {
             >
               {{ languageService.t('imports.downloadTemplate') }}
             </button>
+            }
           </div>
 
           <p class="mt-5 text-xs font-semibold uppercase tracking-[0.12em] text-[#7c7284]">
@@ -84,7 +90,7 @@ type ParsedImportFile = {
               [class.opacity-50]="importing()"
             >
               {{ importing() ? languageService.t('imports.excel.importing') : languageService.t('imports.chooseFile') }}
-              <input class="hidden" type="file" accept=".xls,.csv,.tsv,.txt" (change)="handleFile($event)" [disabled]="importing()" />
+              <input class="hidden" type="file" [accept]="isSisRoster() ? '.xlsx' : '.xls,.csv,.tsv,.txt'" [multiple]="isSisRoster()" (change)="handleFile($event)" [disabled]="importing()" />
             </label>
           </div>
 
@@ -150,6 +156,10 @@ export class ExcelImportSheetComponent implements OnInit {
     return importModules.find((candidate) => candidate.id === this.moduleId);
   }
 
+  isSisRoster(): boolean {
+    return this.module()?.fileKind === 'sis-roster-xlsx';
+  }
+
   /** Standard module headers plus admin-defined custom field keys. */
   effectiveHeaders(): string[] {
     return [...(this.module()?.headers ?? []), ...this.customFields().map((f) => f.fieldKey)];
@@ -176,14 +186,19 @@ export class ExcelImportSheetComponent implements OnInit {
 
   handleFile(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
+    const files = Array.from(input.files ?? []);
+    const file = files[0];
     input.value = '';
     if (!file) {
       return;
     }
 
-    this.selectedFileName.set(file.name);
+    this.selectedFileName.set(files.map(candidate => candidate.name).join(' + '));
     this.validationResult.set(null);
+    if (this.isSisRoster()) {
+      this.importSisRoster(files);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const parsed = this.parseFile(String(reader.result ?? ''));
@@ -201,6 +216,28 @@ export class ExcelImportSheetComponent implements OnInit {
       invalidRows: 0,
     });
     reader.readAsText(file);
+  }
+
+  private importSisRoster(files: File[]): void {
+    this.importing.set(true);
+    this.importHistoryService.importSisRoster(files).subscribe({
+      next: (result) => {
+        this.validationResult.set({
+          status: 'Valid',
+          errors: [],
+          validRows: result.studentsImported,
+          invalidRows: 0,
+        });
+        this.imported.emit(this.moduleId);
+      },
+      error: (error) => {
+        const errors = Array.isArray(error?.error?.errors)
+          ? error.error.errors
+          : [error?.error?.message || this.languageService.t('imports.errors.importFailed')];
+        this.validationResult.set({ status: 'Rejected', errors, validRows: 0, invalidRows: 0 });
+        this.importing.set(false);
+      },
+    });
   }
 
   private importFile(fileName: string, rows: Record<string, string>[]): void {

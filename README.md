@@ -166,15 +166,17 @@ Canvas user id first, with SIS id as a fallback:
 
 ```txt
 StudentProfile.CanvasUserId == Canvas user.id
-StudentProfile.SISUserId == Canvas user.sis_user_id (when Canvas exposes it)
+StudentProfile.SISUserId == normalized school email username (for example, an.le16)
+StudentProfile.SISStudentCode == authoritative SIS code (for example, OS...)
 ```
 
-SIS remains the future source of truth for official names and demographics. Until SIS arrives, the
-ETL can create a minimal profile using the exact Canvas `sis_user_id` as both key and placeholder
-display name; no Canvas name is guessed or promoted to an official SIS name. A separate
-`CanvasGradeLevel` fallback is derived only from structured Canvas grade-account membership.
-Official SIS `GradeLevel` takes precedence after SIS is imported. Ambiguous identity matches stop
-the job rather than merging records.
+The manually uploaded SIS roster is the source of truth for active students, permanent student
+codes, official names, demographics, homerooms, and parent details. Canvas remains the source of
+truth for courses, enrollments, grades, assignments, and submissions. The SIS email username links
+the two sources; Canvas values containing the full school email are normalized to the same username.
+Daily Canvas jobs do not create missing profiles, so former students removed by a later SIS roster
+cannot be recreated. A separate `CanvasGradeLevel` fallback is derived only from structured Canvas
+grade-account membership; the official SIS `GradeLevel` takes precedence.
 
 The ETL uses these Canvas API operations (all responses are paginated):
 
@@ -209,13 +211,7 @@ CANVAS_BASE_URL                 Optional; defaults to Olympia's Canvas host
 CANVAS_ACCOUNT_ID               Optional; defaults to Olympia's root account 1
 ```
 
-Run `.github/workflows/sync-canvas-all.yml` manually once for the initial import. Olympia's workflow
-is deliberately bounded to enrollment terms 227-232 and 333-340, covering the 2025-2026 and
-2026-2027 school years that overlap calendar year 2026. It rereads assignments, submissions,
-enrollments, course grades, and grading-period grades for those terms and establishes the first
-successful watermark.
-
-After bootstrap, `.github/workflows/sync-canvas.yml` is the incremental workflow. The importer
+After the one-time local bootstrap, `.github/workflows/sync-canvas.yml` is the incremental workflow. The importer
 reads the last successful watermark and subtracts the configured two-hour
 overlap. Canvas submissions are queried separately with `submitted_since` and `graded_since`, then
 deduplicated before upsert. The watermark advances to the run's captured start time only after every
@@ -238,7 +234,7 @@ dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:Ac
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:EnrollmentTermIds" "333,334,335,336,337,338,339,340"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:SyncAllEnrollmentTermIds" "227,228,229,230,231,232,333,334,335,336,337,338,339,340"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:WatermarkOverlapMinutes" "120"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:CreateMissingStudentProfiles" "true"
+dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:CreateMissingStudentProfiles" "false"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "ConnectionStrings:DefaultConnection" "Server=localhost;Port=3306;Database=olympia_student_360;User=root;Password=YOUR_PASSWORD;"
 
 read -s "CANVAS_TOKEN?Canvas token: "; echo
@@ -260,8 +256,8 @@ warehouse rows; the CLI rejects replacement with incremental or reconciliation r
 Scheduled daily jobs use `Canvas__EnrollmentTermIds` and limit the account query to available,
 published courses with student enrollments. Full and reconciliation runs additionally include
 completed courses. Canvas warehouse tables preserve Canvas accounts, users, courses, sections,
-enrollments, grades, assignments, and submissions separately from future SIS-owned classes and
-student demographics. There is no manual course mapping file. A Canvas grade fallback is derived
+enrollments, grades, assignments, and submissions separately from SIS-owned student demographics.
+There is no manual course mapping file. A Canvas grade fallback is derived
 only from the structured Canvas grade-account hierarchy and never by parsing a course title; an
 official SIS grade takes precedence when SIS is imported. See `docs/canvas-etl-simple-guide.md` for the exact
 field-by-field contract and `docs/canvas-etl-dotnet-guide.md` for the .NET runtime, watermark,
@@ -277,6 +273,47 @@ The automatic App Runner fallback uses the existing `AWS_DEPLOY_ROLE_ARN` secret
 backend deployment workflow.
 Do not route a complete import through App Runner's HTTP endpoint: the import can take several
 minutes and must outlive an HTTP request.
+
+## SIS Active Student Roster
+
+Administrators can upload one or more original `.xlsx` exports from **Data imports → SIS active students**.
+The importer validates the whole workbook before changing data. `code` is the permanent unique
+student identifier; the username part of `email` links the row to Canvas. Blank `status` values in
+an otherwise valid active-roster export are stored as `Đang học`.
+
+Each successful upload atomically updates or creates the workbook's students, replaces their parent
+details, and relinks retained Canvas facts. A partial export such as THCS Grades 5–8 or THPT Grades
+9–12 replaces only those grade levels and preserves the other school level. Uploading both exports
+together replaces the complete Grades 5–12 roster and removes profiles and Canvas facts for anyone
+absent from both workbooks. Take a database backup before importing a new school roster.
+
+The same parser can update local MySQL and generate an idempotent MySQL Workbench script for RDS:
+
+```bash
+dotnet run --project backend/OlympiaStudent360.SisImport -- \
+  --file "/path/to/sis-students-thcs.xlsx" \
+  --file "/path/to/sis-students-thpt.xlsx" \
+  --import-local \
+  --sql-output "/path/to/OlympiaStudent360-SIS-roster-import.sql"
+```
+
+Deploy the application migration before running the generated RDS script. The script disables safe
+updates only for its session, runs the roster replacement in a transaction, restores the original
+safe-update setting, and ends with count and orphan checks.
+
+After a verified local Canvas reconciliation, export the Canvas-owned warehouse tables for the
+same students with:
+
+```bash
+backend/sql/export-local-student-canvas-for-rds.sh \
+  "/path/to/OlympiaStudent360-Canvas-Grades-5-12-import.sql"
+```
+
+For the first production load, deploy migrations first, run the combined SIS roster script second,
+and run the generated Canvas warehouse script last. The Canvas script keeps RDS application-owned
+records, replaces only Canvas warehouse tables from local MySQL, and relinks their student foreign
+keys to the RDS `StudentProfiles` ids. Both generated files contain private student data and must not
+be committed to Git.
 
 ## Run With Local MySQL
 

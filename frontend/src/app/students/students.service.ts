@@ -13,6 +13,7 @@ export interface RiskFlag {
 
 export interface StudentListItem {
   id: number;
+  sisStudentCode?: string | null;
   sisUserId: string;
   fullName: string;
   gradeLevel?: string | null;
@@ -165,8 +166,10 @@ export interface StudentParent {
   id: number;
   fullName: string;
   relationship?: string | null;
+  username?: string | null;
   phoneNumber?: string | null;
   email?: string | null;
+  birthYear?: number | null;
   ageGroup?: string | null;
   occupation?: string | null;
   employmentSector?: string | null;
@@ -257,10 +260,18 @@ export type CanvasSubmissionCategory = 'graded' | 'submitted' | 'missing' | 'lat
 
 export interface StudentProfileDetail {
   id: number;
+  sisStudentCode?: string | null;
   sisUserId: string;
   fullName: string;
+  foreignName?: string | null;
+  email?: string | null;
+  phoneNumber?: string | null;
+  dateOfBirth?: string | null;
+  gender?: string | null;
   gradeLevel?: string | null;
   homeroom?: string | null;
+  homeroomCode?: string | null;
+  sisStatus?: string | null;
   riskLevel: RiskLevel;
   flags: RiskFlag[];
   summary: StudentSummary;

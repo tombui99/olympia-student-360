@@ -68,7 +68,12 @@ type ProfileSection =
                 {{ languageService.t('studentProfile.eyebrow') }}
               </p>
               <h2 class="mt-1 truncate text-3xl font-semibold text-[#32124f]">{{ profile.fullName }}</h2>
-              <p class="mt-1 text-sm text-[#6f6877]">{{ profile.sisUserId }}</p>
+              @if (profile.foreignName) {
+                <p class="mt-0.5 text-sm text-[#6f6877]">{{ profile.foreignName }}</p>
+              }
+              <p class="mt-1 text-sm text-[#6f6877]">
+                {{ profile.sisStudentCode ? profile.sisStudentCode + ' · ' : '' }}{{ profile.sisUserId }}
+              </p>
             </div>
           </div>
           <dl class="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
@@ -79,6 +84,18 @@ type ProfileSection =
             <div>
               <dt class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.homeroom') }}</dt>
               <dd class="mt-1 font-semibold text-[#32124f]">{{ profile.homeroom || '-' }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.gender') }}</dt>
+              <dd class="mt-1 font-semibold text-[#32124f]">{{ profile.gender || '-' }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.dateOfBirth') }}</dt>
+              <dd class="mt-1 font-semibold text-[#32124f]">{{ profile.dateOfBirth ? formatDate(profile.dateOfBirth) : '-' }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.status') }}</dt>
+              <dd class="mt-1 font-semibold text-[#32124f]">{{ profile.sisStatus || '-' }}</dd>
             </div>
           </dl>
         </div>
@@ -152,16 +169,16 @@ type ProfileSection =
                 </div>
                 <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
                   <div>
-                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.ageGroup') }}</dt>
-                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.ageGroup || '—' }}</dd>
+                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.birthYear') }}</dt>
+                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.birthYear || '—' }}</dd>
                   </div>
                   <div>
                     <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.occupation') }}</dt>
                     <dd class="mt-1 font-medium text-[#32124f]">{{ parent.occupation || '—' }}</dd>
                   </div>
                   <div>
-                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.sector') }}</dt>
-                    <dd class="mt-1 font-medium text-[#32124f]">{{ sectorLabel(parent.employmentSector) }}</dd>
+                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.username') }}</dt>
+                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.username || '—' }}</dd>
                   </div>
                 </dl>
                 @if (parent.phoneNumber || parent.email) {

@@ -19,8 +19,12 @@ public abstract class BaseEntity
 public class StudentProfile : BaseEntity
 {
     public long? CanvasUserId { get; set; }
+    /// <summary>Permanent, authoritative student code from SIS (for example OS012223-18).</summary>
+    public string? SISStudentCode { get; set; }
+    /// <summary>Normalized school-email username used to join Canvas and SIS identities.</summary>
     public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
+    public string? ForeignName { get; set; }
     public string? Email { get; set; }
     public string? PhoneNumber { get; set; }
     public DateTime? DateOfBirth { get; set; }
@@ -30,6 +34,9 @@ public class StudentProfile : BaseEntity
     /// <summary>SIS-owned grade. This takes precedence over CanvasGradeLevel in reporting.</summary>
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
+    public string? HomeroomCode { get; set; }
+    public string? SISStatus { get; set; }
+    public DateTime? SISLastImportedAtUtc { get; set; }
     public string? Campus { get; set; }
     public string? EducationLevel { get; set; }
     public string? Program { get; set; }
@@ -85,6 +92,7 @@ public class StudentMentalHealthRecord : BaseEntity
 /// </summary>
 public class SISHealthVisit : BaseEntity
 {
+    public int? StudentProfileId { get; set; }
     public string? SISUserId { get; set; }
     public StudentProfile? Student { get; set; }
     /// <summary>Thời gian khám.</summary>
@@ -135,12 +143,15 @@ public class StudentBusAttendanceRecord : BaseEntity
 /// <summary>Parent demographic data synchronised from SIS.</summary>
 public class SISStudentParent : BaseEntity
 {
+    public int StudentProfileId { get; set; }
     public string SISUserId { get; set; } = default!;
     public StudentProfile Student { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string? Relationship { get; set; }
+    public string? Username { get; set; }
     public string? PhoneNumber { get; set; }
     public string? Email { get; set; }
+    public int? BirthYear { get; set; }
     public string? AgeGroup { get; set; }
     public string? Occupation { get; set; }
     public string? EmploymentSector { get; set; }

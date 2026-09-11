@@ -794,6 +794,8 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("CanvasSubmissionId")
                         .IsUnique();
 
+                    b.HasIndex("CanvasUserId");
+
                     b.HasIndex("StudentProfileId");
 
                     b.ToTable("CanvasSubmissions");
@@ -1555,6 +1557,9 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<int?>("StudentProfileId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Symptoms")
                         .HasMaxLength(1000)
                         .HasColumnType("varchar(1000)");
@@ -1572,6 +1577,8 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasIndex("SISUserId");
 
+                    b.HasIndex("StudentProfileId");
+
                     b.ToTable("SISHealthVisits", (string)null);
                 });
 
@@ -1584,6 +1591,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<string>("AgeGroup")
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("BirthYear")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -1618,12 +1628,22 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("Username")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("SISUserId");
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("StudentProfileId", "Relationship")
+                        .IsUnique();
 
                     b.ToTable("SISStudentParents", (string)null);
                 });
@@ -1911,6 +1931,10 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
+                    b.Property<string>("ForeignName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -1928,6 +1952,10 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<string>("HomeroomCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
                     b.Property<string>("PhoneNumber")
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
@@ -1935,6 +1963,17 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<string>("Program")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime?>("SISLastImportedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("SISStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("SISStudentCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("SISUserId")
                         .IsRequired()
@@ -1947,6 +1986,12 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CanvasUserId")
+                        .IsUnique();
+
+                    b.HasIndex("SISStudentCode")
+                        .IsUnique();
+
+                    b.HasIndex("SISUserId")
                         .IsUnique();
 
                     b.ToTable("StudentProfiles");
@@ -2290,8 +2335,7 @@ namespace OlympiaStudent360.Api.Migrations
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
                         .WithMany("SISHealthVisits")
-                        .HasForeignKey("SISUserId")
-                        .HasPrincipalKey("SISUserId")
+                        .HasForeignKey("StudentProfileId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Student");
@@ -2301,8 +2345,7 @@ namespace OlympiaStudent360.Api.Migrations
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
                         .WithMany("Parents")
-                        .HasForeignKey("SISUserId")
-                        .HasPrincipalKey("SISUserId")
+                        .HasForeignKey("StudentProfileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

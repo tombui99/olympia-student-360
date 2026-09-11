@@ -23,6 +23,17 @@ export type ImportHistoryRecordResponse = {
   values: Record<string, string | null>;
 };
 
+export type SisRosterImportResult = {
+  importHistoryId: number;
+  studentsImported: number;
+  studentsAdded: number;
+  studentsUpdated: number;
+  studentsRemoved: number;
+  parentsImported: number;
+  canvasLinkedStudents: number;
+  canvasFactsRemoved: number;
+};
+
 export type ImportHistoryDetailResponse = ImportHistoryResponse & {
   records: ImportHistoryRecordResponse[];
 };
@@ -119,6 +130,12 @@ export class ImportHistoryService {
         rows: mappedRows,
       })
       .pipe(map((record) => this.toRecord(record)));
+  }
+
+  importSisRoster(files: File[]) {
+    const form = new FormData();
+    files.forEach((file) => form.append('files', file, file.name));
+    return this.http.post<SisRosterImportResult>(`${this.basePath}/api/imports/sis-students`, form);
   }
 
   private toRecord(record: ImportHistoryResponse): ImportRecord {

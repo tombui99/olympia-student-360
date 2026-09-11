@@ -96,7 +96,9 @@ import { riskBadgeClass } from './risk.util';
                       </span>
                       <span class="min-w-0">
                         <span class="block truncate font-semibold text-[#32124f]">{{ student.fullName }}</span>
-                        <span class="mt-0.5 block text-xs text-[#7c7284]">{{ student.sisUserId }}</span>
+                        <span class="mt-0.5 block text-xs text-[#7c7284]">
+                          {{ student.sisStudentCode ? student.sisStudentCode + ' · ' : '' }}{{ student.sisUserId }}
+                        </span>
                       </span>
                     </a>
                   </td>
