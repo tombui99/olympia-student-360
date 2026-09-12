@@ -104,7 +104,7 @@ public class CanvasExploreController : ControllerBase
             Aggregation = aggregation,
             Rows = grouped
         };
-        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        _cache.Set(cacheKey, result, AppMemoryCache.Entry(TimeSpan.FromMinutes(5)));
         return Ok(result);
     }
 

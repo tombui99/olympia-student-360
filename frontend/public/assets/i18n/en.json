@@ -579,6 +579,7 @@
   "workspace.templates.charts.summativeByHomeroom": "Summative results by homeroom",
   "workspace.templates.charts.independentAssessments": "Results by assessment period (Cambridge, IELTS, MAP)",
   "workspace.addChart": "Add chart",
+  "workspace.chartLimit": "A workspace can contain up to {max} charts.",
   "workspace.chartSource": "Chart data source",
   "workspace.chartSource.metric": "Metric variables (simplified)",
   "workspace.chartSource.explorer": "Data explorer (detailed)",

@@ -22,6 +22,7 @@ import {
   MetricDrilldownRow,
   MetricVariable,
   MetricVariableGroup,
+  MAX_WORKSPACE_CHARTS,
   ReportBuilderService,
   SystemUser,
   WorkspaceAiChartSnapshot,
@@ -213,11 +214,14 @@ type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
               {{ languageService.t('workspace.manageWorkspace') }}
             </button>
             <button
-              class="rounded-md bg-[#32124f] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#4a1b73]"
+              class="rounded-md bg-[#32124f] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#4a1b73] disabled:cursor-not-allowed disabled:opacity-45"
               type="button"
+              [disabled]="!canAddChart()"
+              [attr.title]="!canAddChart() ? chartLimitMessage() : null"
               (click)="startCreateChart()"
             >
               {{ languageService.t('workspace.addChart') }}
+              ({{ selectedReport()?.charts?.length ?? 0 }}/{{ maxWorkspaceCharts }})
             </button>
           </ng-container>
         </div>
@@ -1390,6 +1394,7 @@ export class WorkspaceDetailComponent implements OnInit {
   private readonly reportBuilderService = inject(ReportBuilderService);
   private readonly workspaceFilters = inject(WorkspaceFiltersService);
   readonly languageService = inject(LanguageService);
+  readonly maxWorkspaceCharts = MAX_WORKSPACE_CHARTS;
 
   readonly options = signal(emptyFilterOptions());
   readonly filters = signal<WorkspaceFilterSet>(defaultFilterSet());
@@ -1778,9 +1783,17 @@ export class WorkspaceDetailComponent implements OnInit {
 
     const cycle = ++this.renderCycle;
     this.dataLoadSubscription?.unsubscribe();
-    const params = this.filterParams();
     const explorerCharts = report.charts.filter((chart) => !!chart.explorer);
-    const hasMetricCharts = report.charts.some((chart) => !chart.explorer && chart.metrics.length > 0);
+    const metricIds = [...new Set(report.charts
+      .filter((chart) => !chart.explorer)
+      .flatMap((chart) => chart.metrics))]
+      .sort();
+    const hasMetricCharts = metricIds.length > 0;
+    const filterParams = this.filterParams();
+    const metricParams = {
+      ...filterParams,
+      ...(hasMetricCharts ? { metricIds: metricIds.join(',') } : {}),
+    };
 
     this.workspaceLoading.set(true);
     this.exploreResults.set({});
@@ -1788,7 +1801,7 @@ export class WorkspaceDetailComponent implements OnInit {
 
     const requests = [];
     if (hasMetricCharts) {
-      requests.push(this.reportBuilderService.loadMetricVariables(params).pipe(
+      requests.push(this.reportBuilderService.loadMetricVariables(metricParams).pipe(
         timeout(this.workspaceRequestTimeoutMs),
         catchError(() => {
           this.markChartLoadErrors(report.charts
@@ -1804,7 +1817,7 @@ export class WorkspaceDetailComponent implements OnInit {
     for (const chart of explorerCharts) {
       if (!chart.explorer) continue;
       const { dataset, dimension, measure } = chart.explorer;
-      requests.push(this.reportBuilderService.loadExplore({ ...params, dataset, dimension, measure }).pipe(
+      requests.push(this.reportBuilderService.loadExplore({ ...filterParams, dataset, dimension, measure }).pipe(
         timeout(this.workspaceRequestTimeoutMs),
         tap((result) => {
           if (cycle === this.renderCycle) {
@@ -1890,6 +1903,10 @@ export class WorkspaceDetailComponent implements OnInit {
   }
 
   startCreateChart() {
+    if (!this.canAddChart()) {
+      return;
+    }
+
     this.chartDraft = this.emptyChartDraft();
     this.chartDraft.title = this.languageService.t('workspace.defaultNewChartTitle');
     this.loadChartBuilderOptions(() => this.openSheet('chart'));
@@ -1930,12 +1947,10 @@ export class WorkspaceDetailComponent implements OnInit {
     const exploreRequest = this.exploreOptionsLoaded
       ? of(this.exploreOptions())
       : this.reportBuilderService.loadExploreOptions();
-    const metricRequest = this.metricVariables().length
-      ? of(this.metricVariables())
-      : this.reportBuilderService.loadMetricVariables(this.filterParams()).pipe(
-          timeout(this.workspaceRequestTimeoutMs),
-          catchError(() => of([])),
-        );
+    const metricRequest = this.reportBuilderService.loadMetricCatalog().pipe(
+      timeout(this.workspaceRequestTimeoutMs),
+      catchError(() => of([])),
+    );
 
     forkJoin({ explore: exploreRequest, metrics: metricRequest })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1975,6 +1990,10 @@ export class WorkspaceDetailComponent implements OnInit {
       const draftId = this.chartDraft.id;
       report.charts = report.charts.map((chart) => (chart.id === draftId ? build(draftId) : chart));
     } else {
+      if (report.charts.length >= MAX_WORKSPACE_CHARTS) {
+        return;
+      }
+
       report.charts = [...report.charts, build(crypto.randomUUID())];
     }
 
@@ -2064,7 +2083,9 @@ export class WorkspaceDetailComponent implements OnInit {
 
       sharedWith: [],
       updatedAt: new Date().toISOString(),
-      charts: report.charts.map((chart) => ({ ...chart, id: crypto.randomUUID() })),
+      charts: report.charts
+        .slice(0, MAX_WORKSPACE_CHARTS)
+        .map((chart) => ({ ...chart, id: crypto.randomUUID() })),
     };
 
     this.customReports.set([copy, ...this.customReports()]);
@@ -2121,6 +2142,16 @@ export class WorkspaceDetailComponent implements OnInit {
 
   isSelectedOwner(): boolean {
     return this.selectedReport()?.owner === this.owner();
+  }
+
+  canAddChart(): boolean {
+    const report = this.selectedReport();
+    return !!report && this.isSelectedOwner() && report.charts.length < MAX_WORKSPACE_CHARTS;
+  }
+
+  chartLimitMessage(): string {
+    return this.languageService.t('workspace.chartLimit')
+      .replace('{max}', String(MAX_WORKSPACE_CHARTS));
   }
 
   closeSheet() {

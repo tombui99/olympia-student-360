@@ -16,6 +16,7 @@ namespace OlympiaStudent360.Api.Controllers;
 [Authorize]
 public class CustomReportsController : ControllerBase
 {
+    private const int MaxChartsPerWorkspace = 6;
     private readonly AppDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
 
@@ -57,6 +58,11 @@ public class CustomReportsController : ControllerBase
             return Unauthorized();
         }
 
+        if (ChartCount(model.Definition) > MaxChartsPerWorkspace)
+        {
+            return ChartLimitExceeded();
+        }
+
         var sharedWith = await ValidRecipients(model.SharedWith, userId);
         var report = new CustomReport
         {
@@ -95,6 +101,14 @@ public class CustomReportsController : ControllerBase
         if (report.OwnerUserId != userId)
         {
             return Forbid();
+        }
+
+        var proposedChartCount = ChartCount(model.Definition);
+        var existingChartCount = ChartCount(report.DefinitionJson);
+        // Keep legacy workspaces editable, but never allow their chart count to increase.
+        if (proposedChartCount > MaxChartsPerWorkspace && proposedChartCount > existingChartCount)
+        {
+            return ChartLimitExceeded();
         }
 
         report.Title = model.Title;
@@ -246,6 +260,32 @@ public class CustomReportsController : ControllerBase
 
     private static bool CanAccess(CustomReport report, string userId, string username) =>
         report.OwnerUserId == userId || SharedWith(report).Contains(username, StringComparer.OrdinalIgnoreCase);
+
+    private static int ChartCount(JsonElement definition) =>
+        definition.ValueKind == JsonValueKind.Object
+        && definition.TryGetProperty("charts", out var charts)
+        && charts.ValueKind == JsonValueKind.Array
+            ? charts.GetArrayLength()
+            : 0;
+
+    private static int ChartCount(string definitionJson)
+    {
+        try
+        {
+            using var definition = JsonDocument.Parse(definitionJson);
+            return ChartCount(definition.RootElement);
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
+    }
+
+    private static BadRequestObjectResult ChartLimitExceeded() => new(new
+    {
+        code = "workspace_chart_limit_exceeded",
+        message = $"A workspace can contain at most {MaxChartsPerWorkspace} charts."
+    });
 
     private static WorkspacePreferenceDto ToPreferenceDto(WorkspacePreference preference) => new()
     {

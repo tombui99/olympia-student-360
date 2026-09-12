@@ -71,7 +71,12 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
-builder.Services.AddMemoryCache();
+builder.Services.AddMemoryCache(options =>
+{
+    var configuredLimit = builder.Configuration.GetValue<int?>("Cache:MemoryEntryLimit") ?? 512;
+    options.SizeLimit = Math.Max(64, configuredLimit);
+});
+builder.Services.AddSingleton<InFlightRequestCoalescer>();
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("public-forms", context => RateLimitPartition.GetFixedWindowLimiter(

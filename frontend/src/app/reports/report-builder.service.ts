@@ -6,6 +6,8 @@ import { SKIP_GLOBAL_API_LOADING } from '../core/loading/api-loading.interceptor
 
 export type ChartKind = 'bar' | 'line' | 'pie' | 'scatter' | 'card';
 
+export const MAX_WORKSPACE_CHARTS = 6;
+
 export interface MetricVariable {
   id: string;
   label: string;
@@ -246,7 +248,18 @@ export class ReportBuilderService {
   }
 
   loadMetricCatalog(): Observable<MetricVariable[]> {
-    return this.loadMetricVariables({ catalogOnly: 'true' });
+    return this.http.get<MetricVariable[]>(`${this.basePath}/api/dashboard/metrics`, {
+      params: { catalogOnly: 'true' },
+    }).pipe(
+      map((catalog) => {
+        // Keep already-loaded series while adding the complete lightweight catalog for
+        // the chart editor. A catalog response contains metadata only.
+        const loadedById = new Map(this.metricVariables().map((metric) => [metric.id, metric]));
+        const merged = catalog.map((metric) => loadedById.get(metric.id) ?? metric);
+        this.metricVariables.set(merged);
+        return merged;
+      }),
+    );
   }
 
   loadMetricDrilldown(params: Record<string, string>): Observable<MetricDrilldown> {

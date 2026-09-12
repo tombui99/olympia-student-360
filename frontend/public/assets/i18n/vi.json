@@ -579,6 +579,7 @@
   "workspace.templates.charts.summativeByHomeroom": "Kết quả đánh giá tổng kết theo lớp",
   "workspace.templates.charts.independentAssessments": "Kết quả theo đợt đánh giá (Cambridge, IELTS, MAP)",
   "workspace.addChart": "Thêm biểu đồ",
+  "workspace.chartLimit": "Mỗi không gian có thể chứa tối đa {max} biểu đồ.",
   "workspace.chartSource": "Nguồn dữ liệu biểu đồ",
   "workspace.chartSource.metric": "Biến chỉ số (đơn giản hóa)",
   "workspace.chartSource.explorer": "Khám phá dữ liệu (chi tiết)",

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,14 @@ public class DashboardController : ControllerBase
         double? Score, string? Grade, double? PointsPossible, DateTime? SubmittedAt,
         DateTime? GradedAt, DateTime? DueAt, string? CourseName, string? AssignmentTitle);
 
+    private sealed class MetricMonthlyAggregate
+    {
+        public int Year { get; init; }
+        public int Month { get; init; }
+        public double Value { get; init; }
+        public int Count { get; init; }
+    }
+
     private static Dictionary<string, string?> DetailFields(params (string Key, string? Value)[] fields) =>
         fields.Where(field => !string.IsNullOrWhiteSpace(field.Value))
             .ToDictionary(field => field.Key, field => field.Value);
@@ -37,11 +46,19 @@ public class DashboardController : ControllerBase
 
     private readonly AppDbContext _context;
     private readonly IMemoryCache _cache;
+    private readonly InFlightRequestCoalescer _requestCoalescer;
+    private readonly ILogger<DashboardController> _logger;
 
-    public DashboardController(AppDbContext context, IMemoryCache cache)
+    public DashboardController(
+        AppDbContext context,
+        IMemoryCache cache,
+        InFlightRequestCoalescer requestCoalescer,
+        ILogger<DashboardController> logger)
     {
         _context = context;
         _cache = cache;
+        _requestCoalescer = requestCoalescer;
+        _logger = logger;
     }
 
     [HttpGet("filter-options")]
@@ -68,7 +85,7 @@ public class DashboardController : ControllerBase
                 AcademicYears = academicYears,
                 Terms = terms
             };
-            _cache.Set(cacheKey, periodResult, TimeSpan.FromMinutes(5));
+            _cache.Set(cacheKey, periodResult, AppMemoryCache.Entry(TimeSpan.FromMinutes(5)));
             return Ok(periodResult);
         }
 
@@ -121,7 +138,7 @@ public class DashboardController : ControllerBase
                 Programs = CleanOptions(studentDimensions.Where(item => item.Program != null)
                     .Select(item => item.Program!).Concat(deferredImportedPrograms))
             };
-            _cache.Set(cacheKey, deferredResult, TimeSpan.FromMinutes(5));
+            _cache.Set(cacheKey, deferredResult, AppMemoryCache.Entry(TimeSpan.FromMinutes(5)));
             return Ok(deferredResult);
         }
 
@@ -248,7 +265,7 @@ public class DashboardController : ControllerBase
             Subjects = CleanOptions(subjectValues)
         };
 
-        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        _cache.Set(cacheKey, result, AppMemoryCache.Entry(TimeSpan.FromMinutes(5)));
         return Ok(result);
     }
 
@@ -531,26 +548,49 @@ public class DashboardController : ControllerBase
         [FromQuery] string? campus, [FromQuery] string? level, [FromQuery] string? grade,
         [FromQuery] string? homeroom, [FromQuery] int? studentId,
         [FromQuery] string? program, [FromQuery] string? subject,
-        [FromQuery] bool catalogOnly = false)
+        [FromQuery] string? metricIds,
+        [FromQuery] bool catalogOnly = false,
+        CancellationToken cancellationToken = default)
     {
         // The workspace landing page only needs metric metadata for its chart picker. Avoid
         // scanning and materialising the Canvas fact tables until a report actually needs data.
         if (catalogOnly)
         {
-            return Ok(await MetricCatalog());
+            return Ok(await MetricCatalog(cancellationToken));
         }
 
+        var startedAt = Stopwatch.GetTimestamp();
+        var requestedMetricIds = ParseMetricIds(metricIds);
+        var requestedMetricCacheKey = requestedMetricIds.Count == 0
+            ? "all"
+            : string.Join(',', requestedMetricIds.Order(StringComparer.Ordinal));
         var cacheKey = DashboardCacheKey("metrics", year, term, cycle, campus, level, grade,
-            homeroom, studentId?.ToString(), program, subject);
+            homeroom, studentId?.ToString(), program, subject, requestedMetricCacheKey);
         if (_cache.TryGetValue<List<DashboardMetricDto>>(cacheKey, out var cached) && cached is not null)
         {
+            RecordMetricsTiming(startedAt, requestedMetricIds.Count, cached.Count, cacheHit: true);
             return Ok(cached);
         }
+
+        var result = await _requestCoalescer.RunAsync(
+            cacheKey,
+            async computationToken =>
+            {
+                // Another request may have filled the cache while this request joined the queue.
+                if (_cache.TryGetValue<List<DashboardMetricDto>>(cacheKey, out var coalescedCached) &&
+                    coalescedCached is not null)
+                {
+                    return coalescedCached;
+                }
 
         var yearAliases = await AcademicYearAliases(year);
         var termAliases = await TermAliases(term);
         var query = _context.DashboardMetricObservations.AsNoTracking()
-            .Include(o => o.Metric).Where(o => o.Metric.IsActive);
+            .Where(o => o.Metric.IsActive);
+        if (requestedMetricIds.Count > 0)
+        {
+            query = query.WhereMatchesAny(o => o.Metric.Key, requestedMetricIds);
+        }
         query = Apply(query, o => o.AcademicYear, yearAliases);
         query = Apply(query, o => o.Term, termAliases);
         query = Apply(query, o => o.MeasurementCycle, cycle);
@@ -562,49 +602,94 @@ public class DashboardController : ControllerBase
         query = Apply(query, o => o.Subject, subject);
         if (studentId.HasValue) query = query.Where(o => o.StudentProfileId == studentId);
 
-        var rows = await query.OrderBy(o => o.PeriodStart).ToListAsync();
-        var result = rows.GroupBy(o => new
+        // Aggregate in the database. The previous implementation materialised every matching
+        // observation (and its Metric entity) before grouping, which made response time and API
+        // memory usage proportional to the raw fact-table size.
+        var rows = await query
+            .GroupBy(o => new
+            {
+                o.Metric.Id,
+                o.Metric.Key,
+                o.Metric.Label,
+                o.Metric.Domain,
+                o.Metric.Source,
+                o.Metric.Unit,
+                o.PeriodStart
+            })
+            .Select(group => new
+            {
+                group.Key.Id,
+                group.Key.Key,
+                group.Key.Label,
+                group.Key.Domain,
+                group.Key.Source,
+                group.Key.Unit,
+                group.Key.PeriodStart,
+                Value = group.Sum(item => item.Value),
+                BaselineValue = group.Max(item => item.BaselineValue),
+                KpiTarget = group.Max(item => item.KpiTarget),
+                HasUnattributedObservation = group.Any(item => item.StudentProfileId == null)
+            })
+            .OrderBy(row => row.PeriodStart)
+            .ToListAsync(computationToken);
+        var computed = rows.GroupBy(o => new
         {
-            o.Metric.Id,
-            o.Metric.Key,
-            o.Metric.Label,
-            o.Metric.Domain,
-            o.Metric.Source,
-            o.Metric.Unit
+            o.Id,
+            o.Key,
+            o.Label,
+            o.Domain,
+            o.Source,
+            o.Unit
         }).Select(group =>
         {
-            var points = group.GroupBy(o => o.PeriodStart).Select(period => new DashboardMetricPointDto
+            var points = group.Select(row => new DashboardMetricPointDto
             {
-                PeriodStart = period.Key, Value = period.Sum(item => item.Value)
+                PeriodStart = row.PeriodStart, Value = row.Value
             }).OrderBy(point => point.PeriodStart).ToList();
+            var latest = group.OrderByDescending(o => o.PeriodStart).First();
             return new DashboardMetricDto
             {
                 Id = group.Key.Key, Label = group.Key.Label, Category = group.Key.Domain,
                 Source = group.Key.Source, Dataset = group.Key.Source, Unit = group.Key.Unit,
                 Value = points.LastOrDefault()?.Value,
                 Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
-                BaselineValue = group.OrderByDescending(o => o.PeriodStart).First().BaselineValue,
-                KpiTarget = group.OrderByDescending(o => o.PeriodStart).First().KpiTarget,
-                SupportsDrilldown = group.All(o => o.StudentProfileId != null),
+                BaselineValue = latest.BaselineValue,
+                KpiTarget = latest.KpiTarget,
+                SupportsDrilldown = group.All(o => !o.HasUnattributedObservation),
                 Series = points
             };
         }).ToList();
 
-        result.AddRange(await ImportedDataMetrics(
+        computed.AddRange(await ImportedDataMetrics(
             year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
-            yearAliases, termAliases));
-        result.AddRange(await CanvasDataMetrics(
+            yearAliases, termAliases, requestedMetricIds, computationToken));
+        computed.AddRange(await CanvasDataMetrics(
             year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
-            yearAliases, termAliases));
-        result = result
+            yearAliases, termAliases, requestedMetricIds, computationToken));
+        computed = computed
             .OrderBy(metric => metric.Category)
             .ThenBy(metric => metric.Label)
             .ToList();
-        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        _cache.Set(cacheKey, computed, AppMemoryCache.Entry(TimeSpan.FromMinutes(5)));
+                return computed;
+            },
+            maxDuration: TimeSpan.FromSeconds(30),
+            callerCancellationToken: cancellationToken);
+        RecordMetricsTiming(startedAt, requestedMetricIds.Count, result.Count, cacheHit: false);
         return Ok(result);
     }
 
-    private async Task<List<DashboardMetricDto>> MetricCatalog()
+    private void RecordMetricsTiming(long startedAt, int requestedCount, int returnedCount, bool cacheHit)
+    {
+        var elapsed = Stopwatch.GetElapsedTime(startedAt);
+        Response.Headers["Server-Timing"] = FormattableString.Invariant(
+            $"dashboard-metrics;dur={elapsed.TotalMilliseconds:0.0}");
+        _logger.LogInformation(
+            "Dashboard metrics completed in {ElapsedMilliseconds:F1} ms (requested: {RequestedCount}, returned: {ReturnedCount}, cache hit: {CacheHit})",
+            elapsed.TotalMilliseconds, requestedCount, returnedCount, cacheHit);
+    }
+
+    private async Task<List<DashboardMetricDto>> MetricCatalog(CancellationToken cancellationToken)
     {
         const string cacheKey = "dashboard:metric-catalog";
         if (_cache.TryGetValue<List<DashboardMetricDto>>(cacheKey, out var cached) && cached is not null)
@@ -626,7 +711,7 @@ public class DashboardController : ControllerBase
                 Unit = metric.Unit,
                 SupportsDrilldown = true
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         result.AddRange(ImportedMetricCatalog());
         result.AddRange(CanvasMetricCatalog());
@@ -635,7 +720,7 @@ public class DashboardController : ControllerBase
             .ThenBy(metric => metric.Label)
             .ToList();
 
-        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        _cache.Set(cacheKey, result, AppMemoryCache.Entry(TimeSpan.FromMinutes(5)));
         return result;
     }
 
@@ -1294,7 +1379,8 @@ public class DashboardController : ControllerBase
     private async Task<List<DashboardMetricDto>> ImportedDataMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
         string? homeroom, int? studentId, string? program, string? subject,
-        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases)
+        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
+        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
     {
         var behaviours = _context.StudentBehaviours.AsNoTracking().AsQueryable();
         var projects = _context.StudentProjects.AsNoTracking().AsQueryable();
@@ -1412,23 +1498,58 @@ public class DashboardController : ControllerBase
                 item => item.Term == null && item.AttendanceDate >= start && item.AttendanceDate < end);
         }
 
-        var behaviourRows = await behaviours
-            .Select(item => new { Date = item.IncidentDate, Type = item.BehaviourType })
-            .ToListAsync();
-        var projectRows = await projects
-            .Select(item => new { Date = item.ActivityDate ?? item.CreatedAt, item.Status })
-            .ToListAsync();
-        var mentalHealthRows = await mentalHealth
-            .Select(item => new { Date = item.RecordDate, item.RiskLevel })
-            .ToListAsync();
-        var healthVisitRows = await healthVisits
-            .Select(item => new { Date = item.ExamTime })
-            .ToListAsync();
-        var busRows = await busRecords
-            .Select(item => new { Date = item.AttendanceDate, item.ViolationType, item.TripDirection })
-            .ToListAsync();
+        var needsBehaviourMetrics = WantsAnyMetric(requestedMetricIds,
+            "behaviour-records", "concern-behaviour-records", "commendation-records");
+        var needsProjectMetrics = WantsAnyMetric(requestedMetricIds,
+            "project-records", "active-project-records");
+        var needsMentalHealthMetrics = WantsAnyMetric(requestedMetricIds,
+            "mental-health-records", "high-risk-mental-health");
+        var needsHealthVisitMetrics = WantsMetric(requestedMetricIds, "health-visit-records");
+        var needsBusMetrics = WantsAnyMetric(requestedMetricIds,
+            "bus-late-records", "bus-seatbelt-violations", "bus-late-to-school", "bus-late-from-school");
 
-        return
+        if (!WantsMetric(requestedMetricIds, "project-records"))
+        {
+            projects = projects.Where(item => item.Status != "Completed" && item.Status != "Hoàn thành");
+        }
+        if (!WantsMetric(requestedMetricIds, "mental-health-records"))
+        {
+            mentalHealth = mentalHealth.Where(item => item.RiskLevel == "High");
+        }
+        if (needsBusMetrics && requestedMetricIds.Count > 0)
+        {
+            var wantsAllLate = requestedMetricIds.Contains("bus-late-records");
+            var wantsSeatbelt = requestedMetricIds.Contains("bus-seatbelt-violations");
+            var wantsMorningLate = requestedMetricIds.Contains("bus-late-to-school");
+            var wantsAfternoonLate = requestedMetricIds.Contains("bus-late-from-school");
+            busRecords = busRecords.Where(item =>
+                (wantsAllLate && item.ViolationType == "Late") ||
+                (wantsSeatbelt && item.ViolationType == "No seatbelt") ||
+                (wantsMorningLate && item.ViolationType == "Late" && item.TripDirection == "To school") ||
+                (wantsAfternoonLate && item.ViolationType == "Late" && item.TripDirection == "From school"));
+        }
+
+        var behaviourRows = needsBehaviourMetrics
+            ? await behaviours.Select(item => new { Date = item.IncidentDate, Type = item.BehaviourType })
+                .ToListAsync(cancellationToken)
+            : [];
+        var projectRows = needsProjectMetrics
+            ? await projects.Select(item => new { Date = item.ActivityDate ?? item.CreatedAt, item.Status })
+                .ToListAsync(cancellationToken)
+            : [];
+        var mentalHealthRows = needsMentalHealthMetrics
+            ? await mentalHealth.Select(item => new { Date = item.RecordDate, item.RiskLevel })
+                .ToListAsync(cancellationToken)
+            : [];
+        var healthVisitRows = needsHealthVisitMetrics
+            ? await healthVisits.Select(item => new { Date = item.ExamTime }).ToListAsync(cancellationToken)
+            : [];
+        var busRows = needsBusMetrics
+            ? await busRecords.Select(item => new { Date = item.AttendanceDate, item.ViolationType, item.TripDirection })
+                .ToListAsync(cancellationToken)
+            : [];
+
+        List<DashboardMetricDto> metrics =
         [
             CountMetric("behaviour-records", "Behaviour records", "Compliance", "StudentBehaviours",
                 behaviourRows.Select(item => item.Date)),
@@ -1461,6 +1582,7 @@ public class DashboardController : ControllerBase
                 busRows.Where(item => item.ViolationType == "Late" && item.TripDirection == "From school")
                     .Select(item => item.Date))
         ];
+        return metrics.Where(metric => WantsMetric(requestedMetricIds, metric.Id)).ToList();
     }
 
     private static List<DashboardMetricDto> ImportedMetricCatalog() =>
@@ -1487,7 +1609,8 @@ public class DashboardController : ControllerBase
     private async Task<List<DashboardMetricDto>> CanvasDataMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
         string? homeroom, int? studentId, string? program, string? subject,
-        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases)
+        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
+        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
     {
         // Canvas records carry no measurement cycle, so a cycle-scoped report has no Canvas rows.
         if (HasFilter(cycle))
@@ -1568,134 +1691,206 @@ public class DashboardController : ControllerBase
             scores = scores.WhereMatchesAny(item => item.GradingPeriodTitle, termAliases);
         }
 
-        var submissionRows = await submissions.Select(item => new
+        var needsSubmissionMetrics = WantsAnyMetric(requestedMetricIds,
+            "canvas-submission-score-percent-avg", "canvas-assignments-submitted",
+            "canvas-assignments-graded", "canvas-assignments-missing", "canvas-assignments-late");
+        var needsScoreMetrics = WantsAnyMetric(requestedMetricIds,
+            "canvas-final-score-avg", "canvas-current-score-avg");
+        if (needsSubmissionMetrics && requestedMetricIds.Count > 0)
         {
-            item.WorkflowState, item.Late, item.Missing, item.Excused,
-            item.Score, PointsPossible = item.Assignment!.PointsPossible,
-            item.SubmittedAt, item.GradedAt,
-            DueAt = item.CachedDueDate ?? item.Assignment.DueAt
-        }).ToListAsync();
-        var scoreRows = await scores.Select(item => new
+            var wantsSubmissionScore = requestedMetricIds.Contains("canvas-submission-score-percent-avg");
+            var wantsSubmitted = requestedMetricIds.Contains("canvas-assignments-submitted");
+            var wantsGraded = requestedMetricIds.Contains("canvas-assignments-graded");
+            var wantsMissing = requestedMetricIds.Contains("canvas-assignments-missing");
+            var wantsLate = requestedMetricIds.Contains("canvas-assignments-late");
+            submissions = submissions.Where(item =>
+                (wantsSubmissionScore && item.WorkflowState == "graded" && item.Score != null &&
+                    item.Assignment!.PointsPossible > 0) ||
+                (wantsSubmitted && item.SubmittedAt != null) ||
+                (wantsGraded && item.WorkflowState == "graded") ||
+                (wantsMissing && item.Missing && item.Excused != true) ||
+                (wantsLate && item.Late));
+        }
+        if (needsScoreMetrics && requestedMetricIds.Count > 0)
         {
-            item.FinalScore, item.CurrentScore,
-            Date = item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt
-        }).ToListAsync();
-
+            var wantsFinalScore = requestedMetricIds.Contains("canvas-final-score-avg");
+            var wantsCurrentScore = requestedMetricIds.Contains("canvas-current-score-avg");
+            scores = scores.Where(item =>
+                (wantsFinalScore && item.FinalScore != null) ||
+                (wantsCurrentScore && item.CurrentScore != null));
+        }
         (DateTime Start, DateTime End)? selectedYearRange = null;
         if (HasFilter(year))
         {
             selectedYearRange = DashboardPeriodNormalizer.AcademicYearRange(
                 DashboardPeriodNormalizer.AcademicYear(year!));
         }
-        DateTime? ReportingDate(DateTime? eventDate, DateTime? dueDate)
+        var metrics = new List<DashboardMetricDto>();
+        var hasSelectedYear = selectedYearRange.HasValue;
+        var selectedYearStart = selectedYearRange?.Start ?? default;
+        var selectedYearEnd = selectedYearRange?.End ?? default;
+
+        IQueryable<DateTime?> SubmissionDate(
+            IQueryable<CanvasSubmission> source,
+            bool preferGradedDate)
         {
-            if (!selectedYearRange.HasValue) return eventDate;
-            var range = selectedYearRange.Value;
-            if (eventDate >= range.Start && eventDate < range.End) return eventDate;
-            if (dueDate >= range.Start && dueDate < range.End) return dueDate;
-            return null;
+            if (!hasSelectedYear)
+            {
+                return source.Select(item => preferGradedDate
+                    ? item.GradedAt ?? item.SubmittedAt
+                    : item.SubmittedAt);
+            }
+
+            return source.Select(item =>
+                (preferGradedDate ? item.GradedAt ?? item.SubmittedAt : item.SubmittedAt) >= selectedYearStart &&
+                (preferGradedDate ? item.GradedAt ?? item.SubmittedAt : item.SubmittedAt) < selectedYearEnd
+                    ? preferGradedDate ? item.GradedAt ?? item.SubmittedAt : item.SubmittedAt
+                    : (item.CachedDueDate ?? item.Assignment!.DueAt) >= selectedYearStart &&
+                      (item.CachedDueDate ?? item.Assignment!.DueAt) < selectedYearEnd
+                        ? item.CachedDueDate ?? item.Assignment!.DueAt
+                        : null);
         }
 
-        // Use each submission's most meaningful timeline date for the monthly series.
-        var gradedSubs = submissionRows
-            .Where(item => string.Equals(item.WorkflowState, "graded", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var finalScorePoints = scoreRows
-            .Where(item => item.FinalScore != null && item.Date != null)
-            .Select(item => (Date: item.Date!.Value, Value: item.FinalScore!.Value));
-        var currentScorePoints = scoreRows
-            .Where(item => item.CurrentScore != null && item.Date != null)
-            .Select(item => (Date: item.Date!.Value, Value: item.CurrentScore!.Value));
-
-        var assignmentScorePoints = gradedSubs
-            .Where(item => item.Score != null && item.PointsPossible is > 0 &&
-                (item.GradedAt != null || item.SubmittedAt != null))
-            .Select(item => (Item: item, Date: ReportingDate(item.GradedAt ?? item.SubmittedAt, item.DueAt)))
-            .Where(item => item.Date != null)
-            .Select(item => (Date: item.Date!.Value,
-                Value: item.Item.Score!.Value / item.Item.PointsPossible!.Value * 100));
-
-        var finalScoreMetric = DocumentMetric(AverageMetric(
+        if (WantsMetric(requestedMetricIds, "canvas-final-score-avg"))
+        {
+            var finalScores = scores.Where(item => item.FinalScore != null);
+            var finalMonthly = finalScores
+                .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) != null)
+                .GroupBy(item => new
+                {
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Year,
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Month
+                })
+                .Select(group => new MetricMonthlyAggregate
+                {
+                    Year = group.Key.Year,
+                    Month = group.Key.Month,
+                    Value = group.Average(item => item.FinalScore!.Value),
+                    Count = group.Count()
+                });
+            var metric = await AverageMetricFromQuery(
                 "canvas-final-score-avg", "Average Canvas final_score", "Academics", "Canvas", "%",
-                finalScorePoints, "CanvasEnrollmentGrades"),
-            "Average of non-null Canvas grades.final_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
-            "enrollment.grades.final_score", "grading_period.end_date", "course.end_at");
-        var allFinalScores = scoreRows.Where(item => item.FinalScore != null)
-            .Select(item => item.FinalScore!.Value).ToList();
-        finalScoreMetric.Value = allFinalScores.Count == 0
-            ? null
-            : Math.Round((decimal)allFinalScores.Average(), 1);
-
-        var currentScoreMetric = DocumentMetric(AverageMetric(
+                finalMonthly, finalScores.Select(item => item.FinalScore),
+                "CanvasEnrollmentGrades", cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Average of non-null Canvas grades.final_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+                "enrollment.grades.final_score", "grading_period.end_date", "course.end_at"));
+        }
+        if (WantsMetric(requestedMetricIds, "canvas-current-score-avg"))
+        {
+            var currentScores = scores.Where(item => item.CurrentScore != null);
+            var currentMonthly = currentScores
+                .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) != null)
+                .GroupBy(item => new
+                {
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Year,
+                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Month
+                })
+                .Select(group => new MetricMonthlyAggregate
+                {
+                    Year = group.Key.Year,
+                    Month = group.Key.Month,
+                    Value = group.Average(item => item.CurrentScore!.Value),
+                    Count = group.Count()
+                });
+            var metric = await AverageMetricFromQuery(
                 "canvas-current-score-avg", "Average Canvas current_score", "Academics", "Canvas", "%",
-                currentScorePoints, "CanvasEnrollmentGrades"),
-            "Average of non-null Canvas grades.current_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
-            "enrollment.grades.current_score", "grading_period.end_date", "course.end_at");
-        var allCurrentScores = scoreRows.Where(item => item.CurrentScore != null)
-            .Select(item => item.CurrentScore!.Value).ToList();
-        currentScoreMetric.Value = allCurrentScores.Count == 0
-            ? null
-            : Math.Round((decimal)allCurrentScores.Average(), 1);
-
-        var submissionScoreMetric = DocumentMetric(AverageMetric(
+                currentMonthly, currentScores.Select(item => item.CurrentScore),
+                "CanvasEnrollmentGrades", cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Average of non-null Canvas grades.current_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+                "enrollment.grades.current_score", "grading_period.end_date", "course.end_at"));
+        }
+        if (WantsMetric(requestedMetricIds, "canvas-submission-score-percent-avg"))
+        {
+            var scoreSubmissions = submissions.Where(item => item.WorkflowState == "graded" &&
+                item.Score != null && item.Assignment!.PointsPossible > 0 &&
+                (item.GradedAt != null || item.SubmittedAt != null));
+            if (hasSelectedYear)
+            {
+                scoreSubmissions = scoreSubmissions.Where(item =>
+                    ((item.GradedAt ?? item.SubmittedAt) >= selectedYearStart &&
+                     (item.GradedAt ?? item.SubmittedAt) < selectedYearEnd) ||
+                    ((item.CachedDueDate ?? item.Assignment!.DueAt) >= selectedYearStart &&
+                     (item.CachedDueDate ?? item.Assignment!.DueAt) < selectedYearEnd));
+            }
+            var scoreMonthly = scoreSubmissions
+                .GroupBy(item => new
+                {
+                    (hasSelectedYear && !((item.GradedAt ?? item.SubmittedAt) >= selectedYearStart &&
+                                          (item.GradedAt ?? item.SubmittedAt) < selectedYearEnd)
+                        ? item.CachedDueDate ?? item.Assignment!.DueAt
+                        : item.GradedAt ?? item.SubmittedAt)!.Value.Year,
+                    (hasSelectedYear && !((item.GradedAt ?? item.SubmittedAt) >= selectedYearStart &&
+                                          (item.GradedAt ?? item.SubmittedAt) < selectedYearEnd)
+                        ? item.CachedDueDate ?? item.Assignment!.DueAt
+                        : item.GradedAt ?? item.SubmittedAt)!.Value.Month
+                })
+                .Select(group => new MetricMonthlyAggregate
+                {
+                    Year = group.Key.Year,
+                    Month = group.Key.Month,
+                    Value = group.Average(item => item.Score!.Value /
+                        item.Assignment!.PointsPossible!.Value * 100),
+                    Count = group.Count()
+                });
+            var metric = await AverageMetricFromQuery(
                 "canvas-submission-score-percent-avg", "Average Canvas submission score percentage",
-                "Academics", "Canvas", "%", assignmentScorePoints, "CanvasSubmissionsAndAssignments"),
-            "Reporting calculation: average of Canvas submission.score / Canvas assignment.points_possible × 100 for submissions whose Canvas workflow_state is graded.",
-            "submission.score", "submission.workflow_state", "submission.graded_at",
-            "submission.submitted_at", "assignment.points_possible");
-
-        var submittedMetric = DocumentMetric(CountMetric(
+                "Academics", "Canvas", "%", scoreMonthly,
+                scoreSubmissions.Select(item => (double?)(item.Score!.Value /
+                    item.Assignment!.PointsPossible!.Value * 100)),
+                "CanvasSubmissionsAndAssignments", cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Reporting calculation: average of Canvas submission.score / Canvas assignment.points_possible × 100 for submissions whose Canvas workflow_state is graded.",
+                "submission.score", "submission.workflow_state", "submission.graded_at",
+                "submission.submitted_at", "assignment.points_possible"));
+        }
+        if (WantsMetric(requestedMetricIds, "canvas-assignments-submitted"))
+        {
+            var dates = SubmissionDate(
+                submissions.Where(item => item.SubmittedAt != null), preferGradedDate: false);
+            var metric = await CountMetricFromQuery(
                 "canvas-assignments-submitted", "Canvas submissions with submitted_at", "Academics", "Canvas",
-                submissionRows.Where(item => item.SubmittedAt != null)
-                    .Select(item => ReportingDate(item.SubmittedAt, item.DueAt))
-                    .Where(date => date != null).Select(date => date!.Value),
-                "submissions", "CanvasSubmissionsAndAssignments"),
-            "Count of Canvas submission records whose submitted_at is non-null.",
-            "submission.submitted_at");
-        var datedGradedRows = gradedSubs
-            .Select(item => new { Item = item, Date = ReportingDate(item.GradedAt ?? item.SubmittedAt, item.DueAt) })
-            .Where(item => item.Date != null)
-            .ToList();
-        var gradedMetric = DocumentMetric(CountMetric(
+                dates, "submissions", "CanvasSubmissionsAndAssignments", false, cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Count of Canvas submission records whose submitted_at is non-null.",
+                "submission.submitted_at"));
+        }
+        if (WantsMetric(requestedMetricIds, "canvas-assignments-graded"))
+        {
+            var dates = SubmissionDate(
+                submissions.Where(item => item.WorkflowState == "graded"),
+                preferGradedDate: true);
+            var metric = await CountMetricFromQuery(
                 "canvas-assignments-graded", "Canvas submissions with workflow_state=graded", "Academics", "Canvas",
-                datedGradedRows.Select(item => item.Date!.Value),
-                "submissions", "CanvasSubmissionsAndAssignments"),
-            "Count of Canvas submission records whose workflow_state is graded. Undated graded records contribute to the total but not the monthly series.",
-            "submission.workflow_state", "submission.graded_at", "submission.submitted_at");
-        gradedMetric.Value = selectedYearRange.HasValue ? datedGradedRows.Count : gradedSubs.Count;
-
-        var missingRows = submissionRows.Where(item => item.Missing && item.Excused != true).ToList();
-        var missingMetric = DocumentMetric(CountMetric(
+                dates, "submissions", "CanvasSubmissionsAndAssignments", !hasSelectedYear, cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Count of Canvas submission records whose workflow_state is graded. Undated graded records contribute to the total but not the monthly series.",
+                "submission.workflow_state", "submission.graded_at", "submission.submitted_at"));
+        }
+        if (WantsMetric(requestedMetricIds, "canvas-assignments-missing"))
+        {
+            var dates = submissions.Where(item => item.Missing && item.Excused != true)
+                .Select(item => item.CachedDueDate ?? item.Assignment!.DueAt);
+            var metric = await CountMetricFromQuery(
                 "canvas-assignments-missing", "Canvas submissions flagged missing", "Academics", "Canvas",
-                missingRows.Where(item => item.DueAt != null).Select(item => item.DueAt!.Value),
-                "submissions", "CanvasSubmissionsAndAssignments"),
-            "Count of Canvas submission records where missing=true and excused is not true. Records without a Canvas due date contribute to the total but not the monthly series.",
-            "submission.missing", "submission.excused", "submission.cached_due_date", "assignment.due_at");
-        missingMetric.Value = missingRows.Count;
-
-        var lateRows = submissionRows.Where(item => item.Late)
-            .Select(item => new { Item = item, Date = ReportingDate(item.SubmittedAt, item.DueAt) })
-            .Where(item => !selectedYearRange.HasValue || item.Date != null)
-            .ToList();
-        var lateMetric = DocumentMetric(CountMetric(
+                dates, "submissions", "CanvasSubmissionsAndAssignments", true, cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Count of Canvas submission records where missing=true and excused is not true. Records without a Canvas due date contribute to the total but not the monthly series.",
+                "submission.missing", "submission.excused", "submission.cached_due_date", "assignment.due_at"));
+        }
+        if (WantsMetric(requestedMetricIds, "canvas-assignments-late"))
+        {
+            var dates = SubmissionDate(submissions.Where(item => item.Late), preferGradedDate: false);
+            var metric = await CountMetricFromQuery(
                 "canvas-assignments-late", "Canvas submissions flagged late", "Academics", "Canvas",
-                lateRows.Where(item => item.Date != null).Select(item => item.Date!.Value),
-                "submissions", "CanvasSubmissionsAndAssignments"),
-            "Count of Canvas submission records where late=true. Records without submitted_at contribute to the total but not the monthly series.",
-            "submission.late", "submission.submitted_at");
-        lateMetric.Value = lateRows.Count;
+                dates, "submissions", "CanvasSubmissionsAndAssignments", !hasSelectedYear, cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Count of Canvas submission records where late=true. Records without submitted_at contribute to the total but not the monthly series.",
+                "submission.late", "submission.submitted_at"));
+        }
 
-        return
-        [
-            finalScoreMetric,
-            currentScoreMetric,
-            submissionScoreMetric,
-            submittedMetric,
-            gradedMetric,
-            missingMetric,
-            lateMetric
-        ];
+        return metrics;
     }
 
     private static List<DashboardMetricDto> CanvasMetricCatalog() =>
@@ -1761,6 +1956,77 @@ public class DashboardController : ControllerBase
         return metric;
     }
 
+    private static async Task<DashboardMetricDto> AverageMetricFromQuery(
+        string id, string label, string category, string source, string unit,
+        IQueryable<MetricMonthlyAggregate> monthlyQuery, IQueryable<double?> overallValues,
+        string dataset,
+        CancellationToken cancellationToken)
+    {
+        var monthly = await monthlyQuery
+            .OrderBy(row => row.Year)
+            .ThenBy(row => row.Month)
+            .ToListAsync(cancellationToken);
+        var points = monthly.Select(row => new DashboardMetricPointDto
+        {
+            PeriodStart = new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc),
+            Value = Math.Round((decimal)row.Value, 1)
+        }).ToList();
+        var average = await overallValues.AverageAsync(cancellationToken);
+        decimal? value = average.HasValue ? Math.Round((decimal)average.Value, 1) : null;
+
+        return new DashboardMetricDto
+        {
+            Id = id,
+            Label = label,
+            Category = category,
+            Source = source,
+            Dataset = dataset,
+            Unit = unit,
+            Value = value,
+            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
+            Series = points
+        };
+    }
+
+    private static async Task<DashboardMetricDto> CountMetricFromQuery(
+        string id, string label, string category, string source,
+        IQueryable<DateTime?> dates, string unit, string dataset, bool includeUndatedInTotal,
+        CancellationToken cancellationToken)
+    {
+        var monthly = await dates.Where(date => date != null)
+            .GroupBy(date => new { date!.Value.Year, date.Value.Month })
+            .Select(group => new
+            {
+                group.Key.Year,
+                group.Key.Month,
+                Value = group.Count()
+            })
+            .OrderBy(row => row.Year)
+            .ThenBy(row => row.Month)
+            .ToListAsync(cancellationToken);
+        var points = monthly.Select(row => new DashboardMetricPointDto
+        {
+            PeriodStart = new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc),
+            Value = row.Value
+        }).ToList();
+        var value = includeUndatedInTotal
+            ? await dates.CountAsync(cancellationToken)
+            : monthly.Sum(row => row.Value);
+
+        return new DashboardMetricDto
+        {
+            Id = id,
+            Label = label,
+            Category = category,
+            Source = source,
+            Dataset = dataset,
+            Unit = unit,
+            Value = value,
+            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
+            Series = points
+        };
+    }
+
     private static DashboardMetricDto AverageMetric(
         string id, string label, string category, string source, string unit,
         IEnumerable<(DateTime Date, double Value)> samples, string? dataset = null)
@@ -1821,6 +2087,20 @@ public class DashboardController : ControllerBase
 
     private static bool HasFilter(string? value) =>
         !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "all", StringComparison.OrdinalIgnoreCase);
+
+    private static HashSet<string> ParseMetricIds(string? metricIds) =>
+        string.IsNullOrWhiteSpace(metricIds)
+            ? []
+            : metricIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(id => id.Length <= 100)
+                .Take(50)
+                .ToHashSet(StringComparer.Ordinal);
+
+    private static bool WantsMetric(IReadOnlySet<string> requestedMetricIds, string metricId) =>
+        requestedMetricIds.Count == 0 || requestedMetricIds.Contains(metricId);
+
+    private static bool WantsAnyMetric(IReadOnlySet<string> requestedMetricIds, params string[] metricIds) =>
+        requestedMetricIds.Count == 0 || metricIds.Any(requestedMetricIds.Contains);
 
     private static string DashboardCacheKey(string operation, params string?[] values) =>
         $"dashboard:{operation}:" + string.Join('|', values.Select(value =>

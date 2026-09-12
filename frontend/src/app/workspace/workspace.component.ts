@@ -11,6 +11,7 @@ import {
   groupMetricVariables,
   MetricVariable,
   MetricVariableGroup,
+  MAX_WORKSPACE_CHARTS,
   ReportBuilderService,
   SystemUser,
 } from '../reports/report-builder.service';
@@ -783,7 +784,7 @@ export class WorkspaceComponent implements OnInit {
     const report = this.reportBuilderService.createReport(this.owner());
     report.title = this.languageService.t(template.titleKey);
     report.description = this.languageService.t(template.descriptionKey);
-    report.charts = template.charts.map((chart) => ({
+    report.charts = template.charts.slice(0, MAX_WORKSPACE_CHARTS).map((chart) => ({
       id: crypto.randomUUID(),
       title: this.languageService.t(chart.titleKey),
       kind: chart.kind,
@@ -846,7 +847,7 @@ export class WorkspaceComponent implements OnInit {
   }
 
   startCreateChart() {
-    if (!this.isSelectedOwner()) {
+    if (!this.canAddChart()) {
       return;
     }
 
@@ -891,6 +892,10 @@ export class WorkspaceComponent implements OnInit {
           : chart,
       );
     } else {
+      if (report.charts.length >= MAX_WORKSPACE_CHARTS) {
+        return;
+      }
+
       report.charts = [
         ...report.charts,
         {
@@ -932,7 +937,9 @@ export class WorkspaceComponent implements OnInit {
 
       sharedWith: [],
       updatedAt: new Date().toISOString(),
-      charts: report.charts.map((chart) => ({ ...chart, id: crypto.randomUUID() })),
+      charts: report.charts
+        .slice(0, MAX_WORKSPACE_CHARTS)
+        .map((chart) => ({ ...chart, id: crypto.randomUUID() })),
     };
 
     this.customReports.set([copy, ...this.customReports()]);
@@ -1035,6 +1042,11 @@ export class WorkspaceComponent implements OnInit {
 
   isSelectedOwner(): boolean {
     return this.selectedReport()?.owner === this.owner();
+  }
+
+  canAddChart(): boolean {
+    const report = this.selectedReport();
+    return !!report && this.isSelectedOwner() && report.charts.length < MAX_WORKSPACE_CHARTS;
   }
 
   isOwner(report: CustomReport): boolean {
