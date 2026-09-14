@@ -138,7 +138,7 @@ import { ImportHistoryDetailSheetComponent } from './import-history-detail-sheet
                 <td class="px-6 py-4 text-[#6f6877]">{{ record.importedByName }}</td>
                 <td class="px-6 py-4 text-[#6f6877]">{{ formatDate(record.importedAt) }}</td>
                 <td class="px-6 py-4 text-right">
-                  <button *ngIf="record.moduleId !== 'sis-students'" class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:border-[#9d7caf] hover:bg-[#f8f4fa]" type="button" (click)="historyDetailId.set(record.id)">
+                  <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:border-[#9d7caf] hover:bg-[#f8f4fa]" type="button" (click)="historyDetailId.set(record.id)">
                     {{ languageService.t('imports.historyDetail.view') }}
                   </button>
                 </td>

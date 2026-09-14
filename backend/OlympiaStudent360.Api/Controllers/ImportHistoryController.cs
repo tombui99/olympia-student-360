@@ -30,7 +30,7 @@ public class ImportHistoryController : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 100);
         var query = _context.ImportHistories
             .AsNoTracking()
-            .Where(item => item.Status == "Valid");
+            .Where(item => item.Status == "Valid" && ImportCustomFieldService.Modules.Contains(item.ModuleId));
         if (!User.IsInRole("Admin") &&
             !User.IsInRole("SchoolAdministration") &&
             !User.IsInRole("Principal"))
@@ -106,6 +106,7 @@ public class ImportHistoryController : ControllerBase
             "student-projects" => await UpdateProject(id, recordId, model.Values),
             "student-mental-health" => await UpdateMentalHealth(id, recordId, model.Values),
             "student-bus-attendance" => await UpdateBusAttendance(id, recordId, model.Values),
+            "student-health-visits" => await UpdateHealthVisit(id, recordId, model.Values),
             _ => "This import module cannot be edited."
         };
         if (error != null) return BadRequest(new { Message = error });
@@ -125,6 +126,7 @@ public class ImportHistoryController : ControllerBase
             "student-projects" => await Remove(_context.StudentProjects, id, recordId),
             "student-mental-health" => await Remove(_context.StudentMentalHealthRecords, id, recordId),
             "student-bus-attendance" => await Remove(_context.StudentBusAttendanceRecords, id, recordId),
+            "student-health-visits" => await Remove(_context.StudentHealthVisits, id, recordId),
             _ => false
         };
         if (!deleted) return NotFound();
@@ -146,7 +148,8 @@ public class ImportHistoryController : ControllerBase
 
     private IQueryable<ImportHistory> ManageableHistories()
     {
-        var query = _context.ImportHistories.Where(item => item.Status == "Valid");
+        var query = _context.ImportHistories
+            .Where(item => item.Status == "Valid" && ImportCustomFieldService.Modules.Contains(item.ModuleId));
         if (User.IsInRole("Admin") ||
             User.IsInRole("SchoolAdministration") ||
             User.IsInRole("Principal")) return query;
@@ -162,6 +165,7 @@ public class ImportHistoryController : ControllerBase
             "student-projects" => await LoadProjects(history.Id),
             "student-mental-health" => await LoadMentalHealth(history.Id),
             "student-bus-attendance" => await LoadBusAttendance(history.Id),
+            "student-health-visits" => await LoadHealthVisits(history.Id),
             _ => []
         };
     }
@@ -201,6 +205,18 @@ public class ImportHistoryController : ControllerBase
             ("attendance_date", item.AttendanceDate.ToString("yyyy-MM-dd")), ("trip_direction", item.TripDirection),
             ("violation_type", item.ViolationType), ("bus_code", item.BusCode),
             ("route_name", item.RouteName), ("notes", item.Notes))).ToList();
+    }
+
+    private async Task<List<ImportHistoryRecordDto>> LoadHealthVisits(int historyId)
+    {
+        var items = await _context.StudentHealthVisits.AsNoTracking().Include(item => item.Student)
+            .Where(item => item.ImportHistoryId == historyId && item.Student != null)
+            .OrderByDescending(item => item.ExamTime).ToListAsync();
+        return items.Select(item => Record(item.Id, item.Student!, item.CustomFieldsJson,
+            ("visit_date", item.ExamTime.ToString("yyyy-MM-dd")), ("symptoms", item.Symptoms),
+            ("diagnosis", item.Diagnosis), ("classification", item.Classification),
+            ("treatment", item.Treatment), ("medication", item.Medication),
+            ("examined_by", item.ExaminedBy))).ToList();
     }
 
     private static ImportHistoryRecordDto Record(
@@ -279,6 +295,25 @@ public class ImportHistoryController : ControllerBase
         item.BusCode = Clean(Value(values, "bus_code")); item.RouteName = Clean(Value(values, "route_name"));
         item.Notes = Clean(Value(values, "notes")); item.CustomFieldsJson = custom.Json;
         item.UpdatedAt = DateTime.UtcNow;
+        return null;
+    }
+
+    private async Task<string?> UpdateHealthVisit(int historyId, int id, IDictionary<string, string?> values)
+    {
+        var item = await _context.StudentHealthVisits.FirstOrDefaultAsync(x => x.Id == id && x.ImportHistoryId == historyId);
+        if (item == null) return "The imported record was not found.";
+        if (!TryDate(values, "visit_date", out var date)) return "visit_date is invalid.";
+        var symptoms = Required(values, "symptoms");
+        if (symptoms == null) return "symptoms is required.";
+        var custom = await BuildCustomFields("student-health-visits", values);
+        if (custom.Error != null) return custom.Error;
+        item.ExamTime = date; item.Symptoms = symptoms;
+        item.Diagnosis = Clean(Value(values, "diagnosis"));
+        item.Classification = Clean(Value(values, "classification"));
+        item.Treatment = Clean(Value(values, "treatment"));
+        item.Medication = Clean(Value(values, "medication"));
+        item.ExaminedBy = Clean(Value(values, "examined_by"));
+        item.CustomFieldsJson = custom.Json; item.UpdatedAt = DateTime.UtcNow;
         return null;
     }
 

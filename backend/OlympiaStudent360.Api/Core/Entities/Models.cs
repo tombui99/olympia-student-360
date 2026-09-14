@@ -44,7 +44,7 @@ public class StudentProfile : BaseEntity
     public ICollection<StudentProject> Projects { get; set; } = [];
     public ICollection<SISStudentParent> Parents { get; set; } = [];
     public ICollection<StudentMentalHealthRecord> MentalHealthRecords { get; set; } = [];
-    public ICollection<SISHealthVisit> SISHealthVisits { get; set; } = [];
+    public ICollection<StudentHealthVisit> HealthVisits { get; set; } = [];
     public ICollection<StudentBusAttendanceRecord> BusAttendanceRecords { get; set; } = [];
 }
 
@@ -86,12 +86,14 @@ public class StudentMentalHealthRecord : BaseEntity
 }
 
 /// <summary>
-/// A health/injury visit to the school clinic (phòng y tế). This is warehouse data that a
-/// future ETL job will sync from SIS; the fields mirror the SIS medical log. Linked to a
-/// StudentProfile where the SIS student can be resolved.
+/// A health/injury visit recorded by school staff through manual entry or Excel import.
+/// Legacy identity snapshot columns are retained so existing visit rows can be migrated
+/// without data loss.
 /// </summary>
-public class SISHealthVisit : BaseEntity
+public class StudentHealthVisit : BaseEntity
 {
+    public int? ImportHistoryId { get; set; }
+    public ImportHistory? ImportHistory { get; set; }
     public int? StudentProfileId { get; set; }
     public string? SISUserId { get; set; }
     public StudentProfile? Student { get; set; }
@@ -115,6 +117,8 @@ public class SISHealthVisit : BaseEntity
     public string? Medication { get; set; }
     /// <summary>Y, BS khám bệnh.</summary>
     public string? ExaminedBy { get; set; }
+    /// <summary>Values for admin-defined custom fields, keyed by field key. JSON object.</summary>
+    public string? CustomFieldsJson { get; set; }
 }
 
 /// <summary>
@@ -496,6 +500,7 @@ public class ImportHistory : BaseEntity
     public ICollection<StudentProject> Projects { get; set; } = [];
     public ICollection<StudentMentalHealthRecord> MentalHealthRecords { get; set; } = [];
     public ICollection<StudentBusAttendanceRecord> BusAttendanceRecords { get; set; } = [];
+    public ICollection<StudentHealthVisit> HealthVisits { get; set; } = [];
 }
 
 /// <summary>A student-linked form authored by school administrators and shared publicly.</summary>

@@ -8,6 +8,7 @@ import { ImportModuleField, ImportModuleFieldsService } from './import-module-fi
 type ParsedImportFile = {
   result: ValidationResult;
   rows: Record<string, string>[];
+  dataStartRow: number;
 };
 
 @Component({
@@ -51,13 +52,12 @@ type ParsedImportFile = {
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h3 class="text-lg font-semibold text-[#32124f]">
-                {{ languageService.t(isSisRoster() ? 'imports.sisRoster.sourceTitle' : 'imports.standardizedTemplate') }}
+                {{ languageService.t('imports.standardizedTemplate') }}
               </h3>
               <p class="mt-1 max-w-lg text-sm leading-6 text-[#6f6877]">
-                {{ languageService.t(isSisRoster() ? 'imports.sisRoster.sourceHint' : 'imports.templateHint') }}
+                {{ languageService.t('imports.templateHint') }}
               </p>
             </div>
-            @if (!isSisRoster()) {
             <button
               class="rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
               type="button"
@@ -65,7 +65,6 @@ type ParsedImportFile = {
             >
               {{ languageService.t('imports.downloadTemplate') }}
             </button>
-            }
           </div>
 
           <p class="mt-5 text-xs font-semibold uppercase tracking-[0.12em] text-[#7c7284]">
@@ -90,7 +89,7 @@ type ParsedImportFile = {
               [class.opacity-50]="importing()"
             >
               {{ importing() ? languageService.t('imports.excel.importing') : languageService.t('imports.chooseFile') }}
-              <input class="hidden" type="file" [accept]="isSisRoster() ? '.xlsx' : '.xls,.csv,.tsv,.txt'" [multiple]="isSisRoster()" (change)="handleFile($event)" [disabled]="importing()" />
+              <input class="hidden" type="file" accept=".xls,.csv,.tsv,.txt" (change)="handleFile($event)" [disabled]="importing()" />
             </label>
           </div>
 
@@ -156,10 +155,6 @@ export class ExcelImportSheetComponent implements OnInit {
     return importModules.find((candidate) => candidate.id === this.moduleId);
   }
 
-  isSisRoster(): boolean {
-    return this.module()?.fileKind === 'sis-roster-xlsx';
-  }
-
   /** Standard module headers plus admin-defined custom field keys. */
   effectiveHeaders(): string[] {
     return [...(this.module()?.headers ?? []), ...this.customFields().map((f) => f.fieldKey)];
@@ -175,8 +170,10 @@ export class ExcelImportSheetComponent implements OnInit {
       return;
     }
 
-    const content = this.effectiveHeaders().map((cell) => this.escapeCell(cell)).join('\t');
-    const blob = new Blob([content], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const content = [this.effectiveHeaders(), this.readableHeaders()]
+      .map((row) => row.map((cell) => this.escapeCell(cell)).join('\t'))
+      .join('\r\n');
+    const blob = new Blob([`\uFEFF${content}`], { type: 'application/vnd.ms-excel;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `${module.id}-template.xls`;
@@ -193,12 +190,8 @@ export class ExcelImportSheetComponent implements OnInit {
       return;
     }
 
-    this.selectedFileName.set(files.map(candidate => candidate.name).join(' + '));
+    this.selectedFileName.set(file.name);
     this.validationResult.set(null);
-    if (this.isSisRoster()) {
-      this.importSisRoster(files);
-      return;
-    }
     const reader = new FileReader();
     reader.onload = () => {
       const parsed = this.parseFile(String(reader.result ?? ''));
@@ -206,7 +199,7 @@ export class ExcelImportSheetComponent implements OnInit {
         this.validationResult.set(parsed.result);
         return;
       }
-      this.importFile(file.name, parsed.rows);
+      this.importFile(file.name, parsed.rows, parsed.dataStartRow);
       return;
     };
     reader.onerror = () => this.validationResult.set({
@@ -218,31 +211,9 @@ export class ExcelImportSheetComponent implements OnInit {
     reader.readAsText(file);
   }
 
-  private importSisRoster(files: File[]): void {
+  private importFile(fileName: string, rows: Record<string, string>[], dataStartRow: number): void {
     this.importing.set(true);
-    this.importHistoryService.importSisRoster(files).subscribe({
-      next: (result) => {
-        this.validationResult.set({
-          status: 'Valid',
-          errors: [],
-          validRows: result.studentsImported,
-          invalidRows: 0,
-        });
-        this.imported.emit(this.moduleId);
-      },
-      error: (error) => {
-        const errors = Array.isArray(error?.error?.errors)
-          ? error.error.errors
-          : [error?.error?.message || this.languageService.t('imports.errors.importFailed')];
-        this.validationResult.set({ status: 'Rejected', errors, validRows: 0, invalidRows: 0 });
-        this.importing.set(false);
-      },
-    });
-  }
-
-  private importFile(fileName: string, rows: Record<string, string>[]): void {
-    this.importing.set(true);
-    this.importHistoryService.importExcel(this.moduleId, fileName, rows, this.customFieldKeys()).subscribe({
+    this.importHistoryService.importExcel(this.moduleId, fileName, rows, this.customFieldKeys(), dataStartRow).subscribe({
       next: () => {
         this.validationResult.set({ status: 'Valid', errors: [], validRows: rows.length, invalidRows: 0 });
         this.imported.emit(this.moduleId);
@@ -274,6 +245,9 @@ export class ExcelImportSheetComponent implements OnInit {
     if (headerRow.join('|') !== headers.join('|')) {
       return this.rejected(this.languageService.t('imports.errors.templateMismatch'), Math.max(rows.length - 1, 0));
     }
+    const hasReadableHeaderRow = this.isReadableHeaderRow(rows[1] ?? []);
+    const dataRows = rows.slice(hasReadableHeaderRow ? 2 : 1);
+    const firstDataRowNumber = hasReadableHeaderRow ? 3 : 2;
 
     // Required columns = standard required headers + any required custom fields.
     const requiredHeaders = [
@@ -288,8 +262,8 @@ export class ExcelImportSheetComponent implements OnInit {
         header.endsWith('_date') ||
         this.customFields().some((f) => f.fieldKey === header && f.fieldType === 'date' && index >= 0))
       .map(({ index }) => index);
-    rows.slice(1).forEach((row, index) => {
-      const rowNumber = index + 2;
+    dataRows.forEach((row, index) => {
+      const rowNumber = index + firstDataRowNumber;
       requiredIndexes.forEach((requiredIndex) => {
         if (!row[requiredIndex]) {
           errors.push(this.languageService.t('imports.errors.requiredMissing')
@@ -306,24 +280,60 @@ export class ExcelImportSheetComponent implements OnInit {
       });
     });
 
-    if (rows.length <= 1) {
+    if (dataRows.length === 0) {
       return this.rejected(this.languageService.t('imports.errors.noRows'));
     }
     if (errors.length > 0) {
-      return { result: { status: 'Rejected', errors, validRows: 0, invalidRows: rows.length - 1 }, rows: [] };
+      return { result: { status: 'Rejected', errors, validRows: 0, invalidRows: dataRows.length }, rows: [], dataStartRow: firstDataRowNumber };
     }
 
-    const importRows = rows.slice(1).map((row) =>
+    const importRows = dataRows.map((row) =>
       Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])),
     );
-    return { result: { status: 'Valid', errors: [], validRows: importRows.length, invalidRows: 0 }, rows: importRows };
+    return { result: { status: 'Valid', errors: [], validRows: importRows.length, invalidRows: 0 }, rows: importRows, dataStartRow: firstDataRowNumber };
   }
 
   private rejected(error: string, invalidRows = 0): ParsedImportFile {
-    return { result: { status: 'Rejected', errors: [error], validRows: 0, invalidRows }, rows: [] };
+    return { result: { status: 'Rejected', errors: [error], validRows: 0, invalidRows }, rows: [], dataStartRow: 2 };
   }
 
   private escapeCell(value: string): string {
     return value.includes('\t') || value.includes('\n') ? `"${value.replace(/"/g, '""')}"` : value;
+  }
+
+  private readableHeaders(): string[] {
+    const standardHeaders = new Set(this.module()?.headers ?? []);
+    return this.effectiveHeaders().map((header) => {
+      if (!standardHeaders.has(header)) {
+        return this.humanizeCustomHeader(header);
+      }
+      const key = `imports.templateFields.${header}`;
+      const translated = this.languageService.t(key);
+      return translated === key ? this.humanizeCustomHeader(header) : translated;
+    });
+  }
+
+  private isReadableHeaderRow(row: string[]): boolean {
+    if (row.length !== this.effectiveHeaders().length) {
+      return false;
+    }
+    if (row.join('|') === this.readableHeaders().join('|')) {
+      return true;
+    }
+
+    // Templates may be prepared in one supported language and imported while the other is active.
+    const firstCell = row[0]?.trim().toLocaleLowerCase();
+    const secondCell = row[1]?.trim().toLocaleLowerCase();
+    return (firstCell === 'student id' && secondCell === 'student name') ||
+      (firstCell === 'mã học sinh' && secondCell === 'tên học sinh');
+  }
+
+  private humanizeCustomHeader(value: string): string {
+    const words = value
+      .replace(/[_-]+/g, ' ')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return words ? words[0].toLocaleUpperCase() + words.slice(1) : value;
   }
 }

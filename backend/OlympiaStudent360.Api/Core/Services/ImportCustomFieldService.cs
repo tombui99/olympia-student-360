@@ -11,7 +11,7 @@ namespace OlympiaStudent360.Api.Core.Services;
 public static class ImportCustomFieldService
 {
     public static readonly IReadOnlyList<string> Modules =
-        ["student-behaviours", "student-projects", "student-mental-health", "student-bus-attendance"];
+        ["student-behaviours", "student-projects", "student-mental-health", "student-bus-attendance", "student-health-visits"];
 
     public static readonly IReadOnlyList<string> FieldTypes =
         ["text", "textarea", "number", "date", "select", "checkbox"];

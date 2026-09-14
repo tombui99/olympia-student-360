@@ -33,7 +33,7 @@ public class ImportsController : ControllerBase
         for (var index = 0; index < model.Rows.Count; index++)
         {
             var row = model.Rows[index];
-            var rowNumber = index + 2;
+            var rowNumber = index + model.DataStartRow;
             if (!TryGetStudent(students, row.StudentId, row.StudentName, rowNumber, errors, out var student))
             {
                 continue;
@@ -85,7 +85,7 @@ public class ImportsController : ControllerBase
         for (var index = 0; index < model.Rows.Count; index++)
         {
             var row = model.Rows[index];
-            var rowNumber = index + 2;
+            var rowNumber = index + model.DataStartRow;
             if (!TryGetStudent(students, row.StudentId, row.StudentName, rowNumber, errors, out var student))
             {
                 continue;
@@ -150,7 +150,7 @@ public class ImportsController : ControllerBase
         for (var index = 0; index < model.Rows.Count; index++)
         {
             var row = model.Rows[index];
-            var rowNumber = index + 2;
+            var rowNumber = index + model.DataStartRow;
             if (!TryGetStudent(students, row.StudentId, row.StudentName, rowNumber, errors, out var student))
             {
                 continue;
@@ -213,7 +213,7 @@ public class ImportsController : ControllerBase
         for (var index = 0; index < model.Rows.Count; index++)
         {
             var row = model.Rows[index];
-            var rowNumber = index + 2;
+            var rowNumber = index + model.DataStartRow;
             if (!TryGetStudent(students, row.StudentId, row.StudentName, rowNumber, errors, out var student))
             {
                 continue;
@@ -253,6 +253,60 @@ public class ImportsController : ControllerBase
         var history = await CreateExcelHistory("student-bus-attendance", model.FileName, records.Count);
         foreach (var record in records) record.ImportHistory = history;
         _context.StudentBusAttendanceRecords.AddRange(records);
+        _context.ImportHistories.Add(history);
+        await _context.SaveChangesAsync();
+        return Created($"/api/import-history/{history.Id}", ToDto(history));
+    }
+
+    [HttpPost("student-health-visits")]
+    public async Task<ActionResult<ImportHistoryDto>> ImportHealthVisits(
+        [FromBody] ExcelHealthVisitImportDto model)
+    {
+        var students = await VisibleStudents().ToDictionaryAsync(
+            student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
+        var customFields = await ModuleFields("student-health-visits");
+        var errors = new List<string>();
+        var records = new List<StudentHealthVisit>();
+
+        for (var index = 0; index < model.Rows.Count; index++)
+        {
+            var row = model.Rows[index];
+            var rowNumber = index + model.DataStartRow;
+            if (!TryGetStudent(students, row.StudentId, row.StudentName, rowNumber, errors, out var student))
+            {
+                continue;
+            }
+
+            var (customErrors, customJson) = ImportCustomFieldService.Build(
+                customFields, row.CustomFields, $"Row {rowNumber}: ");
+            errors.AddRange(customErrors);
+
+            records.Add(new StudentHealthVisit
+            {
+                StudentProfileId = student!.Id,
+                SISUserId = student.SISUserId,
+                ExamTime = DateTime.SpecifyKind(row.VisitDate!.Value, DateTimeKind.Utc),
+                FullName = student.FullName,
+                Gender = student.Gender,
+                ClassName = student.Homeroom,
+                Symptoms = row.Symptoms.Trim(),
+                Diagnosis = Clean(row.Diagnosis),
+                Classification = Clean(row.Classification),
+                Treatment = Clean(row.Treatment),
+                Medication = Clean(row.Medication),
+                ExaminedBy = Clean(row.ExaminedBy),
+                CustomFieldsJson = customJson
+            });
+        }
+
+        if (errors.Count > 0)
+        {
+            return BadRequest(new { Message = "No rows were imported. Correct every error and try again.", Errors = errors });
+        }
+
+        var history = await CreateExcelHistory("student-health-visits", model.FileName, records.Count);
+        foreach (var record in records) record.ImportHistory = history;
+        _context.StudentHealthVisits.AddRange(records);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
         return Created($"/api/import-history/{history.Id}", ToDto(history));

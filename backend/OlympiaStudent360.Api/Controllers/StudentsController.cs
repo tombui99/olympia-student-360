@@ -592,6 +592,46 @@ public class StudentsController : ControllerBase
         });
     }
 
+    [HttpPost("{studentId:int}/health-visits")]
+    public async Task<ActionResult<StudentHealthVisitDto>> CreateHealthVisit(
+        int studentId,
+        [FromBody] CreateStudentHealthVisitDto model)
+    {
+        var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
+        if (student == null)
+        {
+            return BadRequest(new { Message = "The selected student ID is invalid." });
+        }
+
+        var (customError, customJson) = await BuildCustomFields("student-health-visits", model.CustomFields);
+        if (customError != null) return customError;
+
+        var recordedByName = await CurrentUserDisplayName();
+        var visit = new StudentHealthVisit
+        {
+            StudentProfileId = student.Id,
+            SISUserId = student.SISUserId,
+            ExamTime = DateTime.SpecifyKind(model.VisitDate!.Value, DateTimeKind.Utc),
+            FullName = student.FullName,
+            Gender = student.Gender,
+            ClassName = student.Homeroom,
+            Symptoms = model.Symptoms.Trim(),
+            Diagnosis = Clean(model.Diagnosis),
+            Classification = Clean(model.Classification),
+            Treatment = Clean(model.Treatment),
+            Medication = Clean(model.Medication),
+            ExaminedBy = Clean(model.ExaminedBy),
+            CustomFieldsJson = customJson
+        };
+
+        var history = CreateManualImportHistory("student-health-visits", recordedByName);
+        visit.ImportHistory = history;
+        _context.StudentHealthVisits.Add(visit);
+        _context.ImportHistories.Add(history);
+        await _context.SaveChangesAsync();
+        return Created($"/api/students/{student.Id}", ToHealthVisitDto(visit));
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(int id, [FromQuery] string? academicYear)
     {
@@ -603,7 +643,7 @@ public class StudentsController : ControllerBase
             .Include(candidate => candidate.Parents)
             .Include(candidate => candidate.MentalHealthRecords)
             .Include(candidate => candidate.BusAttendanceRecords)
-            .Include(candidate => candidate.SISHealthVisits)
+            .Include(candidate => candidate.HealthVisits)
             .FirstOrDefaultAsync(candidate => candidate.Id == id);
 
         if (student == null)
@@ -727,10 +767,10 @@ public class StudentsController : ControllerBase
                 .OrderByDescending(record => record.AttendanceDate)
                 .Select(ToBusAttendanceDto)
                 .ToList(),
-            HealthVisits = FilterByAcademicYear(student.SISHealthVisits, hasYearFilter, academicYear,
+            HealthVisits = FilterByAcademicYear(student.HealthVisits, hasYearFilter, academicYear,
                     _ => null, visit => visit.ExamTime)
                 .OrderByDescending(visit => visit.ExamTime)
-                .Select(ToSISHealthVisitDto)
+                .Select(ToHealthVisitDto)
                 .ToList(),
             Canvas = await BuildCanvasSummary(student.Id,
                 hasYearFilter ? academicYear : null)
@@ -1268,10 +1308,10 @@ public class StudentsController : ControllerBase
         CustomFields = ImportCustomFieldService.Parse(record.CustomFieldsJson)
     };
 
-    private static SISHealthVisitDto ToSISHealthVisitDto(SISHealthVisit visit) => new()
+    private static StudentHealthVisitDto ToHealthVisitDto(StudentHealthVisit visit) => new()
     {
         Id = visit.Id,
-        StudentProfileId = visit.Student?.Id,
+        StudentProfileId = visit.StudentProfileId,
         SISUserId = visit.SISUserId,
         ExamTime = visit.ExamTime,
         FullName = visit.FullName,
@@ -1282,7 +1322,8 @@ public class StudentsController : ControllerBase
         Classification = visit.Classification,
         Treatment = visit.Treatment,
         Medication = visit.Medication,
-        ExaminedBy = visit.ExaminedBy
+        ExaminedBy = visit.ExaminedBy,
+        CustomFields = ImportCustomFieldService.Parse(visit.CustomFieldsJson)
     };
 
     private static StudentBusAttendanceRecordDto ToBusAttendanceDto(StudentBusAttendanceRecord record) => new()

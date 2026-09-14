@@ -23,17 +23,6 @@ export type ImportHistoryRecordResponse = {
   values: Record<string, string | null>;
 };
 
-export type SisRosterImportResult = {
-  importHistoryId: number;
-  studentsImported: number;
-  studentsAdded: number;
-  studentsUpdated: number;
-  studentsRemoved: number;
-  parentsImported: number;
-  canvasLinkedStudents: number;
-  canvasFactsRemoved: number;
-};
-
 export type ImportHistoryDetailResponse = ImportHistoryResponse & {
   records: ImportHistoryRecordResponse[];
 };
@@ -81,7 +70,13 @@ export class ImportHistoryService {
     return this.http.delete<void>(`${this.basePath}/api/import-history/${id}`);
   }
 
-  importExcel(moduleId: string, fileName: string, rows: Record<string, string>[], customFieldKeys: string[] = []) {
+  importExcel(
+    moduleId: string,
+    fileName: string,
+    rows: Record<string, string>[],
+    customFieldKeys: string[] = [],
+    dataStartRow = 2,
+  ) {
     const endpoint = moduleId;
     const customFieldsFor = (row: Record<string, string>): Record<string, string> =>
       Object.fromEntries(customFieldKeys.map((key) => [key, row[key] ?? '']));
@@ -113,7 +108,7 @@ export class ImportHistoryService {
           routeName: row['route_name'] || null,
           notes: row['notes'] || null,
           customFields: customFieldsFor(row),
-        })) : rows.map((row) => ({
+        })) : moduleId === 'student-mental-health' ? rows.map((row) => ({
           studentId: row['student_id'],
           studentName: row['student_name'],
           recordDate: row['record_date'],
@@ -122,20 +117,26 @@ export class ImportHistoryService {
           riskLevel: row['risk_level'],
           notes: row['notes'] || null,
           customFields: customFieldsFor(row),
+        })) : rows.map((row) => ({
+          studentId: row['student_id'],
+          studentName: row['student_name'],
+          visitDate: row['visit_date'],
+          symptoms: row['symptoms'],
+          diagnosis: row['diagnosis'] || null,
+          classification: row['classification'] || null,
+          treatment: row['treatment'] || null,
+          medication: row['medication'] || null,
+          examinedBy: row['examined_by'] || null,
+          customFields: customFieldsFor(row),
         }));
 
     return this.http
       .post<ImportHistoryResponse>(`${this.basePath}/api/imports/${endpoint}`, {
         fileName,
+        dataStartRow,
         rows: mappedRows,
       })
       .pipe(map((record) => this.toRecord(record)));
-  }
-
-  importSisRoster(files: File[]) {
-    const form = new FormData();
-    files.forEach((file) => form.append('files', file, file.name));
-    return this.http.post<SisRosterImportResult>(`${this.basePath}/api/imports/sis-students`, form);
   }
 
   private toRecord(record: ImportHistoryResponse): ImportRecord {

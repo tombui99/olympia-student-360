@@ -1512,76 +1512,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("ImportModuleFields");
                 });
 
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISHealthVisit", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<string>("ClassName")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("Classification")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Diagnosis")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
-
-                    b.Property<DateTime>("ExamTime")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("ExaminedBy")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("FullName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("Gender")
-                        .HasMaxLength(20)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<string>("Medication")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<string>("SISUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<int?>("StudentProfileId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Symptoms")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
-
-                    b.Property<string>("Treatment")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExamTime");
-
-                    b.HasIndex("SISUserId");
-
-                    b.HasIndex("StudentProfileId");
-
-                    b.ToTable("SISHealthVisits", (string)null);
-                });
-
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISStudentParent", b =>
                 {
                     b.Property<int>("Id")
@@ -1832,6 +1762,84 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("StudentClassificationSettings");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentHealthVisit", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("ClassName")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Classification")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CustomFieldsJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Diagnosis")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<DateTime>("ExamTime")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ExaminedBy")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Gender")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int?>("ImportHistoryId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Medication")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("SISUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Symptoms")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("Treatment")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExamTime");
+
+                    b.HasIndex("ImportHistoryId");
+
+                    b.HasIndex("SISUserId");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.ToTable("StudentHealthVisits", (string)null);
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentMentalHealthRecord", b =>
@@ -2331,16 +2339,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
-            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISHealthVisit", b =>
-                {
-                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
-                        .WithMany("SISHealthVisits")
-                        .HasForeignKey("StudentProfileId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Student");
-                });
-
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISStudentParent", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
@@ -2382,6 +2380,23 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasForeignKey("StudentProfileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ImportHistory");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentHealthVisit", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ImportHistory", "ImportHistory")
+                        .WithMany("HealthVisits")
+                        .HasForeignKey("ImportHistoryId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany("HealthVisits")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("ImportHistory");
 
@@ -2477,6 +2492,8 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.Navigation("BusAttendanceRecords");
 
+                    b.Navigation("HealthVisits");
+
                     b.Navigation("MentalHealthRecords");
 
                     b.Navigation("Projects");
@@ -2488,13 +2505,13 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.Navigation("BusAttendanceRecords");
 
+                    b.Navigation("HealthVisits");
+
                     b.Navigation("MentalHealthRecords");
 
                     b.Navigation("Parents");
 
                     b.Navigation("Projects");
-
-                    b.Navigation("SISHealthVisits");
                 });
 #pragma warning restore 612, 618
         }

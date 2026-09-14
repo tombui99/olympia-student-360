@@ -378,13 +378,22 @@ export class MainLayoutComponent {
       items: [
         { path: '/students', labelKey: 'nav.students', icon: faUserGraduate },
         { path: '/transcripts', labelKey: 'nav.transcripts', icon: faFileLines },
-        { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical },
         { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation },
         { path: '/commendations', labelKey: 'nav.commendations', icon: faAward },
       ],
     },
     {
       titleKey: 'navSection.data',
+      items: [
+        { path: '/behaviours', labelKey: 'nav.behaviours', icon: faAward },
+        { path: '/projects', labelKey: 'nav.projects', icon: faClipboardList },
+        { path: '/bus-attendance', labelKey: 'nav.busAttendance', icon: faTableColumns },
+        { path: '/mental-health', labelKey: 'nav.mentalHealth', icon: faKitMedical },
+        { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical },
+      ],
+    },
+    {
+      titleKey: 'navSection.tools',
       items: [
         { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
         { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },

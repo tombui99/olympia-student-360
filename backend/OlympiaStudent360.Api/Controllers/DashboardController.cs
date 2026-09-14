@@ -176,8 +176,8 @@ public class DashboardController : ControllerBase
                 .Concat(_context.StudentProjects.Select(item => item.StudentProfileId))
                 .Concat(_context.StudentMentalHealthRecords.Select(item => item.StudentProfileId))
                 .Concat(_context.StudentBusAttendanceRecords.Select(item => item.StudentProfileId))
-                .Concat(_context.SISHealthVisits.Where(item => item.SISUserId != null)
-                    .Select(item => item.Student!.Id))
+                .Concat(_context.StudentHealthVisits.Where(item => item.StudentProfileId != null)
+                    .Select(item => item.StudentProfileId!.Value))
                 .Concat(_context.DashboardMetricObservations
                     .Where(item => item.StudentProfileId != null).Select(item => item.StudentProfileId!.Value))
                 .Distinct()
@@ -424,8 +424,8 @@ public class DashboardController : ControllerBase
                 .ToListAsync();
         var healthVisitPeriods = canvasOnly
             ? []
-            : await _context.SISHealthVisits.AsNoTracking()
-                .Where(item => item.SISUserId != null)
+            : await _context.StudentHealthVisits.AsNoTracking()
+                .Where(item => item.StudentProfileId != null)
                 .Select(item => new { Year = item.ExamTime.Year, Month = item.ExamTime.Month })
                 .Distinct()
                 .ToListAsync();
@@ -868,8 +868,8 @@ public class DashboardController : ControllerBase
             {
                 return Ok(EmptyDrilldown(metricId));
             }
-            var query = FilterSISHealthVisits(campus, level, grade, homeroom, program, null)
-                .Where(item => item.SISUserId != null && (studentId == null || item.Student!.Id == studentId));
+            var query = FilterStudentHealthVisits(campus, level, grade, homeroom, program, null)
+                .Where(item => item.StudentProfileId != null && (studentId == null || item.StudentProfileId == studentId));
             if ((hasYear || hasTerm) && selectedPeriod.HasValue)
                 query = query.Where(item => item.ExamTime >= selectedPeriod.Value.Start &&
                     item.ExamTime < selectedPeriod.Value.End);
@@ -1258,10 +1258,10 @@ public class DashboardController : ControllerBase
         return query;
     }
 
-    private IQueryable<SISHealthVisit> FilterSISHealthVisits(
+    private IQueryable<StudentHealthVisit> FilterStudentHealthVisits(
         string? campus, string? level, string? grade, string? homeroom, string? program, string? year)
     {
-        var query = _context.SISHealthVisits.AsNoTracking().Where(item => item.SISUserId != null);
+        var query = _context.StudentHealthVisits.AsNoTracking().Where(item => item.StudentProfileId != null);
         if (HasFilter(campus)) query = query.Where(item => item.Student!.Campus == campus);
         if (HasFilter(level)) query = query.Where(item => item.Student!.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item =>
@@ -1385,7 +1385,7 @@ public class DashboardController : ControllerBase
         var behaviours = _context.StudentBehaviours.AsNoTracking().AsQueryable();
         var projects = _context.StudentProjects.AsNoTracking().AsQueryable();
         var mentalHealth = _context.StudentMentalHealthRecords.AsNoTracking().AsQueryable();
-        var healthVisits = _context.SISHealthVisits.AsNoTracking().Where(item => item.SISUserId != null);
+        var healthVisits = _context.StudentHealthVisits.AsNoTracking().Where(item => item.StudentProfileId != null);
         var busRecords = _context.StudentBusAttendanceRecords.AsNoTracking().AsQueryable();
 
         if (studentId.HasValue)
@@ -1569,7 +1569,7 @@ public class DashboardController : ControllerBase
             CountMetric("high-risk-mental-health", "High-risk mental health records", "Safety", "StudentMentalHealth",
                 mentalHealthRows.Where(item => string.Equals(item.RiskLevel, "High", StringComparison.OrdinalIgnoreCase))
                     .Select(item => item.Date)),
-            CountMetric("health-visit-records", "Health office visits", "Safety", "SISHealthVisits",
+            CountMetric("health-visit-records", "Health office visits", "Safety", "StudentHealthVisits",
                 healthVisitRows.Select(item => item.Date)),
             CountMetric("bus-late-records", "Late bus check-ins", "Safety", "StudentBusAttendance",
                 busRows.Where(item => item.ViolationType == "Late").Select(item => item.Date)),
@@ -1594,7 +1594,7 @@ public class DashboardController : ControllerBase
         CatalogMetric("active-project-records", "Active student projects", "Achievement", "StudentProjects", "records"),
         CatalogMetric("mental-health-records", "Mental health records", "Safety", "StudentMentalHealth", "records"),
         CatalogMetric("high-risk-mental-health", "High-risk mental health records", "Safety", "StudentMentalHealth", "records"),
-        CatalogMetric("health-visit-records", "Health office visits", "Safety", "SISHealthVisits", "records"),
+        CatalogMetric("health-visit-records", "Health office visits", "Safety", "StudentHealthVisits", "records"),
         CatalogMetric("bus-late-records", "Late bus check-ins", "Safety", "StudentBusAttendance", "records"),
         CatalogMetric("bus-seatbelt-violations", "Bus seatbelt violations", "Safety", "StudentBusAttendance", "records"),
         CatalogMetric("bus-late-to-school", "Late morning bus check-ins", "Safety", "StudentBusAttendance", "records"),

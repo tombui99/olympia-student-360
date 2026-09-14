@@ -170,13 +170,11 @@ StudentProfile.SISUserId == normalized school email username (for example, an.le
 StudentProfile.SISStudentCode == authoritative SIS code (for example, OS...)
 ```
 
-The manually uploaded SIS roster is the source of truth for active students, permanent student
-codes, official names, demographics, homerooms, and parent details. Canvas remains the source of
-truth for courses, enrollments, grades, assignments, and submissions. The SIS email username links
-the two sources; Canvas values containing the full school email are normalized to the same username.
-Daily Canvas jobs do not create missing profiles, so former students removed by a later SIS roster
-cannot be recreated. A separate `CanvasGradeLevel` fallback is derived only from structured Canvas
-grade-account membership; the official SIS `GradeLevel` takes precedence.
+SIS-backed student codes, official names, demographics, homerooms, and parent details remain
+separate from Canvas-owned courses, enrollments, grades, assignments, and submissions. The SIS
+email username links the two sources; Canvas values containing the full school email are normalized
+to the same username. A separate `CanvasGradeLevel` fallback is derived only from structured Canvas
+grade-account membership; an available official SIS `GradeLevel` takes precedence.
 
 The ETL uses these Canvas API operations (all responses are paginated):
 
@@ -259,7 +257,7 @@ completed courses. Canvas warehouse tables preserve Canvas accounts, users, cour
 enrollments, grades, assignments, and submissions separately from SIS-owned student demographics.
 There is no manual course mapping file. A Canvas grade fallback is derived
 only from the structured Canvas grade-account hierarchy and never by parsing a course title; an
-official SIS grade takes precedence when SIS is imported. See `docs/canvas-etl-simple-guide.md` for the exact
+official SIS grade takes precedence when present. See `docs/canvas-etl-simple-guide.md` for the exact
 field-by-field contract and `docs/canvas-etl-dotnet-guide.md` for the .NET runtime, watermark,
 retry, transaction, and GitHub Actions flow.
 
@@ -273,47 +271,6 @@ The automatic App Runner fallback uses the existing `AWS_DEPLOY_ROLE_ARN` secret
 backend deployment workflow.
 Do not route a complete import through App Runner's HTTP endpoint: the import can take several
 minutes and must outlive an HTTP request.
-
-## SIS Active Student Roster
-
-Administrators can upload one or more original `.xlsx` exports from **Data imports → SIS active students**.
-The importer validates the whole workbook before changing data. `code` is the permanent unique
-student identifier; the username part of `email` links the row to Canvas. Blank `status` values in
-an otherwise valid active-roster export are stored as `Đang học`.
-
-Each successful upload atomically updates or creates the workbook's students, replaces their parent
-details, and relinks retained Canvas facts. A partial export such as THCS Grades 5–8 or THPT Grades
-9–12 replaces only those grade levels and preserves the other school level. Uploading both exports
-together replaces the complete Grades 5–12 roster and removes profiles and Canvas facts for anyone
-absent from both workbooks. Take a database backup before importing a new school roster.
-
-The same parser can update local MySQL and generate an idempotent MySQL Workbench script for RDS:
-
-```bash
-dotnet run --project backend/OlympiaStudent360.SisImport -- \
-  --file "/path/to/sis-students-thcs.xlsx" \
-  --file "/path/to/sis-students-thpt.xlsx" \
-  --import-local \
-  --sql-output "/path/to/OlympiaStudent360-SIS-roster-import.sql"
-```
-
-Deploy the application migration before running the generated RDS script. The script disables safe
-updates only for its session, runs the roster replacement in a transaction, restores the original
-safe-update setting, and ends with count and orphan checks.
-
-After a verified local Canvas reconciliation, export the Canvas-owned warehouse tables for the
-same students with:
-
-```bash
-backend/sql/export-local-student-canvas-for-rds.sh \
-  "/path/to/OlympiaStudent360-Canvas-Grades-5-12-import.sql"
-```
-
-For the first production load, deploy migrations first, run the combined SIS roster script second,
-and run the generated Canvas warehouse script last. The Canvas script keeps RDS application-owned
-records, replaces only Canvas warehouse tables from local MySQL, and relinks their student foreign
-keys to the RDS `StudentProfiles` ids. Both generated files contain private student data and must not
-be committed to Git.
 
 ## Run With Local MySQL
 

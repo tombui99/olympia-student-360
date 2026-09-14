@@ -15,7 +15,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<SISStudentParent> SISStudentParents { get; set; }
     public DbSet<StudentMentalHealthRecord> StudentMentalHealthRecords { get; set; }
-    public DbSet<SISHealthVisit> SISHealthVisits { get; set; }
+    public DbSet<StudentHealthVisit> StudentHealthVisits { get; set; }
     public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
     public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<ImportModuleField> ImportModuleFields { get; set; }
@@ -244,9 +244,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<SISHealthVisit>(visit =>
+        modelBuilder.Entity<StudentHealthVisit>(visit =>
         {
-            visit.ToTable("SISHealthVisits");
+            visit.ToTable("StudentHealthVisits");
             visit.Property(v => v.FullName).HasMaxLength(255);
             visit.Property(v => v.Gender).HasMaxLength(20);
             visit.Property(v => v.ClassName).HasMaxLength(50);
@@ -259,11 +259,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             visit.Property(v => v.SISUserId).HasMaxLength(100);
             visit.HasIndex(v => v.SISUserId);
             visit.HasIndex(v => v.StudentProfileId);
+            visit.HasIndex(v => v.ImportHistoryId);
             visit.HasIndex(v => v.ExamTime);
             visit.HasOne(v => v.Student)
-                .WithMany(s => s.SISHealthVisits)
+                .WithMany(s => s.HealthVisits)
                 .HasForeignKey(v => v.StudentProfileId)
                 .OnDelete(DeleteBehavior.SetNull);
+            visit.HasOne(v => v.ImportHistory)
+                .WithMany(h => h.HealthVisits)
+                .HasForeignKey(v => v.ImportHistoryId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StudentBusAttendanceRecord>(record =>

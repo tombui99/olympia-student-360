@@ -94,8 +94,6 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddHttpClient<GeminiService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
-builder.Services.AddScoped<SisRosterWorkbookReader>();
-builder.Services.AddScoped<SisRosterImportService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

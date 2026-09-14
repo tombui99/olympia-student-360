@@ -159,7 +159,9 @@ export class ImportHistoryDetailSheetComponent implements OnChanges {
   }
 
   isDateField(key: string): boolean { return key.endsWith('_date'); }
-  isLongField(key: string): boolean { return key === 'notes' || key === 'teacher_notes'; }
+  isLongField(key: string): boolean {
+    return ['notes', 'teacher_notes', 'symptoms', 'diagnosis', 'treatment'].includes(key);
+  }
   rowBusy(id: number): boolean { return this.busyRows().has(id); }
   trackRecord(_: number, record: ImportHistoryRecordResponse): number { return record.id; }
 

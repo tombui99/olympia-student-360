@@ -85,3 +85,15 @@ public class CreateStudentBusAttendanceRecordDto
     [MaxLength(50)] public string? Term { get; set; }
     public Dictionary<string, string?>? CustomFields { get; set; }
 }
+
+public class CreateStudentHealthVisitDto
+{
+    [Required] public DateTime? VisitDate { get; set; }
+    [Required, MaxLength(1000)] public string Symptoms { get; set; } = default!;
+    [MaxLength(1000)] public string? Diagnosis { get; set; }
+    [MaxLength(100)] public string? Classification { get; set; }
+    [MaxLength(1000)] public string? Treatment { get; set; }
+    [MaxLength(500)] public string? Medication { get; set; }
+    [MaxLength(255)] public string? ExaminedBy { get; set; }
+    public Dictionary<string, string?>? CustomFields { get; set; }
+}

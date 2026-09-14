@@ -131,7 +131,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
         if (studentId != null)
         {
             selectedStudent = await VisibleStudents()
-                .Include(student => student.SISHealthVisits)
+                .Include(student => student.HealthVisits)
                 .FirstOrDefaultAsync(student => student.Id == studentId.Value);
             if (selectedStudent == null)
                 return NotFound(new { Message = "Student was not found." });
@@ -286,7 +286,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
             GradeLevel = selectedStudent?.GradeLevel ?? selectedStudent?.CanvasGradeLevel ??
                 years.LastOrDefault()?.Grades.LastOrDefault()?.GradeLevel,
             Homeroom = selectedStudent?.Homeroom,
-            Gender = selectedStudent?.Gender ?? selectedStudent?.SISHealthVisits
+            Gender = selectedStudent?.Gender ?? selectedStudent?.HealthVisits
                 .Where(visit => !string.IsNullOrWhiteSpace(visit.Gender))
                 .OrderByDescending(visit => visit.ExamTime)
                 .Select(visit => visit.Gender)

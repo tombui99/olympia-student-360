@@ -147,8 +147,8 @@ export interface StudentBusAttendanceRecord {
   customFields?: Record<string, string>;
 }
 
-/** Health/injury clinic visit synced from SIS (read-only). */
-export interface SISHealthVisit {
+/** Health/injury clinic visit maintained by school staff. */
+export interface StudentHealthVisit {
   id: number;
   examTime: string;
   fullName: string;
@@ -160,6 +160,7 @@ export interface SISHealthVisit {
   treatment?: string | null;
   medication?: string | null;
   examinedBy?: string | null;
+  customFields: Record<string, string>;
 }
 
 export interface StudentParent {
@@ -280,7 +281,7 @@ export interface StudentProfileDetail {
   projects: StudentProject[];
   mentalHealthRecords: StudentMentalHealthRecord[];
   busAttendanceRecords: StudentBusAttendanceRecord[];
-  healthVisits: SISHealthVisit[];
+  healthVisits: StudentHealthVisit[];
   parents: StudentParent[];
   canvas: StudentCanvas;
 }

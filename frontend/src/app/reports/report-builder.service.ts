@@ -46,7 +46,7 @@ export function groupMetricVariables(metrics: MetricVariable[]): MetricVariableG
     'StudentBehaviours',
     'StudentProjects',
     'StudentMentalHealth',
-    'SISHealthVisits',
+    'StudentHealthVisits',
     'StudentBusAttendance',
     'SIS',
     'BaseERP',

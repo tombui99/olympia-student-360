@@ -56,6 +56,17 @@ export interface CreateBusAttendanceRequest {
   customFields?: Record<string, string>;
 }
 
+export interface CreateHealthVisitRequest {
+  visitDate: string;
+  symptoms: string;
+  diagnosis?: string | null;
+  classification?: string | null;
+  treatment?: string | null;
+  medication?: string | null;
+  examinedBy?: string | null;
+  customFields?: Record<string, string>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ManualEntryService {
   private readonly http = inject(HttpClient);
@@ -85,5 +96,9 @@ export class ManualEntryService {
 
   createBusAttendance(studentId: number, request: CreateBusAttendanceRequest) {
     return this.http.post(`${this.basePath}/api/students/${studentId}/bus-attendance`, request);
+  }
+
+  createHealthVisit(studentId: number, request: CreateHealthVisitRequest) {
+    return this.http.post(`${this.basePath}/api/students/${studentId}/health-visits`, request);
   }
 }

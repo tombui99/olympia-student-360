@@ -122,7 +122,7 @@ public class StudentProfileDetailDto
     public List<StudentParentDto> Parents { get; set; } = [];
     public List<StudentMentalHealthRecordDto> MentalHealthRecords { get; set; } = [];
     public List<StudentBusAttendanceRecordDto> BusAttendanceRecords { get; set; } = [];
-    public List<SISHealthVisitDto> HealthVisits { get; set; } = [];
+    public List<StudentHealthVisitDto> HealthVisits { get; set; } = [];
     public StudentCanvasDto Canvas { get; set; } = new();
 }
 
@@ -235,8 +235,8 @@ public class StudentMentalHealthRecordDto
     public Dictionary<string, string> CustomFields { get; set; } = [];
 }
 
-/// <summary>Health/injury clinic visit synced from SIS (read-only).</summary>
-public class SISHealthVisitDto
+/// <summary>Health/injury clinic visit maintained by school staff.</summary>
+public class StudentHealthVisitDto
 {
     public int Id { get; set; }
     public int? StudentProfileId { get; set; }
@@ -251,17 +251,7 @@ public class SISHealthVisitDto
     public string? Treatment { get; set; }
     public string? Medication { get; set; }
     public string? ExaminedBy { get; set; }
-}
-
-public class SISHealthVisitsPageDto
-{
-    public List<SISHealthVisitDto> Items { get; set; } = [];
-    public int Page { get; set; }
-    public int PageSize { get; set; }
-    public int TotalCount { get; set; }
-    public int TotalPages { get; set; }
-    public List<string> AvailableClasses { get; set; } = [];
-    public List<string> AvailableClassifications { get; set; } = [];
+    public Dictionary<string, string> CustomFields { get; set; } = [];
 }
 
 public class StudentBusAttendanceRecordDto

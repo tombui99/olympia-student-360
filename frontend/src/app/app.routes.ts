@@ -67,8 +67,28 @@ export const routes: Routes = [
       },
       {
         path: 'health-visits',
-        loadComponent: () =>
-          import('./health-visits/health-visits.component').then((m) => m.HealthVisitsComponent),
+        loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
+        data: { moduleId: 'student-health-visits' },
+      },
+      {
+        path: 'behaviours',
+        loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
+        data: { moduleId: 'student-behaviours' },
+      },
+      {
+        path: 'projects',
+        loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
+        data: { moduleId: 'student-projects' },
+      },
+      {
+        path: 'bus-attendance',
+        loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
+        data: { moduleId: 'student-bus-attendance' },
+      },
+      {
+        path: 'mental-health',
+        loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
+        data: { moduleId: 'student-mental-health' },
       },
       {
         path: 'students/:studentId',

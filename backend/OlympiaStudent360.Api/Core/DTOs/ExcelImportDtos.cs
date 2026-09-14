@@ -7,6 +7,9 @@ public class ExcelBehaviourImportDto
     [Required, MaxLength(255)]
     public string FileName { get; set; } = default!;
 
+    [Range(2, 3)]
+    public int DataStartRow { get; set; } = 2;
+
     [Required, MinLength(1)]
     public List<ExcelBehaviourRowDto> Rows { get; set; } = [];
 }
@@ -39,6 +42,9 @@ public class ExcelProjectImportDto
 {
     [Required, MaxLength(255)]
     public string FileName { get; set; } = default!;
+
+    [Range(2, 3)]
+    public int DataStartRow { get; set; } = 2;
 
     [Required, MinLength(1)]
     public List<ExcelProjectRowDto> Rows { get; set; } = [];
@@ -76,6 +82,9 @@ public class ExcelMentalHealthImportDto
     [Required, MaxLength(255)]
     public string FileName { get; set; } = default!;
 
+    [Range(2, 3)]
+    public int DataStartRow { get; set; } = 2;
+
     [Required, MinLength(1)]
     public List<ExcelMentalHealthRowDto> Rows { get; set; } = [];
 }
@@ -95,6 +104,7 @@ public class ExcelMentalHealthRowDto
 public class ExcelBusAttendanceImportDto
 {
     [Required, MaxLength(255)] public string FileName { get; set; } = default!;
+    [Range(2, 3)] public int DataStartRow { get; set; } = 2;
     [Required, MinLength(1)] public List<ExcelBusAttendanceRowDto> Rows { get; set; } = [];
 }
 
@@ -110,5 +120,26 @@ public class ExcelBusAttendanceRowDto
     [MaxLength(1000)] public string? Notes { get; set; }
     [MaxLength(20)] public string? AcademicYear { get; set; }
     [MaxLength(50)] public string? Term { get; set; }
+    public Dictionary<string, string?>? CustomFields { get; set; }
+}
+
+public class ExcelHealthVisitImportDto
+{
+    [Required, MaxLength(255)] public string FileName { get; set; } = default!;
+    [Range(2, 3)] public int DataStartRow { get; set; } = 2;
+    [Required, MinLength(1)] public List<ExcelHealthVisitRowDto> Rows { get; set; } = [];
+}
+
+public class ExcelHealthVisitRowDto
+{
+    [Required, MaxLength(100)] public string StudentId { get; set; } = default!;
+    [Required, MaxLength(255)] public string StudentName { get; set; } = default!;
+    [Required] public DateTime? VisitDate { get; set; }
+    [Required, MaxLength(1000)] public string Symptoms { get; set; } = default!;
+    [MaxLength(1000)] public string? Diagnosis { get; set; }
+    [MaxLength(100)] public string? Classification { get; set; }
+    [MaxLength(1000)] public string? Treatment { get; set; }
+    [MaxLength(500)] public string? Medication { get; set; }
+    [MaxLength(255)] public string? ExaminedBy { get; set; }
     public Dictionary<string, string?>? CustomFields { get; set; }
 }
