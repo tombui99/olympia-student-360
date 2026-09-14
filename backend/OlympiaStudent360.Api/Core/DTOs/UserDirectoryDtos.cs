@@ -6,4 +6,5 @@ public class UserDirectoryDto
     public string Username { get; set; } = default!;
     public string? Email { get; set; }
     public string FullName { get; set; } = default!;
+    public string? Role { get; set; }
 }

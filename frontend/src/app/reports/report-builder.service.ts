@@ -187,6 +187,7 @@ export interface SystemUser {
   username: string;
   email?: string | null;
   fullName: string;
+  role?: string | null;
 }
 
 export interface WorkspaceAiReportRequest {

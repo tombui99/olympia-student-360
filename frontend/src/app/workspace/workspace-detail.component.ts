@@ -37,6 +37,7 @@ import {
   WorkspaceFilterSet,
 } from './workspace-filters.service';
 import { SearchableFilterComponent } from './searchable-filter.component';
+import { WorkspaceSharePickerComponent } from './workspace-share-picker.component';
 
 type WorkspaceSheetMode = 'edit';
 type SheetKind = 'workspace' | 'chart';
@@ -94,6 +95,7 @@ type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
     NgxEchartsDirective,
     RouterLink,
     SearchableFilterComponent,
+    WorkspaceSharePickerComponent,
   ],
   template: `
     <section class="space-y-7">
@@ -637,40 +639,12 @@ type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
                     {{ languageService.t('workspace.shareWithSelectedUsers') }}
                   </p>
 
-                  <div class="relative mt-4">
-                    <button
-                      class="flex w-full items-center justify-between rounded-md border border-[#d8d0df] bg-white px-4 py-3 text-left text-sm text-[#32124f]"
-                      type="button"
-                      (click)="shareDropdownOpen.set(!shareDropdownOpen())"
-                    >
-                      <span>{{ selectedShareLabel() }}</span>
-                      <span>v</span>
-                    </button>
-                    <div
-                      *ngIf="shareDropdownOpen()"
-                      class="absolute left-0 right-0 z-10 mt-2 max-h-64 overflow-y-auto rounded-md border border-[#d8d0df] bg-white p-2 shadow-[0_16px_40px_rgba(50,18,79,0.16)]"
-                    >
-                      <label
-                        *ngFor="let user of systemUsers()"
-                        class="flex cursor-pointer items-start gap-3 rounded px-3 py-2 text-sm transition hover:bg-[#faf9f6]"
-                      >
-                        <input
-                          class="mt-1"
-                          type="checkbox"
-                          [checked]="workspaceDraft.sharedWith.includes(user.username)"
-                          (change)="toggleShareUser(user.username)"
-                        />
-                        <span>
-                          <span class="block font-semibold text-[#32124f]">{{
-                            user.fullName
-                          }}</span>
-                          <span class="block text-xs text-[#7c7284]"
-                            >{{ user.username }}{{ user.email ? ' · ' + user.email : '' }}</span
-                          >
-                        </span>
-                      </label>
-                    </div>
-                  </div>
+                  <app-workspace-share-picker
+                    class="mt-4 block"
+                    [users]="systemUsers()"
+                    [selectedUsernames]="workspaceDraft.sharedWith"
+                    (selectedUsernamesChange)="workspaceDraft.sharedWith = $event"
+                  />
                 </div>
               </div>
 
@@ -1426,7 +1400,6 @@ export class WorkspaceDetailComponent implements OnInit {
   readonly sheetOpen = signal(false);
   readonly sheetKind = signal<SheetKind>('workspace');
   readonly workspaceSheetMode = signal<WorkspaceSheetMode>('edit');
-  readonly shareDropdownOpen = signal(false);
   readonly metricVariables = this.reportBuilderService.metricVariables;
   readonly workspaceLoading = signal(true);
   private renderCycle = 0;
@@ -2108,16 +2081,6 @@ export class WorkspaceDetailComponent implements OnInit {
     this.router.navigate(['/workspace']);
   }
 
-  toggleShareUser(username: string) {
-    const selected = new Set(this.workspaceDraft.sharedWith);
-    if (selected.has(username)) {
-      selected.delete(username);
-    } else {
-      selected.add(username);
-    }
-    this.workspaceDraft.sharedWith = [...selected];
-  }
-
   toggleChartMetric(metricId: string) {
     const selected = new Set(this.chartDraft.metrics);
     if (selected.has(metricId)) {
@@ -2126,18 +2089,6 @@ export class WorkspaceDetailComponent implements OnInit {
       selected.add(metricId);
     }
     this.chartDraft.metrics = [...selected];
-  }
-
-  selectedShareLabel(): string {
-    if (!this.workspaceDraft.sharedWith.length) {
-      return this.languageService.t('workspace.selectUsers');
-    }
-    return this.workspaceDraft.sharedWith
-      .map(
-        (username) =>
-          this.systemUsers().find((user) => user.username === username)?.fullName ?? username,
-      )
-      .join(', ');
   }
 
   isSelectedOwner(): boolean {
@@ -2156,7 +2107,6 @@ export class WorkspaceDetailComponent implements OnInit {
 
   closeSheet() {
     this.sheetOpen.set(false);
-    this.shareDropdownOpen.set(false);
     this.sheetUnmountTimer = window.setTimeout(() => {
       this.sheetMounted.set(false);
       this.sheetUnmountTimer = null;

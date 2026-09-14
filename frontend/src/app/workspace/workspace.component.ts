@@ -15,6 +15,7 @@ import {
   ReportBuilderService,
   SystemUser,
 } from '../reports/report-builder.service';
+import { WorkspaceSharePickerComponent } from './workspace-share-picker.component';
 
 type WorkspaceSection = 'mine' | 'shared';
 type WorkspaceSheetMode = 'create' | 'edit';
@@ -48,7 +49,7 @@ interface WorkspaceTemplate {
 
 @Component({
   selector: 'app-workspace',
-  imports: [FormsModule, NgFor, NgIf, RouterLink],
+  imports: [FormsModule, NgFor, NgIf, RouterLink, WorkspaceSharePickerComponent],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-end justify-between gap-4">
@@ -200,16 +201,39 @@ interface WorkspaceTemplate {
                     {{ languageService.t('workspace.owner') }}: {{ report.owner }}
                   </p>
                 </a>
-                <div *ngIf="isOwner(report)" class="mt-4 flex justify-end gap-2 border-t border-[#ebe6ef] pt-3">
+                <div *ngIf="isOwner(report)" class="mt-4 flex flex-wrap justify-end gap-2 border-t border-[#ebe6ef] pt-3">
                   <button
-                    class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+                    class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-[#32124f] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#4a1b73]"
+                    type="button"
+                    (click)="startShareWorkspace(report)"
+                  >
+                    <svg
+                      class="h-3.5 w-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="18" cy="5" r="3"></circle>
+                      <circle cx="6" cy="12" r="3"></circle>
+                      <circle cx="18" cy="19" r="3"></circle>
+                      <path d="m8.6 10.5 6.8-4"></path>
+                      <path d="m8.6 13.5 6.8 4"></path>
+                    </svg>
+                    {{ languageService.t('workspace.share') }}
+                  </button>
+                  <button
+                    class="shrink-0 whitespace-nowrap rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
                     type="button"
                     (click)="startEditWorkspace(report)"
                   >
                     {{ languageService.t('workspace.manageWorkspace') }}
                   </button>
                   <button
-                    class="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                    class="shrink-0 whitespace-nowrap rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                     type="button"
                     (click)="confirmDeleteReport(report)"
                   >
@@ -309,40 +333,12 @@ interface WorkspaceTemplate {
                     {{ languageService.t('workspace.shareWithSelectedUsers') }}
                   </p>
 
-                  <div class="relative mt-4">
-                    <button
-                      class="flex w-full items-center justify-between rounded-md border border-[#d8d0df] bg-white px-4 py-3 text-left text-sm text-[#32124f]"
-                      type="button"
-                      (click)="shareDropdownOpen.set(!shareDropdownOpen())"
-                    >
-                      <span>{{ selectedShareLabel() }}</span>
-                      <span>v</span>
-                    </button>
-
-                    <div
-                      *ngIf="shareDropdownOpen()"
-                      class="absolute left-0 right-0 z-10 mt-2 max-h-64 overflow-y-auto rounded-md border border-[#d8d0df] bg-white p-2 shadow-[0_16px_40px_rgba(50,18,79,0.16)]"
-                    >
-                      <label
-                        *ngFor="let user of systemUsers()"
-                        class="flex cursor-pointer items-start gap-3 rounded px-3 py-2 text-sm transition hover:bg-[#faf9f6]"
-                      >
-                        <input
-                          class="mt-1"
-                          type="checkbox"
-                          [checked]="workspaceDraft.sharedWith.includes(user.username)"
-                          (change)="toggleShareUser(user.username)"
-                        />
-                        <span>
-                          <span class="block font-semibold text-[#32124f]">{{ user.fullName }}</span>
-                          <span class="block text-xs text-[#7c7284]">{{ user.username }}{{ user.email ? ' · ' + user.email : '' }}</span>
-                        </span>
-                      </label>
-                      <p *ngIf="!systemUsers().length" class="px-3 py-2 text-sm text-[#6f6877]">
-                        {{ languageService.t('workspace.noUsersAvailable') }}
-                      </p>
-                    </div>
-                  </div>
+                  <app-workspace-share-picker
+                    class="mt-4 block"
+                    [users]="systemUsers()"
+                    [selectedUsernames]="workspaceDraft.sharedWith"
+                    (selectedUsernamesChange)="workspaceDraft.sharedWith = $event"
+                  />
                 </div>
               </div>
 
@@ -485,6 +481,73 @@ interface WorkspaceTemplate {
         </aside>
       </div>
 
+      <div *ngIf="shareModalMounted()" class="fixed inset-0 z-50" [class.pointer-events-none]="!shareModalOpen()">
+        <button
+          class="absolute inset-0 bg-[#24182f]/40 transition-opacity duration-200 ease-out"
+          [class.opacity-100]="shareModalOpen()"
+          [class.opacity-0]="!shareModalOpen()"
+          type="button"
+          [attr.aria-label]="languageService.t('workspace.closeUserSearch')"
+          (click)="closeShareModal()"
+        ></button>
+        <section
+          class="absolute left-1/2 top-1/2 flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-white shadow-[0_24px_80px_rgba(36,24,47,0.3)] transition duration-200 ease-out"
+          [class.scale-100]="shareModalOpen()"
+          [class.opacity-100]="shareModalOpen()"
+          [class.scale-95]="!shareModalOpen()"
+          [class.opacity-0]="!shareModalOpen()"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-workspace-title"
+        >
+          <div class="flex items-start justify-between gap-4 border-b border-[#ebe6ef] px-6 py-5">
+            <div>
+              <p class="text-sm uppercase tracking-[0.18em] text-[#8a6811]">{{ languageService.t('workspace.sharing') }}</p>
+              <h3 id="share-workspace-title" class="mt-2 text-xl font-semibold text-[#32124f]">
+                {{ languageService.t('workspace.shareWorkspace') }}
+              </h3>
+              <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('workspace.shareWorkspaceHint') }}</p>
+            </div>
+            <button
+              class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#d8d0df] text-lg font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+              type="button"
+              [attr.aria-label]="languageService.t('workspace.closeSheet')"
+              (click)="closeShareModal()"
+            >
+              ×
+            </button>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <p class="mb-4 rounded-md bg-[#faf9f6] px-4 py-3 text-sm font-semibold text-[#32124f]">
+              {{ pendingShareReport()?.title }}
+            </p>
+            <app-workspace-share-picker
+              [users]="systemUsers()"
+              [selectedUsernames]="shareDraftUsernames"
+              (selectedUsernamesChange)="shareDraftUsernames = $event"
+            />
+          </div>
+
+          <div class="flex justify-end gap-3 border-t border-[#ebe6ef] bg-[#faf9f6] px-6 py-4">
+            <button
+              class="rounded-md border border-[#d8d0df] px-5 py-3 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+              type="button"
+              (click)="closeShareModal()"
+            >
+              {{ languageService.t('workspace.cancel') }}
+            </button>
+            <button
+              class="rounded-md bg-[#32124f] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4a1b73]"
+              type="button"
+              (click)="saveWorkspaceSharing()"
+            >
+              {{ languageService.t('workspace.saveSharing') }}
+            </button>
+          </div>
+        </section>
+      </div>
+
       <div *ngIf="templateConfirmMounted()" class="fixed inset-0 z-50" [class.pointer-events-none]="!templateConfirmOpen()">
         <button
           class="absolute inset-0 bg-[#24182f]/35 transition-opacity duration-200 ease-out"
@@ -598,7 +661,9 @@ export class WorkspaceComponent implements OnInit {
   readonly sheetOpen = signal(false);
   readonly sheetKind = signal<SheetKind>('workspace');
   readonly workspaceSheetMode = signal<WorkspaceSheetMode>('create');
-  readonly shareDropdownOpen = signal(false);
+  readonly shareModalMounted = signal(false);
+  readonly shareModalOpen = signal(false);
+  readonly pendingShareReport = signal<CustomReport | null>(null);
   readonly selectedTemplateId = signal('');
   readonly templateDropdownOpen = signal(false);
   readonly templateConfirmMounted = signal(false);
@@ -691,6 +756,7 @@ export class WorkspaceComponent implements OnInit {
   ];
 
   workspaceDraft: WorkspaceDraft = this.emptyWorkspaceDraft();
+  shareDraftUsernames: string[] = [];
   chartDraft: ChartDraft = this.emptyChartDraft();
 
   readonly myReports = computed(() => this.customReports().filter((report) => report.owner === this.owner()));
@@ -812,6 +878,36 @@ export class WorkspaceComponent implements OnInit {
       sharedWith: report.sharedWith.filter((username) => this.systemUsers().some((user) => user.username === username)),
     };
     this.openSheet('workspace');
+  }
+
+  startShareWorkspace(report: CustomReport) {
+    if (!this.isOwner(report)) {
+      return;
+    }
+
+    this.pendingShareReport.set(report);
+    this.shareDraftUsernames = [...report.sharedWith];
+    this.shareModalMounted.set(true);
+    window.setTimeout(() => this.shareModalOpen.set(true));
+  }
+
+  saveWorkspaceSharing() {
+    const report = this.pendingShareReport();
+    if (!report || !this.isOwner(report)) {
+      return;
+    }
+
+    this.persistReport({ ...report, sharedWith: [...this.shareDraftUsernames] });
+    this.closeShareModal();
+  }
+
+  closeShareModal() {
+    this.shareModalOpen.set(false);
+    window.setTimeout(() => {
+      this.shareModalMounted.set(false);
+      this.pendingShareReport.set(null);
+      this.shareDraftUsernames = [];
+    }, 200);
   }
 
   saveWorkspaceDraft() {
@@ -991,18 +1087,6 @@ export class WorkspaceComponent implements OnInit {
     }, 200);
   }
 
-  toggleShareUser(username: string) {
-    const selected = new Set(this.workspaceDraft.sharedWith);
-    if (selected.has(username)) {
-      selected.delete(username);
-    } else {
-      selected.add(username);
-    }
-
-    this.workspaceDraft.sharedWith = [...selected];
-
-  }
-
   toggleChartMetric(metricId: string) {
     const selected = new Set(this.chartDraft.metrics);
     if (selected.has(metricId)) {
@@ -1030,16 +1114,6 @@ export class WorkspaceComponent implements OnInit {
     return metric.id;
   }
 
-  selectedShareLabel(): string {
-    if (!this.workspaceDraft.sharedWith.length) {
-      return this.languageService.t('workspace.selectUsers');
-    }
-
-    return this.workspaceDraft.sharedWith
-      .map((username) => this.systemUsers().find((user) => user.username === username)?.fullName ?? username)
-      .join(', ');
-  }
-
   isSelectedOwner(): boolean {
     return this.selectedReport()?.owner === this.owner();
   }
@@ -1055,7 +1129,6 @@ export class WorkspaceComponent implements OnInit {
 
   closeSheet() {
     this.sheetOpen.set(false);
-    this.shareDropdownOpen.set(false);
     window.setTimeout(() => this.sheetMounted.set(false), 300);
   }
 
