@@ -434,7 +434,7 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
       }),
       switchMap((query) => query.length < 2
         ? of([] as ManualEntryStudent[])
-        : this.manualEntryService.searchStudents(query).pipe(
+        : this.manualEntryService.searchStudents(query, true).pipe(
             catchError(() => {
               this.studentSearchError.set(true);
               return of([] as ManualEntryStudent[]);
@@ -447,7 +447,7 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
       this.activeStudentIndex.set(students.length ? 0 : -1);
     });
 
-    this.manualEntryService.options().subscribe({
+    this.manualEntryService.options(true).subscribe({
       next: (options) => {
         this.options.set(options);
         this.loading.set(false);
@@ -457,7 +457,7 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
         this.loading.set(false);
       },
     });
-    this.fieldsService.list(this.moduleId).subscribe({
+    this.fieldsService.list(this.moduleId, true).subscribe({
       next: (fields) => this.customFields.set(fields),
       error: () => {},
     });

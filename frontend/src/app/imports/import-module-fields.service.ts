@@ -1,7 +1,8 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
+import { SKIP_GLOBAL_API_LOADING } from '../core/loading/api-loading.interceptor';
 
 export type CustomFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'checkbox';
 
@@ -38,8 +39,11 @@ export class ImportModuleFieldsService {
     return `${this.basePath}/api/imports/modules/${moduleId}/fields`;
   }
 
-  list(moduleId: string): Observable<ImportModuleField[]> {
-    return this.http.get<ImportModuleField[]>(this.url(moduleId));
+  list(moduleId: string, skipGlobalLoading = false): Observable<ImportModuleField[]> {
+    const context = skipGlobalLoading
+      ? new HttpContext().set(SKIP_GLOBAL_API_LOADING, true)
+      : undefined;
+    return this.http.get<ImportModuleField[]>(this.url(moduleId), { context });
   }
 
   create(moduleId: string, field: SaveImportModuleField): Observable<ImportModuleField> {

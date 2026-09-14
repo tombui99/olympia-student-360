@@ -1,6 +1,7 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
+import { SKIP_GLOBAL_API_LOADING } from '../core/loading/api-loading.interceptor';
 
 export interface ManualEntryStudent {
   id: number;
@@ -72,13 +73,20 @@ export class ManualEntryService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  options() {
-    return this.http.get<ManualEntryOptions>(`${this.basePath}/api/students/manual-entry-options`);
+  options(skipGlobalLoading = false) {
+    const context = skipGlobalLoading
+      ? new HttpContext().set(SKIP_GLOBAL_API_LOADING, true)
+      : undefined;
+    return this.http.get<ManualEntryOptions>(`${this.basePath}/api/students/manual-entry-options`, { context });
   }
 
-  searchStudents(query: string) {
+  searchStudents(query: string, skipGlobalLoading = false) {
+    const context = skipGlobalLoading
+      ? new HttpContext().set(SKIP_GLOBAL_API_LOADING, true)
+      : undefined;
     return this.http.get<ManualEntryStudent[]>(`${this.basePath}/api/students/manual-entry-students`, {
       params: { query },
+      context,
     });
   }
 
