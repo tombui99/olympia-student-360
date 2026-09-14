@@ -74,7 +74,7 @@ import { SystemUser } from '../reports/report-builder.service';
         <div
           *ngIf="open"
           id="workspace-share-options"
-          class="absolute left-0 right-0 z-30 mt-2 max-h-72 overflow-y-auto rounded-md border border-[#d8d0df] bg-white p-2 shadow-[0_16px_40px_rgba(50,18,79,0.16)]"
+          class="relative z-30 mt-2 max-h-56 overflow-y-auto rounded-md border border-[#d8d0df] bg-white p-2 shadow-[0_12px_32px_rgba(50,18,79,0.14)]"
           role="listbox"
           aria-multiselectable="true"
         >
