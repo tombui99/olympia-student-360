@@ -2151,6 +2151,7 @@ public class DashboardController : ControllerBase
 
         var since = now.AddDays(-30);
         var gradeBuckets = new Dictionary<string, DashboardGradeDto>();
+        var gradeCanvasScores = new Dictionary<string, List<decimal>>();
         var riskSince = now.AddDays(-settings.RiskWindowDays);
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);
         var attentionCandidates = new List<(StudentProfile Student, string RiskLevel, int SignalCount)>();
@@ -2210,6 +2211,15 @@ public class DashboardController : ControllerBase
             }
 
             bucket.Students++;
+            if (canvasAverages.TryGetValue(student.Id, out var canvasAverage))
+            {
+                if (!gradeCanvasScores.TryGetValue(gradeKey, out var scores))
+                {
+                    scores = [];
+                    gradeCanvasScores[gradeKey] = scores;
+                }
+                scores.Add(canvasAverage);
+            }
             if (risk.Level != "None")
             {
                 bucket.AtRisk++;
@@ -2217,6 +2227,13 @@ public class DashboardController : ControllerBase
         }
 
         overview.AtRiskTotal = overview.AtRiskHigh + overview.AtRiskMedium;
+        foreach (var bucket in gradeBuckets)
+        {
+            if (gradeCanvasScores.TryGetValue(bucket.Key, out var scores) && scores.Count > 0)
+            {
+                bucket.Value.AverageCanvasScorePercentage = Math.Round(scores.Average(), 1);
+            }
+        }
         overview.BehaviourTrend = BuildTrend(students, period.Start, period.End, now);
         overview.GradeDistribution = gradeBuckets.Values
             .OrderBy(grade => grade.Grade, StringComparer.OrdinalIgnoreCase)

@@ -39,6 +39,7 @@ public class RiskFlagDto
 
 public class AtRiskStudentDto : StudentListItemDto
 {
+    public decimal? AverageCanvasScorePercentage { get; set; }
     public List<RiskFlagDto> Flags { get; set; } = [];
 }
 

@@ -111,6 +111,11 @@ export const routes: Routes = [
           import('./workspace/workspace-detail.component').then((m) => m.WorkspaceDetailComponent),
       },
       {
+        path: 'reports',
+        loadComponent: () =>
+          import('./reports/static-reports.component').then((m) => m.StaticReportsComponent),
+      },
+      {
         path: 'imports',
         loadComponent: () =>
           import('./imports/manual-excel-import.component').then(

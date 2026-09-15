@@ -152,18 +152,31 @@ public class StudentsController : ControllerBase
     [HttpGet("at-risk")]
     public async Task<ActionResult<AtRiskStudentsPageDto>> GetAtRiskStudents(
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10)
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? search = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
         var settings = await ClassificationSettings();
-        var atRiskStudents = (await LoadVisibleSignals(settings))
+        var candidates = (await LoadVisibleSignals(settings))
             .Select(entry => new
             {
                 entry.Student,
                 entry.Signals,
                 Risk = StudentClassificationService.ClassifyRisk(entry.Signals, settings)
             })
-            .Where(entry => entry.Risk.Level != "None")
+            .Where(entry => entry.Risk.Level != "None");
+        var term = search?.Trim();
+        if (!string.IsNullOrWhiteSpace(term))
+        {
+            term = term[..Math.Min(term.Length, 100)];
+            candidates = candidates.Where(entry =>
+                entry.Student.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                entry.Student.SISUserId.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (entry.Student.Homeroom?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (entry.Student.GradeLevel ?? entry.Student.CanvasGradeLevel)?.Contains(
+                    term, StringComparison.OrdinalIgnoreCase) == true);
+        }
+        var atRiskStudents = candidates
             .OrderByDescending(entry => entry.Risk.Level == "High")
             .ThenByDescending(entry => entry.Signals.ConcerningBehaviourCount + entry.Signals.RiskBusViolationCount)
             .ThenBy(entry => entry.Student.FullName)
@@ -189,6 +202,7 @@ public class StudentsController : ControllerBase
                     MentalHealthCount = entry.Student.MentalHealthRecords.Count,
                     RiskLevel = entry.Risk.Level,
                     RiskFlagCount = entry.Risk.Flags.Count,
+                    AverageCanvasScorePercentage = entry.Signals.AverageCanvasGrade,
                     Flags = entry.Risk.Flags
                 })
                 .ToList(),

@@ -37,6 +37,7 @@ export interface StudentsPage {
 }
 
 export interface AtRiskStudent extends StudentListItem {
+  averageCanvasScorePercentage?: number | null;
   flags: RiskFlag[];
 }
 
@@ -311,8 +312,9 @@ export class StudentsService {
     return this.http.get<StudentsPage>(`${this.basePath}/api/students`, { params });
   }
 
-  atRisk(page = 1, pageSize = 10): Observable<AtRiskStudentsPage> {
-    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
+  atRisk(page = 1, pageSize = 10, search = ''): Observable<AtRiskStudentsPage> {
+    let params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    if (search.trim()) params = params.set('search', search.trim());
     return this.http.get<AtRiskStudentsPage>(`${this.basePath}/api/students/at-risk`, { params });
   }
 

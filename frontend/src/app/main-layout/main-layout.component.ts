@@ -15,6 +15,7 @@ import {
   faFileLines,
   faKitMedical,
   faClipboardList,
+  faChartColumn,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
@@ -383,6 +384,15 @@ export class MainLayoutComponent {
       ],
     },
     {
+      titleKey: 'navSection.tools',
+      items: [
+        { path: '/reports', labelKey: 'nav.reports', icon: faChartColumn },
+        { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
+        { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
+        { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList },
+      ],
+    },
+    {
       titleKey: 'navSection.data',
       items: [
         { path: '/behaviours', labelKey: 'nav.behaviours', icon: faAward },
@@ -390,14 +400,6 @@ export class MainLayoutComponent {
         { path: '/bus-attendance', labelKey: 'nav.busAttendance', icon: faTableColumns },
         { path: '/mental-health', labelKey: 'nav.mentalHealth', icon: faKitMedical },
         { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical },
-      ],
-    },
-    {
-      titleKey: 'navSection.tools',
-      items: [
-        { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
-        { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
-        { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList },
       ],
     },
     {

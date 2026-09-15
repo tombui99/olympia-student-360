@@ -52,6 +52,7 @@ public class DashboardGradeDto
     public string Grade { get; set; } = default!;
     public int Students { get; set; }
     public int AtRisk { get; set; }
+    public decimal? AverageCanvasScorePercentage { get; set; }
 }
 
 public class DashboardFilterOptionsDto

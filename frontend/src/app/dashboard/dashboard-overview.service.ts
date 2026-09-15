@@ -13,6 +13,7 @@ export interface DashboardGrade {
   grade: string;
   students: number;
   atRisk: number;
+  averageCanvasScorePercentage?: number | null;
 }
 
 export interface DashboardAttentionStudent {
