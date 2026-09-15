@@ -31,6 +31,7 @@ interface LearningReportRow {
   value: number | null;
   numerator: number | null;
   denominator: number | null;
+  volumeKey: string;
   targetKey: string;
   status: ReportStatus | null;
   inverse?: boolean;
@@ -146,6 +147,14 @@ interface LearningReportRow {
               </button>
             }
           </nav>
+          @if (!reportMenuCollapsed()) {
+            <div class="border-t border-[#eee8f1] p-2">
+              <div class="rounded-lg bg-[#fff8df] p-3 text-[#6f5210]">
+                <p class="text-xs font-bold">{{ languageService.t('reports.library.comingSoonTitle') }}</p>
+                <p class="mt-1 text-[11px] leading-4 text-[#846b31]">{{ languageService.t('reports.library.comingSoonBody') }}</p>
+              </div>
+            </div>
+          }
         </aside>
 
         <main class="min-w-0 space-y-4">
@@ -266,7 +275,7 @@ interface LearningReportRow {
                     <p class="mt-1 text-xs text-[#817589]">{{ languageService.t(row.indicatorKey + '.hint') }}</p>
                   </td>
                   <td class="px-4 py-4 text-right text-lg font-semibold text-[#32124f]">{{ formatPercent(row.value) }}</td>
-                  <td class="px-4 py-4 text-right text-sm text-[#625969]">{{ formatVolume(row.numerator, row.denominator) }}</td>
+                  <td class="px-4 py-4 text-right text-sm text-[#625969]">{{ formatVolume(row) }}</td>
                   <td class="px-4 py-4 text-sm font-medium text-[#625969]">{{ languageService.t(row.targetKey) }}</td>
                   <td class="px-5 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-bold" [ngClass]="statusBadgeClass(row.status)">{{ statusLabel(row.status) }}</span></td>
                 </tr>
@@ -492,15 +501,15 @@ export class StaticReportsComponent implements OnInit {
 
   readonly learningRows = computed<LearningReportRow[]>(() => {
     const submitted = this.metricValue('canvas-assignments-submitted');
-    const graded = this.metricValue('canvas-assignments-graded');
+    const graded = this.metricValue('canvas-submitted-assignments-graded');
     const missing = this.metricValue('canvas-assignments-missing');
     const late = this.metricValue('canvas-assignments-late');
     const expected = submitted === null || missing === null ? null : submitted + missing;
     return [
-      this.learningRow('reports.learning.completion', submitted, expected, 'reports.target.completion', false),
-      this.learningRow('reports.learning.onTime', submitted === null || late === null ? null : Math.max(0, submitted - late), submitted, 'reports.target.onTime', false),
-      this.learningRow('reports.learning.graded', graded, submitted, 'reports.target.graded', false),
-      this.learningRow('reports.learning.missing', missing, expected, 'reports.target.missing', true),
+      this.learningRow('reports.learning.completion', submitted, expected, 'reports.volume.completion', 'reports.target.completion', false),
+      this.learningRow('reports.learning.onTime', submitted === null || late === null ? null : Math.max(0, submitted - late), submitted, 'reports.volume.onTime', 'reports.target.onTime', false),
+      this.learningRow('reports.learning.graded', graded, submitted, 'reports.volume.graded', 'reports.target.graded', false),
+      this.learningRow('reports.learning.missing', missing, expected, 'reports.volume.missing', 'reports.target.missing', true),
     ];
   });
 
@@ -607,7 +616,7 @@ export class StaticReportsComponent implements OnInit {
     const params: Record<string, string> = {
       metricIds: [
         'canvas-assignments-submitted',
-        'canvas-assignments-graded',
+        'canvas-submitted-assignments-graded',
         'canvas-assignments-missing',
         'canvas-assignments-late',
         'canvas-current-score-avg',
@@ -648,11 +657,12 @@ export class StaticReportsComponent implements OnInit {
     indicatorKey: string,
     numerator: number | null,
     denominator: number | null,
+    volumeKey: string,
     targetKey: string,
     inverse: boolean,
   ): LearningReportRow {
     const value = numerator === null || denominator === null || denominator <= 0 ? null : numerator / denominator * 100;
-    return { indicatorKey, value, numerator, denominator, targetKey, status: this.learningStatus(value, inverse), inverse };
+    return { indicatorKey, value, numerator, denominator, volumeKey, targetKey, status: this.learningStatus(value, inverse), inverse };
   }
 
   private learningStatus(value: number | null, inverse: boolean): ReportStatus | null {
@@ -699,9 +709,13 @@ export class StaticReportsComponent implements OnInit {
     return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value) + '%';
   }
 
-  formatVolume(numerator: number | null, denominator: number | null): string {
-    if (numerator === null || denominator === null) return '—';
-    return `${Math.round(numerator).toLocaleString()} / ${Math.round(denominator).toLocaleString()}`;
+  formatVolume(row: LearningReportRow): string {
+    if (row.numerator === null || row.denominator === null) return '—';
+    const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US';
+    const format = (value: number) => Math.round(value).toLocaleString(locale);
+    return this.languageService.t(row.volumeKey)
+      .replace('{count}', format(row.numerator))
+      .replace('{total}', format(row.denominator));
   }
 
   formatYear(year: string): string {

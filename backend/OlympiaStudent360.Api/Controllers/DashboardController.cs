@@ -922,6 +922,7 @@ public class DashboardController : ControllerBase
         }
         // ---- Canvas assignment/submission metrics ----
         else if (metricId.StartsWith("canvas-assignment", StringComparison.Ordinal) ||
+                 metricId == "canvas-submitted-assignments-graded" ||
                  metricId == "canvas-submission-score-percent-avg")
         {
             if (HasFilter(cycle))
@@ -936,6 +937,7 @@ public class DashboardController : ControllerBase
                 query = metricId switch
                 {
                     "canvas-assignments-submitted" => query.Where(item => item.SubmittedAt >= monthStart.Value && item.SubmittedAt < monthEnd!.Value),
+                    "canvas-submitted-assignments-graded" => query.Where(item => item.SubmittedAt >= monthStart.Value && item.SubmittedAt < monthEnd!.Value),
                     "canvas-assignments-missing" => query.Where(item =>
                         (item.CachedDueDate ?? item.Assignment!.DueAt) >= monthStart.Value &&
                         (item.CachedDueDate ?? item.Assignment!.DueAt) < monthEnd!.Value),
@@ -966,6 +968,13 @@ public class DashboardController : ControllerBase
                             string.Equals(r.WorkflowState, "graded", StringComparison.OrdinalIgnoreCase)
                             && r.StudentProfileId != null && (r.GradedAt != null || r.SubmittedAt != null))
                         .Select(r => CanvasSample(r, (r.GradedAt ?? r.SubmittedAt)!.Value, 1.0)));
+                    break;
+                case "canvas-submitted-assignments-graded":
+                    unit = "submissions";
+                    samples.AddRange(rows.Where(r =>
+                            string.Equals(r.WorkflowState, "graded", StringComparison.OrdinalIgnoreCase)
+                            && r.StudentProfileId != null && r.SubmittedAt != null)
+                        .Select(r => CanvasSample(r, r.SubmittedAt!.Value, 1.0)));
                     break;
                 case "canvas-assignments-missing":
                     unit = "assignments";
@@ -1185,6 +1194,7 @@ public class DashboardController : ControllerBase
         "canvas-submission-score-percent-avg" => "Average Canvas submission score percentage",
         "canvas-assignments-submitted" => "Assignments submitted",
         "canvas-assignments-graded" => "Assignments graded",
+        "canvas-submitted-assignments-graded" => "Submitted assignments graded",
         "canvas-assignments-missing" => "Missing assignments",
         "canvas-assignments-late" => "Late submissions",
         _ => metricId
@@ -1693,7 +1703,8 @@ public class DashboardController : ControllerBase
 
         var needsSubmissionMetrics = WantsAnyMetric(requestedMetricIds,
             "canvas-submission-score-percent-avg", "canvas-assignments-submitted",
-            "canvas-assignments-graded", "canvas-assignments-missing", "canvas-assignments-late");
+            "canvas-assignments-graded", "canvas-submitted-assignments-graded",
+            "canvas-assignments-missing", "canvas-assignments-late");
         var needsScoreMetrics = WantsAnyMetric(requestedMetricIds,
             "canvas-final-score-avg", "canvas-current-score-avg");
         if (needsSubmissionMetrics && requestedMetricIds.Count > 0)
@@ -1701,6 +1712,7 @@ public class DashboardController : ControllerBase
             var wantsSubmissionScore = requestedMetricIds.Contains("canvas-submission-score-percent-avg");
             var wantsSubmitted = requestedMetricIds.Contains("canvas-assignments-submitted");
             var wantsGraded = requestedMetricIds.Contains("canvas-assignments-graded");
+            var wantsSubmittedGraded = requestedMetricIds.Contains("canvas-submitted-assignments-graded");
             var wantsMissing = requestedMetricIds.Contains("canvas-assignments-missing");
             var wantsLate = requestedMetricIds.Contains("canvas-assignments-late");
             submissions = submissions.Where(item =>
@@ -1708,6 +1720,7 @@ public class DashboardController : ControllerBase
                     item.Assignment!.PointsPossible > 0) ||
                 (wantsSubmitted && item.SubmittedAt != null) ||
                 (wantsGraded && item.WorkflowState == "graded") ||
+                (wantsSubmittedGraded && item.WorkflowState == "graded" && item.SubmittedAt != null) ||
                 (wantsMissing && item.Missing && item.Excused != true) ||
                 (wantsLate && item.Late));
         }
@@ -1868,6 +1881,19 @@ public class DashboardController : ControllerBase
                 "Count of Canvas submission records whose workflow_state is graded. Undated graded records contribute to the total but not the monthly series.",
                 "submission.workflow_state", "submission.graded_at", "submission.submitted_at"));
         }
+        if (WantsMetric(requestedMetricIds, "canvas-submitted-assignments-graded"))
+        {
+            var dates = SubmissionDate(
+                submissions.Where(item => item.WorkflowState == "graded" && item.SubmittedAt != null),
+                preferGradedDate: false);
+            var metric = await CountMetricFromQuery(
+                "canvas-submitted-assignments-graded", "Submitted Canvas activities graded",
+                "Academics", "Canvas", dates, "submissions",
+                "CanvasSubmissionsAndAssignments", false, cancellationToken);
+            metrics.Add(DocumentMetric(metric,
+                "Count of submitted Canvas activities whose workflow_state is graded. The submitted_at date is used so the numerator and submitted denominator cover the same reporting population.",
+                "submission.workflow_state", "submission.submitted_at"));
+        }
         if (WantsMetric(requestedMetricIds, "canvas-assignments-missing"))
         {
             var dates = submissions.Where(item => item.Missing && item.Excused != true)
@@ -1921,6 +1947,11 @@ public class DashboardController : ControllerBase
             "CanvasSubmissionsAndAssignments",
             "Count of Canvas submission records whose workflow_state is graded. Undated graded records contribute to the total but not the monthly series.",
             "submission.workflow_state", "submission.graded_at", "submission.submitted_at"),
+        CatalogMetric(
+            "canvas-submitted-assignments-graded", "Submitted Canvas activities graded", "Academics", "Canvas", "submissions",
+            "CanvasSubmissionsAndAssignments",
+            "Count of submitted Canvas activities whose workflow_state is graded. The submitted_at date is used so this metric can be compared directly with submitted activity counts.",
+            "submission.workflow_state", "submission.submitted_at"),
         CatalogMetric(
             "canvas-assignments-missing", "Canvas submissions flagged missing", "Academics", "Canvas", "submissions",
             "CanvasSubmissionsAndAssignments",
