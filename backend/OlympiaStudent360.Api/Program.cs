@@ -94,6 +94,7 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddHttpClient<GeminiService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
+builder.Services.AddScoped<CanvasReportingPeriodService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

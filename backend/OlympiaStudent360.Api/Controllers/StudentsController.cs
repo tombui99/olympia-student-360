@@ -20,10 +20,12 @@ public class StudentsController : ControllerBase
         DateTime? LatestCanvasScoreDate);
 
     private readonly AppDbContext _context;
+    private readonly CanvasReportingPeriodService _canvasReportingPeriods;
 
-    public StudentsController(AppDbContext context)
+    public StudentsController(AppDbContext context, CanvasReportingPeriodService canvasReportingPeriods)
     {
         _context = context;
+        _canvasReportingPeriods = canvasReportingPeriods;
     }
 
     [HttpGet]
@@ -69,10 +71,11 @@ public class StudentsController : ControllerBase
         }
 
         var settings = await ClassificationSettings();
+        var canvasPeriod = await _canvasReportingPeriods.ResolveAsync();
         var riskSince = DateTime.UtcNow.AddDays(-settings.RiskWindowDays);
         if (atRiskOnly)
         {
-            var atRiskIds = (await LoadVisibleSignals(settings))
+            var atRiskIds = (await LoadVisibleSignals(settings, canvasPeriod))
                 .Where(entry => StudentClassificationService.ClassifyRisk(entry.Signals, settings).Level != "None")
                 .Select(entry => entry.Student.Id)
                 .ToList();
@@ -105,7 +108,7 @@ public class StudentsController : ControllerBase
             .Take(pageSize)
             .ToListAsync();
         var pageStudentIds = pageRows.Select(student => student.Id).ToList();
-        var canvasAverages = await CanvasAverages(pageStudentIds);
+        var canvasAverages = await CanvasAverages(pageStudentIds, canvasPeriod);
         var behaviourRows = await _context.StudentBehaviours.AsNoTracking()
             .Where(behaviour => pageStudentIds.Contains(behaviour.StudentProfileId))
             .Select(behaviour => new { behaviour.StudentProfileId, behaviour.BehaviourType, behaviour.IncidentDate })
@@ -158,17 +161,20 @@ public class StudentsController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         [FromQuery] string? search = null,
-        [FromQuery] string? grade = null)
+        [FromQuery] string? grade = null,
+        [FromQuery] string? academicYear = null,
+        [FromQuery] string? term = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
         var settings = await ClassificationSettings();
-        var term = search?.Trim();
-        if (!string.IsNullOrWhiteSpace(term))
+        var searchTerm = search?.Trim();
+        if (!string.IsNullOrWhiteSpace(searchTerm))
         {
-            term = term[..Math.Min(term.Length, 100)];
+            searchTerm = searchTerm[..Math.Min(searchTerm.Length, 100)];
         }
         var normalizedGrade = grade?.Trim();
-        var candidates = (await LoadVisibleSignals(settings, term, normalizedGrade))
+        var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(academicYear, term);
+        var candidates = (await LoadVisibleSignals(settings, canvasPeriod, searchTerm, normalizedGrade))
             .Select(entry => new
             {
                 entry.Student,
@@ -211,7 +217,9 @@ public class StudentsController : ControllerBase
             TotalCount = totalCount,
             TotalPages = TotalPages(totalCount, pageSize),
             HighRiskCount = atRiskStudents.Count(entry => entry.Risk.Level == "High"),
-            MediumRiskCount = atRiskStudents.Count(entry => entry.Risk.Level == "Medium")
+            MediumRiskCount = atRiskStudents.Count(entry => entry.Risk.Level == "Medium"),
+            AcademicYear = canvasPeriod.AcademicYear,
+            Term = canvasPeriod.Term
         });
     }
 
@@ -252,12 +260,15 @@ public class StudentsController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         [FromQuery] string? search = null,
-        [FromQuery] string? grade = null)
+        [FromQuery] string? grade = null,
+        [FromQuery] string? academicYear = null,
+        [FromQuery] string? term = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
         var settings = await ClassificationSettings();
         var commendationSince = DateTime.UtcNow.AddDays(-settings.CommendationWindowDays);
-        var commendations = (await LoadVisibleSignals(settings))
+        var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(academicYear, term);
+        var commendations = (await LoadVisibleSignals(settings, canvasPeriod))
             .Select(entry => new
             {
                 entry.Student,
@@ -323,7 +334,9 @@ public class StudentsController : ControllerBase
             TotalCommendationCount = commendations.Count,
             StudentsRecognisedCount = commendations.Count,
             RecentCount = commendations.Count(commendation => commendation.IncidentDate >= DateTime.UtcNow.AddDays(-30)),
-            AvailableGrades = availableGrades
+            AvailableGrades = availableGrades,
+            AcademicYear = canvasPeriod.AcademicYear,
+            Term = canvasPeriod.Term
         });
     }
 
@@ -667,11 +680,14 @@ public class StudentsController : ControllerBase
 
         var now = DateTime.UtcNow;
         var last30Days = now.AddDays(-30);
-        // Risk always reflects the student's full record, not the selected year.
+        // Behaviour and bus signals use their configured recent windows. Canvas risk uses
+        // the current semester (or the active semester in the selected school year).
         var settings = await ClassificationSettings();
         var riskSince = now.AddDays(-settings.RiskWindowDays);
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);
-        var canvasAverage = (await CanvasAverages([student.Id])).GetValueOrDefault(student.Id);
+        var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(
+            hasYearFilter ? academicYear : null);
+        var canvasAverage = (await CanvasAverages([student.Id], canvasPeriod)).GetValueOrDefault(student.Id);
         var risk = StudentClassificationService.ClassifyRisk(
             new StudentSignalSummary(
                 student.Behaviours.Count(behaviour => behaviour.IncidentDate >= riskSince
@@ -830,6 +846,7 @@ public class StudentsController : ControllerBase
     public async Task<ActionResult<StudentCanvasCoursesPageDto>> GetCanvasCourseGrades(
         int id,
         [FromQuery] string? academicYear,
+        [FromQuery] string? term,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
@@ -839,26 +856,29 @@ public class StudentsController : ControllerBase
         }
 
         var year = await ResolveCanvasYear(id, academicYear);
-        return Ok(await LoadCanvasCourseGrades(id, year, page, pageSize));
+        var period = await _canvasReportingPeriods.ResolveAsync(year, term);
+        return Ok(await LoadCanvasCourseGrades(id, period, page, pageSize));
     }
 
     [HttpGet("{id:int}/canvas/summary")]
     public async Task<ActionResult<StudentCanvasDto>> GetCanvasSummary(
         int id,
-        [FromQuery] string? academicYear)
+        [FromQuery] string? academicYear,
+        [FromQuery] string? term)
     {
         if (!await VisibleStudents().AnyAsync(student => student.Id == id))
         {
             return NotFound(new { Message = "Student was not found." });
         }
 
-        return Ok(await BuildCanvasSummary(id, academicYear));
+        return Ok(await BuildCanvasSummary(id, academicYear, term));
     }
 
     [HttpGet("{id:int}/canvas/recent-submissions")]
     public async Task<ActionResult<StudentCanvasSubmissionsPageDto>> GetCanvasRecentSubmissions(
         int id,
         [FromQuery] string? academicYear,
+        [FromQuery] string? term,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
@@ -868,7 +888,8 @@ public class StudentsController : ControllerBase
         }
 
         var year = await ResolveCanvasYear(id, academicYear);
-        return Ok(await LoadCanvasRecentSubmissions(id, year, page, pageSize));
+        var period = await _canvasReportingPeriods.ResolveAsync(year, term);
+        return Ok(await LoadCanvasRecentSubmissions(id, period, page, pageSize));
     }
 
     [HttpGet("{id:int}/canvas/submissions")]
@@ -876,6 +897,7 @@ public class StudentsController : ControllerBase
         int id,
         [FromQuery] string? category,
         [FromQuery] string? academicYear,
+        [FromQuery] string? term,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
@@ -891,11 +913,12 @@ public class StudentsController : ControllerBase
         }
 
         var year = await ResolveCanvasYear(id, academicYear);
-        return Ok(await LoadCanvasSubmissions(id, year, normalizedCategory!, page, pageSize));
+        var period = await _canvasReportingPeriods.ResolveAsync(year, term);
+        return Ok(await LoadCanvasSubmissions(id, period, normalizedCategory!, page, pageSize));
     }
 
     private async Task<StudentCanvasDto> BuildCanvasSummary(
-        int studentProfileId, string? focusYear = null)
+        int studentProfileId, string? focusYear = null, string? focusTerm = null)
     {
         var scoreQuery = _context.CanvasCourseScores.AsNoTracking()
             .Where(score => score.StudentProfileId == studentProfileId);
@@ -911,22 +934,42 @@ public class StudentsController : ControllerBase
         var academicYears = await LoadCanvasAcademicYears(studentProfileId);
         var year = ResolveCanvasYear(focusYear, academicYears);
         var yearAliases = year is null ? [] : await CanvasAcademicYearAliases(year);
-        var latestScores = year is null
+        var yearScores = year is null
             ? scoreQuery.Where(_ => false)
             : FilterCanvasScoresByAcademicYear(scoreQuery, year, yearAliases);
-        var latestSubmissions = year is null
+        var termLabels = year is null
+            ? []
+            : await FilterCanvasScoresByAcademicYear(
+                    _context.CanvasCourseScores.AsNoTracking(), year, yearAliases)
+                .Where(score => score.GradingPeriodTitle != null)
+                .Select(score => score.GradingPeriodTitle!)
+                .Distinct()
+                .ToListAsync();
+        var availableTerms = termLabels
+            .Select(DashboardPeriodNormalizer.Term)
+            .Where(term => term is "hk1" or "hk2")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(term => term == "hk1" ? 1 : 2)
+            .ToList();
+        var period = year is null ? null : await _canvasReportingPeriods.ResolveAsync(year, focusTerm);
+        if (period is not null && !availableTerms.Contains(period.Term, StringComparer.OrdinalIgnoreCase))
+        {
+            availableTerms.Add(period.Term);
+            availableTerms = availableTerms.OrderBy(term => term == "hk1" ? 1 : 2).ToList();
+        }
+        var latestScores = period is null
+            ? scoreQuery.Where(_ => false)
+            : CanvasReportingPeriodService.FilterScores(scoreQuery, period);
+        var latestSubmissions = period is null
             ? submissionQuery.Where(_ => false)
-            : FilterCanvasSubmissionsByAcademicYear(submissionQuery, year, yearAliases);
+            : CanvasReportingPeriodService.FilterSubmissions(submissionQuery, period);
         var gradedSubmissions = latestSubmissions.Where(submission => submission.WorkflowState == "graded");
 
-        var enrolledCourses = await latestScores
+        var enrolledCourses = await yearScores
             .Select(score => score.Enrollment!.CanvasCourseId)
             .Distinct()
             .CountAsync();
-        var averageCourseGrade = await latestScores
-            // A course average must use one whole-course fact per enrollment. Mixing in
-            // grading-period facts would count the same Canvas course multiple times.
-            .Where(score => score.GradingPeriodId == null && score.FinalScore != null)
+        var averageCourseGrade = await CanvasReportingPeriodService.FilterUsableScores(latestScores)
             .Select(score => score.FinalScore)
             .AverageAsync();
         var averageAssignmentScore = await gradedSubmissions
@@ -944,9 +987,8 @@ public class StudentsController : ControllerBase
         // Whole-course/full-year facts are deliberately excluded because they duplicate the
         // semester journey. Historical grade level is not inferred because neither Canvas nor
         // SIS supplied it for that historical period.
-        var journeyRows = await scoreQuery
-            .Where(score => score.FinalScore != null &&
-                score.Enrollment!.Course!.EnrollmentTermName != null &&
+        var journeyRows = await CanvasReportingPeriodService.FilterUsableScores(scoreQuery)
+            .Where(score => score.Enrollment!.Course!.EnrollmentTermName != null &&
                 score.GradingPeriodTitle != null)
             .GroupBy(score => new
             {
@@ -996,13 +1038,19 @@ public class StudentsController : ControllerBase
             .ThenBy(point => point.Term == "hk1" ? 1 : 2)
             .ToList();
 
-        var courseGradesPage = await LoadCanvasCourseGrades(studentProfileId, year, 1, 10);
-        var submissionsPage = await LoadCanvasRecentSubmissions(studentProfileId, year, 1, 10);
+        var courseGradesPage = period is null
+            ? new StudentCanvasCoursesPageDto { Page = 1, PageSize = 10 }
+            : await LoadCanvasCourseGrades(studentProfileId, period, 1, 10);
+        var submissionsPage = period is null
+            ? new StudentCanvasSubmissionsPageDto { Page = 1, PageSize = 10 }
+            : await LoadCanvasRecentSubmissions(studentProfileId, period, 1, 10);
 
         return new StudentCanvasDto
         {
             HasData = true,
             AcademicYear = year,
+            Term = period?.Term,
+            AvailableTerms = availableTerms,
             AcademicYears = academicYears,
             CoursesEnrolled = enrolledCourses,
             AverageCourseGrade = averageCourseGrade == null
@@ -1078,15 +1126,12 @@ public class StudentsController : ControllerBase
     }
 
     private async Task<StudentCanvasCoursesPageDto> LoadCanvasCourseGrades(
-        int studentProfileId, string? academicYear, int page, int pageSize)
+        int studentProfileId, CanvasReportingPeriod period, int page, int pageSize)
     {
         (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
-        var aliases = academicYear is null ? [] : await CanvasAcademicYearAliases(academicYear);
         var baseQuery = _context.CanvasCourseScores.AsNoTracking()
             .Where(score => score.StudentProfileId == studentProfileId);
-        var query = academicYear is null
-            ? baseQuery.Where(_ => false)
-            : FilterCanvasScoresByAcademicYear(baseQuery, academicYear, aliases);
+        var query = CanvasReportingPeriodService.FilterScores(baseQuery, period);
         var totalCount = await query.CountAsync();
         var totalPages = TotalPages(totalCount, pageSize);
         page = ClampPage(page, totalPages);
@@ -1108,9 +1153,15 @@ public class StudentsController : ControllerBase
                 GradingPeriodId = score.GradingPeriodId,
                 GradingPeriodTitle = score.GradingPeriodTitle,
                 ScoreScope = score.GradingPeriodId == null ? "course_total" : "grading_period",
-                CurrentScore = score.CurrentScore == null
+                CurrentScore = score.CurrentScore == null ||
+                    score.CurrentScore == 0 && (score.CurrentPoints == null || score.CurrentPoints == 0)
+                    && (score.CurrentGrade == null || score.CurrentGrade == "")
+                    && (score.FinalGrade == null || score.FinalGrade == "")
                     ? null : (decimal)score.CurrentScore.Value,
-                FinalScore = score.FinalScore == null
+                FinalScore = score.FinalScore == null ||
+                    score.FinalScore == 0 && (score.CurrentPoints == null || score.CurrentPoints == 0)
+                    && (score.CurrentGrade == null || score.CurrentGrade == "")
+                    && (score.FinalGrade == null || score.FinalGrade == "")
                     ? null : (decimal)score.FinalScore.Value
             })
             .ToListAsync();
@@ -1126,15 +1177,12 @@ public class StudentsController : ControllerBase
     }
 
     private async Task<StudentCanvasSubmissionsPageDto> LoadCanvasRecentSubmissions(
-        int studentProfileId, string? academicYear, int page, int pageSize)
+        int studentProfileId, CanvasReportingPeriod period, int page, int pageSize)
     {
         (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
-        var aliases = academicYear is null ? [] : await CanvasAcademicYearAliases(academicYear);
         var baseQuery = _context.CanvasSubmissions.AsNoTracking()
             .Where(submission => submission.StudentProfileId == studentProfileId);
-        var query = academicYear is null
-            ? baseQuery.Where(_ => false)
-            : FilterCanvasSubmissionsByAcademicYear(baseQuery, academicYear, aliases);
+        var query = CanvasReportingPeriodService.FilterSubmissions(baseQuery, period);
         var totalCount = await query.CountAsync();
         var totalPages = TotalPages(totalCount, pageSize);
         page = ClampPage(page, totalPages);
@@ -1179,15 +1227,12 @@ public class StudentsController : ControllerBase
     }
 
     private async Task<StudentCanvasSubmissionsPageDto> LoadCanvasSubmissions(
-        int studentProfileId, string? academicYear, string category, int page, int pageSize)
+        int studentProfileId, CanvasReportingPeriod period, string category, int page, int pageSize)
     {
         (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
-        var aliases = academicYear is null ? [] : await CanvasAcademicYearAliases(academicYear);
         var baseQuery = _context.CanvasSubmissions.AsNoTracking()
             .Where(submission => submission.StudentProfileId == studentProfileId);
-        var query = academicYear is null
-            ? baseQuery.Where(_ => false)
-            : FilterCanvasSubmissionsByAcademicYear(baseQuery, academicYear, aliases);
+        var query = CanvasReportingPeriodService.FilterSubmissions(baseQuery, period);
         query = category switch
         {
             "graded" => query.Where(submission => submission.WorkflowState == "graded"),
@@ -1409,25 +1454,25 @@ public class StudentsController : ControllerBase
     }
 
     private async Task<List<StudentSignalRow>> LoadVisibleSignals(
-        StudentClassificationSettingsDto settings, string? search = null, string? grade = null)
+        StudentClassificationSettingsDto settings,
+        CanvasReportingPeriod canvasPeriod,
+        string? search = null,
+        string? grade = null)
     {
         var students = await LoadVisibleWithActivity(search, grade);
         var now = DateTime.UtcNow;
         var riskSince = now.AddDays(-settings.RiskWindowDays);
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);
         var studentIds = students.Select(student => student.Id).ToList();
-        var scoreRows = await _context.CanvasCourseScores.AsNoTracking()
+        var scoreQuery = _context.CanvasCourseScores.AsNoTracking()
             .Where(score => score.StudentProfileId != null
-                && studentIds.Contains(score.StudentProfileId.Value)
-                // The former CourseScore flag is represented by a null grading period in the
-                // consolidated Canvas warehouse. Exclude semester facts so each course is
-                // counted once in configurable risk/recognition averages.
-                && score.GradingPeriodId == null
-                && (score.FinalScore ?? score.CurrentScore) != null)
+                && studentIds.Contains(score.StudentProfileId.Value));
+        var periodScores = CanvasReportingPeriodService.FilterScores(scoreQuery, canvasPeriod);
+        var scoreRows = await CanvasReportingPeriodService.FilterUsableScores(periodScores)
             .Select(score => new
             {
                 StudentId = score.StudentProfileId!.Value,
-                Value = (decimal)(score.FinalScore ?? score.CurrentScore)!.Value,
+                Value = (decimal)score.FinalScore!.Value,
                 Date = score.UpdatedAt ?? score.CreatedAt
             })
             .ToListAsync();
@@ -1458,18 +1503,20 @@ public class StudentsController : ControllerBase
         }).ToList();
     }
 
-    private async Task<Dictionary<int, decimal>> CanvasAverages(IReadOnlyCollection<int> studentIds)
+    private async Task<Dictionary<int, decimal>> CanvasAverages(
+        IReadOnlyCollection<int> studentIds,
+        CanvasReportingPeriod canvasPeriod)
     {
         if (studentIds.Count == 0) return [];
-        var scores = await _context.CanvasCourseScores.AsNoTracking()
+        var scoreQuery = _context.CanvasCourseScores.AsNoTracking()
             .Where(score => score.StudentProfileId != null
-                && studentIds.Contains(score.StudentProfileId.Value)
-                && score.GradingPeriodId == null
-                && (score.FinalScore ?? score.CurrentScore) != null)
+                && studentIds.Contains(score.StudentProfileId.Value));
+        var periodScores = CanvasReportingPeriodService.FilterScores(scoreQuery, canvasPeriod);
+        var scores = await CanvasReportingPeriodService.FilterUsableScores(periodScores)
             .Select(score => new
             {
                 StudentId = score.StudentProfileId!.Value,
-                Value = (decimal)(score.FinalScore ?? score.CurrentScore)!.Value
+                Value = (decimal)score.FinalScore!.Value
             })
             .ToListAsync();
         return scores.GroupBy(score => score.StudentId)

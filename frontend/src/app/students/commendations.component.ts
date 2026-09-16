@@ -193,6 +193,8 @@ export class CommendationsComponent implements OnInit {
   readonly totalCommendationCount = signal(0);
   readonly recognisedStudentCount = signal(0);
   readonly recentCount = signal(0);
+  readonly academicYear = signal('');
+  readonly term = signal('');
   readonly settingsOpen = signal(false);
 
   ngOnInit(): void {
@@ -217,6 +219,8 @@ export class CommendationsComponent implements OnInit {
         this.recognisedStudentCount.set(response.studentsRecognisedCount);
         this.recentCount.set(response.recentCount);
         this.grades.set(response.availableGrades);
+        this.academicYear.set(response.academicYear);
+        this.term.set(response.term);
         this.loading.set(false);
       },
       error: () => {
@@ -262,7 +266,11 @@ export class CommendationsComponent implements OnInit {
   }
 
   scopeHint(): string {
-    return this.languageService.t('commendations.scopeHint');
+    const semester = this.term()
+      ? this.languageService.t(`studentProfile.canvas.journeyTerm.${this.term()}`)
+      : '';
+    return this.languageService.t('commendations.scopeHint')
+      .replace('{period}', [this.academicYear(), semester].filter(Boolean).join(' · '));
   }
 
   canManageSettings(): boolean {

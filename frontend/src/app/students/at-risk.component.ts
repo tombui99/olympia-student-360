@@ -178,6 +178,8 @@ export class AtRiskComponent implements OnInit {
   readonly totalPages = signal(0);
   readonly highRiskCount = signal(0);
   readonly mediumRiskCount = signal(0);
+  readonly academicYear = signal('');
+  readonly term = signal('');
   readonly settingsOpen = signal(false);
 
   ngOnInit(): void {
@@ -195,6 +197,8 @@ export class AtRiskComponent implements OnInit {
         this.totalPages.set(response.totalPages);
         this.highRiskCount.set(response.highRiskCount);
         this.mediumRiskCount.set(response.mediumRiskCount);
+        this.academicYear.set(response.academicYear);
+        this.term.set(response.term);
         this.loading.set(false);
       },
       error: () => {
@@ -230,7 +234,11 @@ export class AtRiskComponent implements OnInit {
   }
 
   scopeHint(): string {
-    return this.languageService.t('atRisk.scopeHint');
+    const semester = this.term()
+      ? this.languageService.t(`studentProfile.canvas.journeyTerm.${this.term()}`)
+      : '';
+    return this.languageService.t('atRisk.scopeHint')
+      .replace('{period}', [this.academicYear(), semester].filter(Boolean).join(' · '));
   }
 
   canManageSettings(): boolean {

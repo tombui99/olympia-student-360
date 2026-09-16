@@ -750,7 +750,14 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     this.classDrilldownLoading.set(true);
     this.classDrilldownLoadFailed.set(false);
     const request$: Observable<ClassDrilldownPage> = context.kind === 'support'
-      ? this.studentsService.atRisk(page, this.classDrilldownPageSize, this.classDrilldownSearch(), context.grade)
+      ? this.studentsService.atRisk(
+          page,
+          this.classDrilldownPageSize,
+          this.classDrilldownSearch(),
+          context.grade,
+          this.selectedYear,
+          this.selectedTerm,
+        )
       : this.studentsService.list(page, this.classDrilldownPageSize, this.classDrilldownSearch(), context.grade, false);
 
     request$.subscribe({
@@ -824,7 +831,14 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     const requestId = ++this.studentRequestId;
     this.studentsLoading.set(true);
     this.studentsLoadFailed.set(false);
-    this.studentsService.atRisk(page, this.studentPageSize(), this.studentSearch()).subscribe({
+    this.studentsService.atRisk(
+      page,
+      this.studentPageSize(),
+      this.studentSearch(),
+      '',
+      this.selectedYear,
+      this.selectedTerm,
+    ).subscribe({
       next: (response) => {
         if (requestId !== this.studentRequestId) return;
         this.applyStudentPage(response);
@@ -903,7 +917,14 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     forkJoin({
       metrics: this.reportBuilder.loadMetricVariables(params),
       overview: this.overviewService.overview(this.selectedYear || undefined, this.selectedTerm),
-      students: this.studentsService.atRisk(1, this.studentPageSize(), this.studentSearch()),
+      students: this.studentsService.atRisk(
+        1,
+        this.studentPageSize(),
+        this.studentSearch(),
+        '',
+        this.selectedYear,
+        this.selectedTerm,
+      ),
     }).subscribe({
       next: ({ metrics, overview, students }) => {
         if (requestId !== this.requestId) return;
@@ -982,7 +1003,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   }
 
   formatPercent(value: number | null): string {
-    if (value === null || !Number.isFinite(value)) return '—';
+    if (value === null || !Number.isFinite(value)) return this.languageService.t('reports.status.unavailable');
     const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-US';
     return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value) + '%';
   }

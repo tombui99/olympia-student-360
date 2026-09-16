@@ -52,6 +52,8 @@ public class AtRiskStudentsPageDto
     public int TotalPages { get; set; }
     public int HighRiskCount { get; set; }
     public int MediumRiskCount { get; set; }
+    public string AcademicYear { get; set; } = default!;
+    public string Term { get; set; } = default!;
 }
 
 public class StudentClassificationSettingsDto
@@ -94,6 +96,8 @@ public class StudentCommendationsPageDto
     public int StudentsRecognisedCount { get; set; }
     public int RecentCount { get; set; }
     public List<string> AvailableGrades { get; set; } = [];
+    public string AcademicYear { get; set; } = default!;
+    public string Term { get; set; } = default!;
 }
 
 public class StudentProfileDetailDto
@@ -137,8 +141,12 @@ public class StudentBehaviourTrendPointDto
 public class StudentCanvasDto
 {
     public bool HasData { get; set; }
-    /// <summary>Academic year the headline tiles, courses, and submissions currently reflect.</summary>
+    /// <summary>Academic year containing the semester reflected by the headline tiles and lists.</summary>
     public string? AcademicYear { get; set; }
+    /// <summary>Semester used by the headline averages and activity totals.</summary>
+    public string? Term { get; set; }
+    /// <summary>Semesters available for the selected academic year.</summary>
+    public List<string> AvailableTerms { get; set; } = [];
     /// <summary>Every academic year for which this student has Canvas scores or submissions.</summary>
     public List<string> AcademicYears { get; set; } = [];
     public int CoursesEnrolled { get; set; }

@@ -48,17 +48,20 @@ public class DashboardController : ControllerBase
     private readonly IMemoryCache _cache;
     private readonly InFlightRequestCoalescer _requestCoalescer;
     private readonly ILogger<DashboardController> _logger;
+    private readonly CanvasReportingPeriodService _canvasReportingPeriods;
 
     public DashboardController(
         AppDbContext context,
         IMemoryCache cache,
         InFlightRequestCoalescer requestCoalescer,
-        ILogger<DashboardController> logger)
+        ILogger<DashboardController> logger,
+        CanvasReportingPeriodService canvasReportingPeriods)
     {
         _context = context;
         _cache = cache;
         _requestCoalescer = requestCoalescer;
         _logger = logger;
+        _canvasReportingPeriods = canvasReportingPeriods;
     }
 
     [HttpGet("filter-options")]
@@ -1000,12 +1003,16 @@ public class DashboardController : ControllerBase
             }
             aggregation = "average";
             unit = "%";
-            var rows = await FilterCanvasScores(campus, level, grade, homeroom, program, subject,
+            var scoreQuery = FilterCanvasScores(campus, level, grade, homeroom, program, subject,
                     yearAliases, termAliases)
                 .Where(item => studentId == null || item.StudentProfileId == studentId)
                 .Where(item => !monthStart.HasValue ||
                     ((item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= monthStart.Value &&
-                     (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < monthEnd!.Value))
+                     (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < monthEnd!.Value));
+            scoreQuery = metricId == "canvas-current-score-avg"
+                ? CanvasReportingPeriodService.FilterUsableCurrentScores(scoreQuery)
+                : CanvasReportingPeriodService.FilterUsableScores(scoreQuery);
+            var rows = await scoreQuery
                 .Select(item => new { item.StudentProfileId, item.FinalScore, item.CurrentScore,
                     Date = item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt,
                     CourseName = item.Enrollment!.Course!.Name,
@@ -1755,7 +1762,7 @@ public class DashboardController : ControllerBase
 
         if (WantsMetric(requestedMetricIds, "canvas-final-score-avg"))
         {
-            var finalScores = scores.Where(item => item.FinalScore != null);
+            var finalScores = CanvasReportingPeriodService.FilterUsableScores(scores);
             var finalMonthly = finalScores
                 .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) != null)
                 .GroupBy(item => new
@@ -1775,12 +1782,12 @@ public class DashboardController : ControllerBase
                 finalMonthly, finalScores.Select(item => item.FinalScore),
                 "CanvasEnrollmentGrades", cancellationToken);
             metrics.Add(DocumentMetric(metric,
-                "Average of non-null Canvas grades.final_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+                "Average of usable Canvas grades.final_score values. Empty zero placeholders without points or a grade label are excluded; explicit zero grades are preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
                 "enrollment.grades.final_score", "grading_period.end_date", "course.end_at"));
         }
         if (WantsMetric(requestedMetricIds, "canvas-current-score-avg"))
         {
-            var currentScores = scores.Where(item => item.CurrentScore != null);
+            var currentScores = CanvasReportingPeriodService.FilterUsableCurrentScores(scores);
             var currentMonthly = currentScores
                 .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) != null)
                 .GroupBy(item => new
@@ -1800,7 +1807,7 @@ public class DashboardController : ControllerBase
                 currentMonthly, currentScores.Select(item => item.CurrentScore),
                 "CanvasEnrollmentGrades", cancellationToken);
             metrics.Add(DocumentMetric(metric,
-                "Average of non-null Canvas grades.current_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+                "Average of usable Canvas grades.current_score values. Empty zero placeholders without points or a grade label are excluded; explicit zero grades are preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
                 "enrollment.grades.current_score", "grading_period.end_date", "course.end_at"));
         }
         if (WantsMetric(requestedMetricIds, "canvas-submission-score-percent-avg"))
@@ -1913,12 +1920,12 @@ public class DashboardController : ControllerBase
         CatalogMetric(
             "canvas-final-score-avg", "Average Canvas final_score", "Academics", "Canvas", "%",
             "CanvasEnrollmentGrades",
-            "Average of non-null Canvas grades.final_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+            "Average of usable Canvas grades.final_score values. Empty zero placeholders without points or a grade label are excluded; explicit zero grades are preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
             "enrollment.grades.final_score", "grading_period.end_date", "course.end_at"),
         CatalogMetric(
             "canvas-current-score-avg", "Average Canvas current_score", "Academics", "Canvas", "%",
             "CanvasEnrollmentGrades",
-            "Average of non-null Canvas grades.current_score values; zero is preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
+            "Average of usable Canvas grades.current_score values. Empty zero placeholders without points or a grade label are excluded; explicit zero grades are preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
             "enrollment.grades.current_score", "grading_period.end_date", "course.end_at"),
         CatalogMetric(
             "canvas-submission-score-percent-avg", "Average Canvas submission score percentage", "Academics", "Canvas", "%",
@@ -2146,10 +2153,15 @@ public class DashboardController : ControllerBase
             .ToListAsync();
         var settings = await ClassificationSettings();
         var studentIds = students.Select(student => student.Id).ToList();
-        var canvasScores = await _context.CanvasCourseScores.AsNoTracking()
+        var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(
+            period.Year,
+            period.Term is "hk1" or "hk2" ? period.Term : null,
+            now);
+        var canvasScoreQuery = _context.CanvasCourseScores.AsNoTracking()
             .Where(score => score.StudentProfileId != null
-                && studentIds.Contains(score.StudentProfileId.Value)
-                && score.FinalScore != null)
+                && studentIds.Contains(score.StudentProfileId.Value));
+        var periodScores = CanvasReportingPeriodService.FilterScores(canvasScoreQuery, canvasPeriod);
+        var canvasScores = await CanvasReportingPeriodService.FilterUsableScores(periodScores)
             .Select(score => new
             {
                 StudentId = score.StudentProfileId!.Value,
@@ -2316,11 +2328,17 @@ public class DashboardController : ControllerBase
     {
         var normalizedYear = HasFilter(year) ? DashboardPeriodNormalizer.AcademicYear(year!) : null;
         var normalizedTerm = HasFilter(term) ? DashboardPeriodNormalizer.Term(term!) : null;
-        var configured = (await _context.AcademicPeriods.AsNoTracking().ToListAsync())
+        var hasExplicitPeriod = normalizedYear is not null || normalizedTerm is not null;
+        var configuredQuery = (await _context.AcademicPeriods.AsNoTracking().ToListAsync())
             .Where(period => normalizedYear == null || DashboardPeriodNormalizer.AcademicYear(period.AcademicYear)
                 .Equals(normalizedYear, StringComparison.OrdinalIgnoreCase))
             .Where(period => normalizedTerm == null || DashboardPeriodNormalizer.Term(period.Term)
-                .Equals(normalizedTerm, StringComparison.OrdinalIgnoreCase))
+                .Equals(normalizedTerm, StringComparison.OrdinalIgnoreCase));
+        if (!hasExplicitPeriod)
+        {
+            configuredQuery = configuredQuery.Where(period => period.StartDate <= now && now < period.EndDate);
+        }
+        var configured = configuredQuery
             .OrderByDescending(period => period.IsCurrent)
             .ThenByDescending(period => period.StartDate)
             .ToList();

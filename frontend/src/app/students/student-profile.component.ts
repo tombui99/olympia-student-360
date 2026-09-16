@@ -584,14 +584,34 @@ type ProfileSection =
                   }
                 </select>
               </label>
+              @if (canvasTermOptions().length) {
+                <label class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6811]">
+                  <span>{{ languageService.t('studentProfile.canvas.currentSemester') }}</span>
+                  <select
+                    class="rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-[#32124f] outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10 disabled:cursor-wait disabled:opacity-60"
+                    [attr.aria-label]="languageService.t('studentProfile.canvas.semesterSelectLabel')"
+                    [disabled]="canvasYearLoading()"
+                    [ngModel]="selectedCanvasTerm()"
+                    (ngModelChange)="onCanvasTermChange($event)"
+                  >
+                    @for (term of canvasTermOptions(); track term) {
+                      <option [value]="term">{{ canvasTermLabel(term) }}</option>
+                    }
+                  </select>
+                </label>
+              }
               @if (canvasYearLoading()) {
-                <span class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.loadingYear') }}</span>
+                <span class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.loadingPeriod') }}</span>
               }
             </div>
             <div class="grid gap-4 px-6 pb-6 pt-3 sm:grid-cols-2 xl:grid-cols-4">
               <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
                 <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgCourseGrade') }}</p>
-                <p class="mt-2 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageCourseGrade ?? '—' }}{{ profile.canvas.averageCourseGrade !== null ? '%' : '' }}</p>
+                @if (profile.canvas.averageCourseGrade != null) {
+                  <p class="mt-2 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageCourseGrade }}%</p>
+                } @else {
+                  <p class="mt-2 text-base font-semibold text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noGradeData') }}</p>
+                }
               </div>
               <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
                 <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgAssignmentScore') }}</p>
@@ -697,11 +717,11 @@ type ProfileSection =
                         <div class="mt-3 flex flex-wrap items-center justify-end gap-x-8 gap-y-2 border-t border-[#ebe6ef] pt-3">
                           <div class="flex items-baseline gap-2">
                             <span class="text-xs font-semibold uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.currentScore') }}</span>
-                            <span class="font-semibold text-[#32124f]">{{ course.currentScore ?? '—' }}{{ course.currentScore !== null ? '%' : '' }}</span>
+                            <span class="font-semibold text-[#32124f]">{{ course.currentScore != null ? course.currentScore + '%' : languageService.t('studentProfile.canvas.noGradeData') }}</span>
                           </div>
                           <div class="flex items-baseline gap-2">
                             <span class="text-xs font-semibold uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.finalScore') }}</span>
-                            <span class="font-semibold text-[#32124f]">{{ course.finalScore ?? '—' }}{{ course.finalScore !== null ? '%' : '' }}</span>
+                            <span class="font-semibold text-[#32124f]">{{ course.finalScore != null ? course.finalScore + '%' : languageService.t('studentProfile.canvas.noGradeData') }}</span>
                           </div>
                         </div>
                       </article>
@@ -773,6 +793,7 @@ type ProfileSection =
             [studentId]="profile.id"
             [studentName]="profile.fullName"
             [academicYear]="profile.canvas.academicYear"
+            [term]="profile.canvas.term"
             [kind]="sheetKind"
             [gradedCount]="profile.canvas.assignmentsGraded"
             [submittedCount]="profile.canvas.assignmentsSubmitted"
@@ -949,6 +970,7 @@ export class StudentProfileComponent implements OnInit {
   private studentId = 0;
   readonly selectedYear = signal<string>('');
   readonly selectedCanvasYear = signal<string>('');
+  readonly selectedCanvasTerm = signal<string>('');
   private readonly knownYears = signal<string[]>([]);
 
   /**
@@ -963,6 +985,23 @@ export class StudentProfileComponent implements OnInit {
     for (const point of canvas.journey ?? []) years.add(point.academicYear);
     if (canvas.academicYear) years.add(canvas.academicYear);
     return Array.from(years).sort((a, b) => b.localeCompare(a));
+  });
+
+  readonly canvasTermOptions = computed<string[]>(() => {
+    const canvas = this.student()?.canvas;
+    const selectedYear = canvas?.academicYear ?? this.selectedCanvasYear();
+    const availableTerms = new Set<string>((canvas?.availableTerms ?? [])
+      .map((term) => term.toLowerCase())
+      .filter((term) => term === 'hk1' || term === 'hk2'));
+    for (const term of (canvas?.journey ?? [])
+      .filter((point) => point.academicYear === selectedYear && point.averageGrade != null)
+      .map((point) => point.term?.toLowerCase())
+      .filter((term): term is string => term === 'hk1' || term === 'hk2')) {
+      availableTerms.add(term);
+    }
+    const explicitTerm = canvas?.term?.toLowerCase();
+    if (explicitTerm === 'hk1' || explicitTerm === 'hk2') availableTerms.add(explicitTerm);
+    return Array.from(availableTerms).sort((a, b) => a === b ? 0 : a === 'hk1' ? -1 : 1);
   });
 
   /** Distinct academic years represented anywhere on the student profile, labelled by grade when known. */
@@ -1024,6 +1063,7 @@ export class StudentProfileComponent implements OnInit {
     if (!profile || !year || year === profile.canvas.academicYear || this.canvasYearLoading()) return;
 
     const previousYear = profile.canvas.academicYear ?? '';
+    const previousTerm = profile.canvas.term ?? this.selectedCanvasTerm();
     this.selectedCanvasYear.set(year);
     this.canvasYearLoading.set(true);
     this.closeCanvasSubmissionSheet();
@@ -1031,11 +1071,37 @@ export class StudentProfileComponent implements OnInit {
       next: (canvas) => {
         this.student.update((current) => current ? { ...current, canvas } : current);
         this.selectedCanvasYear.set(canvas.academicYear ?? year);
+        this.selectedCanvasTerm.set(canvas.term ?? '');
         this.rememberCanvasAcademicYears(canvas.academicYears ?? this.canvasYearOptions());
         this.canvasYearLoading.set(false);
       },
       error: () => {
         this.selectedCanvasYear.set(previousYear);
+        this.selectedCanvasTerm.set(previousTerm);
+        this.canvasYearLoading.set(false);
+      },
+    });
+  }
+
+  onCanvasTermChange(term: string): void {
+    const profile = this.student();
+    const year = profile?.canvas.academicYear ?? this.selectedCanvasYear();
+    if (!profile || !year || !term || term === profile.canvas.term || this.canvasYearLoading()) return;
+
+    const previousTerm = profile.canvas.term ?? this.selectedCanvasTerm();
+    this.selectedCanvasTerm.set(term);
+    this.canvasYearLoading.set(true);
+    this.closeCanvasSubmissionSheet();
+    this.studentsService.canvasSummary(this.studentId, year, term).subscribe({
+      next: (canvas) => {
+        this.student.update((current) => current ? { ...current, canvas } : current);
+        this.selectedCanvasYear.set(canvas.academicYear ?? year);
+        this.selectedCanvasTerm.set(canvas.term ?? term);
+        this.rememberCanvasAcademicYears(canvas.academicYears ?? this.canvasYearOptions());
+        this.canvasYearLoading.set(false);
+      },
+      error: () => {
+        this.selectedCanvasTerm.set(previousTerm);
         this.canvasYearLoading.set(false);
       },
     });
@@ -1050,6 +1116,7 @@ export class StudentProfileComponent implements OnInit {
       page,
       profile.canvas.courseGradesPageSize,
       profile.canvas.academicYear || undefined,
+      profile.canvas.term,
     ).subscribe({
       next: (result) => {
         this.student.update((current) => current ? {
@@ -1078,6 +1145,7 @@ export class StudentProfileComponent implements OnInit {
       page,
       profile.canvas.recentSubmissionsPageSize,
       profile.canvas.academicYear || undefined,
+      profile.canvas.term,
     ).subscribe({
       next: (result) => {
         this.student.update((current) => current ? {
@@ -1105,6 +1173,10 @@ export class StudentProfileComponent implements OnInit {
     this.canvasSheetKind.set(null);
   }
 
+  canvasTermLabel(term: string): string {
+    return this.languageService.t(`studentProfile.canvas.journeyTerm.${term.toLowerCase()}`);
+  }
+
   paginationSummary(page: number, pages: number, total: number): string {
     return this.languageService.t('pagination.pageOf')
       .replace('{page}', String(page))
@@ -1130,6 +1202,7 @@ export class StudentProfileComponent implements OnInit {
         this.rememberAcademicYears(profile);
         this.student.set(profile);
         this.selectedCanvasYear.set(profile.canvas.academicYear ?? '');
+        this.selectedCanvasTerm.set(profile.canvas.term ?? '');
         this.loading.set(false);
       },
       error: (response) => {

@@ -60,6 +60,8 @@ export interface AtRiskStudentsPage {
   totalPages: number;
   highRiskCount: number;
   mediumRiskCount: number;
+  academicYear: string;
+  term: string;
 }
 
 export interface StudentCommendation {
@@ -88,6 +90,8 @@ export interface StudentCommendationsPage {
   studentsRecognisedCount: number;
   recentCount: number;
   availableGrades: string[];
+  academicYear: string;
+  term: string;
 }
 
 export interface StudentSummary {
@@ -222,6 +226,8 @@ export interface StudentCanvasJourneyPoint {
 export interface StudentCanvas {
   hasData: boolean;
   academicYear?: string | null;
+  term?: string | null;
+  availableTerms?: string[];
   /** Available in API versions that expose Canvas year selection. */
   academicYears?: string[];
   coursesEnrolled: number;
@@ -314,10 +320,19 @@ export class StudentsService {
     return this.http.get<StudentsPage>(`${this.basePath}/api/students`, { params });
   }
 
-  atRisk(page = 1, pageSize = 10, search = '', grade = ''): Observable<AtRiskStudentsPage> {
+  atRisk(
+    page = 1,
+    pageSize = 10,
+    search = '',
+    grade = '',
+    academicYear = '',
+    term = '',
+  ): Observable<AtRiskStudentsPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) params = params.set('search', search.trim());
     if (grade) params = params.set('grade', grade);
+    if (academicYear) params = params.set('academicYear', academicYear);
+    if (term && term !== 'all') params = params.set('term', term);
     return this.http.get<AtRiskStudentsPage>(`${this.basePath}/api/students/at-risk`, { params });
   }
 
@@ -326,6 +341,8 @@ export class StudentsService {
     pageSize = 10,
     search = '',
     grade = '',
+    academicYear = '',
+    term = '',
   ): Observable<StudentCommendationsPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) {
@@ -334,6 +351,8 @@ export class StudentsService {
     if (grade) {
       params = params.set('grade', grade);
     }
+    if (academicYear) params = params.set('academicYear', academicYear);
+    if (term && term !== 'all') params = params.set('term', term);
     return this.http.get<StudentCommendationsPage>(`${this.basePath}/api/students/commendations`, { params });
   }
 
@@ -352,8 +371,9 @@ export class StudentsService {
     return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
   }
 
-  canvasSummary(id: number, academicYear: string): Observable<StudentCanvas> {
-    const params = new HttpParams().set('academicYear', academicYear);
+  canvasSummary(id: number, academicYear: string, term?: string | null): Observable<StudentCanvas> {
+    let params = new HttpParams().set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
     return this.http.get<StudentCanvas>(`${this.basePath}/api/students/${id}/canvas/summary`, { params });
   }
 
@@ -362,9 +382,11 @@ export class StudentsService {
     page: number,
     pageSize: number,
     academicYear?: string,
+    term?: string | null,
   ): Observable<StudentCanvasCoursesPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (academicYear) params = params.set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
     return this.http.get<StudentCanvasCoursesPage>(
       `${this.basePath}/api/students/${id}/canvas/course-grades`,
       { params },
@@ -376,9 +398,11 @@ export class StudentsService {
     page: number,
     pageSize: number,
     academicYear?: string,
+    term?: string | null,
   ): Observable<StudentCanvasSubmissionsPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (academicYear) params = params.set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
     return this.http.get<StudentCanvasSubmissionsPage>(
       `${this.basePath}/api/students/${id}/canvas/recent-submissions`,
       { params },
@@ -391,12 +415,14 @@ export class StudentsService {
     page: number,
     pageSize: number,
     academicYear?: string | null,
+    term?: string | null,
   ): Observable<StudentCanvasSubmissionsPage> {
     let params = new HttpParams()
       .set('category', category)
       .set('page', page)
       .set('pageSize', pageSize);
     if (academicYear) params = params.set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
     return this.http.get<StudentCanvasSubmissionsPage>(
       `${this.basePath}/api/students/${id}/canvas/submissions`,
       { params },

@@ -164,6 +164,7 @@ export class StudentCanvasSubmissionSheetComponent implements OnInit {
   @Input({ required: true }) studentId!: number;
   @Input() studentName = '';
   @Input() academicYear?: string | null;
+  @Input() term?: string | null;
   @Input({ required: true }) kind!: CanvasSubmissionSheetKind;
   @Input() gradedCount = 0;
   @Input() submittedCount = 0;
@@ -212,6 +213,7 @@ export class StudentCanvasSubmissionSheetComponent implements OnInit {
       page,
       this.pageSize,
       this.academicYear,
+      this.term,
     ).pipe(finalize(() => {
       if (requestId === this.requestId) this.loading.set(false);
     })).subscribe({

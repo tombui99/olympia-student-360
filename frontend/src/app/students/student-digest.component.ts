@@ -183,7 +183,11 @@ import { riskBadgeClass } from './risk.util';
               <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
                   <p class="text-xs text-[#7c7284]">{{ languageService.t('digest.canvas.avgCourseGrade') }}</p>
-                  <p class="mt-1 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageCourseGrade ?? '—' }}{{ profile.canvas.averageCourseGrade !== null ? '%' : '' }}</p>
+                  @if (profile.canvas.averageCourseGrade != null) {
+                    <p class="mt-1 text-2xl font-semibold text-[#32124f]">{{ profile.canvas.averageCourseGrade }}%</p>
+                  } @else {
+                    <p class="mt-1 text-sm font-semibold text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noGradeData') }}</p>
+                  }
                 </div>
                 <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
                   <p class="text-xs text-[#7c7284]">{{ languageService.t('digest.canvas.avgAssignmentScore') }}</p>
