@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
-import { catchError, forkJoin, of } from 'rxjs';
+import { catchError, of } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { riskBadgeClass, riskDotClass } from '../students/risk.util';
 import { DashboardAttentionStudent, DashboardOverview, DashboardOverviewService } from './dashboard-overview.service';
@@ -79,7 +79,14 @@ interface RiskRow {
         </div>
       </div>
 
-      <p class="-mt-3 text-xs text-[#9a91a3]">{{ languageService.t('dashboard.period.rosterNote') }}</p>
+      <div class="-mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#8a8190]">
+        <p>{{ languageService.t('dashboard.period.rosterNote') }}</p>
+        <p class="inline-flex items-center gap-2 rounded-full border border-[#e6dfea] bg-white px-3 py-1.5">
+          <span class="h-2 w-2 rounded-full" [ngClass]="overview()?.lastSuccessfulCanvasSyncAtUtc ? 'bg-emerald-500' : 'bg-slate-300'"></span>
+          <span class="font-semibold text-[#5f5368]">{{ languageService.t('dashboard.canvasSync.label') }}</span>
+          <span>{{ overview()?.lastSuccessfulCanvasSyncAtUtc ? formatSyncDate(overview()!.lastSuccessfulCanvasSyncAtUtc!) : languageService.t('dashboard.canvasSync.none') }}</span>
+        </p>
+      </div>
 
       @if (periodLoading()) {
         <div
@@ -101,7 +108,10 @@ interface RiskRow {
       } @else {
       <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-          <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.students') }}</p>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.students') }}</p>
+            <span class="rounded-full bg-[#f1edf4] px-2.5 py-1 text-xs font-bold text-[#5b287d]">{{ gradeScopeLabel() }}</span>
+          </div>
           <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalStudents ?? '—' }}</p>
           <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.studentsSub') }}</p>
         </article>
@@ -263,6 +273,22 @@ export class DashboardComponent implements OnInit {
     return `${this.formatYear(data.periodYear)} · ${term}`;
   });
 
+  readonly gradeScopeLabel = computed(() => {
+    const grades = (this.overview()?.includedGradeLevels ?? [])
+      .map((grade) => Number(grade))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    if (!grades.length) return this.languageService.t('dashboard.gradeScope.default');
+    const consecutive = grades.every((grade, index) => index === 0 || grade === grades[index - 1] + 1);
+    if (consecutive && grades.length > 1) {
+      return this.languageService.t('dashboard.gradeScope.range')
+        .replace('{start}', String(grades[0]))
+        .replace('{end}', String(grades[grades.length - 1]));
+    }
+    return this.languageService.t('dashboard.gradeScope.list')
+      .replace('{grades}', grades.join(', '));
+  });
+
   readonly riskRows = computed<RiskRow[]>(() => {
     const data = this.overview();
     if (!data) {
@@ -310,16 +336,25 @@ export class DashboardComponent implements OnInit {
   });
 
   ngOnInit() {
-    forkJoin({
-      options: this.workspaceFilters.periodOptions().pipe(catchError(() => of({ academicYears: [], terms: [] }))),
-      filters: this.workspaceFilters.load().pipe(catchError(() => of(defaultFilterSet()))),
-    }).subscribe({
-      next: ({ options, filters }) => this.initializePeriod(options.academicYears, options.terms, filters),
-      error: () => {
-        this.currentFilters = defaultFilterSet();
-        this.terms.set([]);
-        this.loadOverview();
-      },
+    // The overview should not wait for dropdown metadata. Load the saved period first and let
+    // period options populate independently; the API resolves an invalid/empty period safely.
+    this.workspaceFilters.load().pipe(catchError(() => of(defaultFilterSet()))).subscribe((filters) => {
+      this.currentFilters = filters;
+      this.selectedYear = filters.year;
+      this.selectedTerm = filters.semester || 'all';
+      this.loadOverview();
+    });
+    this.workspaceFilters.periodOptions().pipe(
+      catchError(() => of({ academicYears: [] as string[], terms: [] as string[] })),
+    ).subscribe((options) => {
+      const years = [...options.academicYears];
+      if (this.selectedYear && !years.includes(this.selectedYear)) years.unshift(this.selectedYear);
+      const terms = [...options.terms];
+      if (this.selectedTerm && this.selectedTerm !== 'all' && !terms.includes(this.selectedTerm)) {
+        terms.push(this.selectedTerm);
+      }
+      this.years.set(years);
+      this.terms.set(terms);
     });
   }
 
@@ -347,6 +382,9 @@ export class DashboardComponent implements OnInit {
         if (!this.years().includes(data.periodYear)) {
           this.years.update((years) => [data.periodYear, ...years]);
         }
+        if (data.periodTerm !== 'all' && !this.terms().includes(data.periodTerm)) {
+          this.terms.update((terms) => [...terms, data.periodTerm]);
+        }
         this.selectedYear = data.periodYear;
         this.selectedTerm = data.periodTerm;
       },
@@ -360,25 +398,17 @@ export class DashboardComponent implements OnInit {
     });
   }
 
-  private initializePeriod(years: string[], terms: string[], filters: WorkspaceFilterSet): void {
-    this.years.set(years);
-    const availableTerms = terms;
-    this.terms.set(availableTerms);
-
-    this.selectedYear = years.includes(filters.year) ? filters.year : years[0] ?? '';
-    this.selectedTerm = filters.semester === 'all' || availableTerms.includes(filters.semester)
-      ? filters.semester
-      : 'all';
-    this.currentFilters = {
-      ...filters,
-      year: this.selectedYear,
-      semester: this.selectedTerm,
-    };
-    this.loadOverview();
-  }
-
   formatYear(year: string): string {
     return year.replace('-', '–');
+  }
+
+  formatSyncDate(value: string): string {
+    const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-GB';
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'Asia/Ho_Chi_Minh',
+    }).format(new Date(value));
   }
 
   termLabel(term: string): string {

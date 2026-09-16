@@ -61,7 +61,11 @@ public class StudentsController : ControllerBase
         }
         if (!string.IsNullOrWhiteSpace(grade))
         {
-            query = query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == grade.Trim());
+            var normalizedGrade = grade.Trim();
+            query = normalizedGrade == "—"
+                ? query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == null ||
+                    (student.GradeLevel ?? student.CanvasGradeLevel) == "")
+                : query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == normalizedGrade);
         }
 
         var settings = await ClassificationSettings();
@@ -153,11 +157,18 @@ public class StudentsController : ControllerBase
     public async Task<ActionResult<AtRiskStudentsPageDto>> GetAtRiskStudents(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] string? grade = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
         var settings = await ClassificationSettings();
-        var candidates = (await LoadVisibleSignals(settings))
+        var term = search?.Trim();
+        if (!string.IsNullOrWhiteSpace(term))
+        {
+            term = term[..Math.Min(term.Length, 100)];
+        }
+        var normalizedGrade = grade?.Trim();
+        var candidates = (await LoadVisibleSignals(settings, term, normalizedGrade))
             .Select(entry => new
             {
                 entry.Student,
@@ -165,17 +176,6 @@ public class StudentsController : ControllerBase
                 Risk = StudentClassificationService.ClassifyRisk(entry.Signals, settings)
             })
             .Where(entry => entry.Risk.Level != "None");
-        var term = search?.Trim();
-        if (!string.IsNullOrWhiteSpace(term))
-        {
-            term = term[..Math.Min(term.Length, 100)];
-            candidates = candidates.Where(entry =>
-                entry.Student.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                entry.Student.SISUserId.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                (entry.Student.Homeroom?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (entry.Student.GradeLevel ?? entry.Student.CanvasGradeLevel)?.Contains(
-                    term, StringComparison.OrdinalIgnoreCase) == true);
-        }
         var atRiskStudents = candidates
             .OrderByDescending(entry => entry.Risk.Level == "High")
             .ThenByDescending(entry => entry.Signals.ConcerningBehaviourCount + entry.Signals.RiskBusViolationCount)
@@ -1377,9 +1377,29 @@ public class StudentsController : ControllerBase
         CustomFields = ImportCustomFieldService.Parse(record.CustomFieldsJson)
     };
 
-    private async Task<List<StudentProfile>> LoadVisibleWithActivity()
+    private async Task<List<StudentProfile>> LoadVisibleWithActivity(
+        string? search = null, string? grade = null)
     {
-        return await VisibleStudents()
+        var query = VisibleStudents();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = $"%{EscapeLikePattern(search)}%";
+            query = query.Where(student =>
+                EF.Functions.Like(student.FullName, pattern, "!") ||
+                EF.Functions.Like(student.SISUserId, pattern, "!") ||
+                student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!") ||
+                student.GradeLevel != null && EF.Functions.Like(student.GradeLevel, pattern, "!") ||
+                student.CanvasGradeLevel != null && EF.Functions.Like(student.CanvasGradeLevel, pattern, "!"));
+        }
+        if (!string.IsNullOrWhiteSpace(grade))
+        {
+            query = grade == "—"
+                ? query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == null ||
+                    (student.GradeLevel ?? student.CanvasGradeLevel) == "")
+                : query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == grade);
+        }
+
+        return await query
             .AsSplitQuery()
             .Include(student => student.Behaviours)
             .Include(student => student.Projects)
@@ -1388,9 +1408,10 @@ public class StudentsController : ControllerBase
             .ToListAsync();
     }
 
-    private async Task<List<StudentSignalRow>> LoadVisibleSignals(StudentClassificationSettingsDto settings)
+    private async Task<List<StudentSignalRow>> LoadVisibleSignals(
+        StudentClassificationSettingsDto settings, string? search = null, string? grade = null)
     {
-        var students = await LoadVisibleWithActivity();
+        var students = await LoadVisibleWithActivity(search, grade);
         var now = DateTime.UtcNow;
         var riskSince = now.AddDays(-settings.RiskWindowDays);
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);

@@ -28,6 +28,8 @@ export interface DashboardAttentionStudent {
 export interface DashboardOverview {
   periodYear: string;
   periodTerm: string;
+  lastSuccessfulCanvasSyncAtUtc?: string | null;
+  includedGradeLevels?: string[];
   totalStudents: number;
   atRiskTotal: number;
   atRiskHigh: number;

@@ -16,6 +16,8 @@ public class DashboardOverviewDto
 {
     public string PeriodYear { get; set; } = default!;
     public string PeriodTerm { get; set; } = default!;
+    public DateTime? LastSuccessfulCanvasSyncAtUtc { get; set; }
+    public List<string> IncludedGradeLevels { get; set; } = [];
     public int TotalStudents { get; set; }
     public int AtRiskTotal { get; set; }
     public int AtRiskHigh { get; set; }

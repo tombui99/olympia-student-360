@@ -1,15 +1,20 @@
 import { NgClass, NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, HostListener, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { catchError, forkJoin, of } from 'rxjs';
+import { catchError, forkJoin, Observable, of } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import {
   DashboardGrade,
   DashboardOverview,
   DashboardOverviewService,
 } from '../dashboard/dashboard-overview.service';
-import { AtRiskStudent, AtRiskStudentsPage, StudentsService } from '../students/students.service';
+import {
+  AtRiskStudent,
+  AtRiskStudentsPage,
+  StudentListItem,
+  StudentsService,
+} from '../students/students.service';
 import { MetricVariable, ReportBuilderService } from './report-builder.service';
 import {
   defaultFilterSet,
@@ -19,6 +24,7 @@ import {
 
 type StaticReportId = 'learning-diligence' | 'support-classes' | 'support-students';
 type ReportStatus = 'green' | 'amber' | 'red';
+type ClassDrilldownKind = 'students' | 'support';
 
 interface ReportMenuItem {
   id: StaticReportId;
@@ -35,6 +41,19 @@ interface LearningReportRow {
   targetKey: string;
   status: ReportStatus | null;
   inverse?: boolean;
+}
+
+interface ClassDrilldownContext {
+  grade: string;
+  kind: ClassDrilldownKind;
+}
+
+interface ClassDrilldownPage {
+  items: StudentListItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
 }
 
 @Component({
@@ -310,9 +329,27 @@ interface LearningReportRow {
                 @for (row of paginatedClassRows(); track row.grade) {
                   <tr class="transition hover:bg-[#fdfbfe]">
                     <td class="px-5 py-4 font-semibold text-[#32124f]">{{ languageService.t('reports.grade') }} {{ row.grade }}</td>
-                    <td class="px-4 py-4 text-right text-sm text-[#625969]">{{ row.students }}</td>
+                    <td class="px-4 py-4 text-right text-sm text-[#625969]">
+                      <button
+                        class="rounded px-1.5 py-1 font-semibold text-[#5d2d7b] underline decoration-[#bca9c8] decoration-dotted underline-offset-4 transition hover:bg-[#f3edf7] hover:decoration-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6d3a91] disabled:cursor-default disabled:text-[#9a91a3] disabled:no-underline"
+                        type="button"
+                        [disabled]="row.students === 0"
+                        [attr.aria-label]="classDrilldownOpenLabel(row.grade, 'students')"
+                        [attr.title]="classDrilldownOpenLabel(row.grade, 'students')"
+                        (click)="openClassDrilldown(row, 'students')"
+                      >{{ row.students }}</button>
+                    </td>
                     <td class="px-4 py-4 text-right text-sm font-semibold text-[#32124f]">{{ formatPercent(row.averageCanvasScorePercentage ?? null) }}</td>
-                    <td class="px-4 py-4 text-right text-sm font-semibold text-[#32124f]">{{ row.atRisk }}</td>
+                    <td class="px-4 py-4 text-right text-sm font-semibold text-[#32124f]">
+                      <button
+                        class="rounded px-1.5 py-1 font-semibold text-[#5d2d7b] underline decoration-[#bca9c8] decoration-dotted underline-offset-4 transition hover:bg-[#f3edf7] hover:decoration-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6d3a91] disabled:cursor-default disabled:text-[#9a91a3] disabled:no-underline"
+                        type="button"
+                        [disabled]="row.atRisk === 0"
+                        [attr.aria-label]="classDrilldownOpenLabel(row.grade, 'support')"
+                        [attr.title]="classDrilldownOpenLabel(row.grade, 'support')"
+                        (click)="openClassDrilldown(row, 'support')"
+                      >{{ row.atRisk }}</button>
+                    </td>
                     <td class="px-4 py-4 text-right text-sm font-semibold text-[#32124f]">{{ classRiskRate(row) }}</td>
                     <td class="px-4 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-bold" [ngClass]="statusBadgeClass(classStatus(row))">{{ statusLabel(classStatus(row)) }}</span></td>
                     <td class="px-5 py-4 text-sm text-[#625969]">{{ classFollowUpKey(row) }}</td>
@@ -411,6 +448,116 @@ interface LearningReportRow {
         <p class="border-t border-[#eee8f1] bg-[#faf8fb] px-5 py-3 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.students.note') }}</p>
       </section>
     </ng-template>
+
+    @if (classDrilldownMounted()) {
+      <div class="no-print fixed inset-0 z-50" [class.pointer-events-none]="!classDrilldownOpen()">
+        <button
+          class="absolute inset-0 bg-[#24182f]/35 transition-opacity duration-300"
+          [class.opacity-100]="classDrilldownOpen()"
+          [class.opacity-0]="!classDrilldownOpen()"
+          type="button"
+          [attr.aria-label]="languageService.t('reports.drilldown.close')"
+          (click)="closeClassDrilldown()"
+        ></button>
+
+        <aside
+          class="absolute right-0 top-0 flex h-full w-full max-w-lg flex-col bg-white shadow-[0_24px_80px_rgba(36,24,47,0.28)] transition-transform duration-300 ease-out"
+          [class.translate-x-0]="classDrilldownOpen()"
+          [class.translate-x-full]="!classDrilldownOpen()"
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-label]="classDrilldownTitle()"
+        >
+          <div class="flex items-start justify-between gap-4 border-b border-[#ebe6ef] px-6 py-5">
+            <div class="min-w-0">
+              <p class="text-xs font-bold uppercase tracking-[0.16em] text-[#8a6811]">
+                {{ languageService.t('reports.drilldown.eyebrow') }}
+              </p>
+              <h3 class="mt-2 text-xl font-semibold text-[#32124f]">{{ classDrilldownTitle() }}</h3>
+              <p class="mt-1 text-sm text-[#6f6877]">
+                {{ languageService.t('reports.grade') }} {{ classDrilldownContext()?.grade }} · {{ periodLabel() }}
+              </p>
+            </div>
+            <button
+              class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#d8d0df] text-xl text-[#32124f] transition hover:bg-[#f4eef7]"
+              type="button"
+              [attr.aria-label]="languageService.t('reports.drilldown.close')"
+              (click)="closeClassDrilldown()"
+            >×</button>
+          </div>
+
+          <div class="border-b border-[#ebe6ef] bg-[#faf9f6] px-6 py-3">
+            <label class="relative block">
+              <span class="sr-only">{{ languageService.t('reports.drilldown.searchPlaceholder') }}</span>
+              <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b8193]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input
+                class="w-full rounded-md border border-[#d8d0df] bg-white py-2.5 pl-9 pr-9 text-sm text-[#32124f] outline-none transition placeholder:text-[#9a91a3] focus:border-[#6d3a91] focus:ring-2 focus:ring-[#6d3a91]/10"
+                type="search"
+                [ngModel]="classDrilldownSearch()"
+                (ngModelChange)="onClassDrilldownSearch($event)"
+                [placeholder]="languageService.t('reports.drilldown.searchPlaceholder')"
+              />
+              @if (classDrilldownSearch()) {
+                <button
+                  class="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-sm text-[#6f6877] hover:bg-[#f1edf4]"
+                  type="button"
+                  [attr.aria-label]="languageService.t('reports.drilldown.clearSearch')"
+                  (click)="clearClassDrilldownSearch()"
+                >×</button>
+              }
+            </label>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            @if (classDrilldownLoading()) {
+              <div class="grid min-h-48 place-items-center" role="status">
+                <div class="text-center">
+                  <span class="mx-auto block h-9 w-9 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span>
+                  <p class="mt-3 text-sm text-[#7c7284]">{{ languageService.t('reports.drilldown.loading') }}</p>
+                </div>
+              </div>
+            } @else if (classDrilldownLoadFailed()) {
+              <div class="rounded-md border border-red-200 bg-red-50 p-5 text-center">
+                <p class="text-sm text-red-700">{{ languageService.t('reports.drilldown.loadError') }}</p>
+                <button class="mt-3 rounded-md border border-red-200 bg-white px-4 py-2 text-xs font-semibold text-red-700" type="button" (click)="loadClassDrilldown(classDrilldownPage())">{{ languageService.t('reports.retry') }}</button>
+              </div>
+            } @else {
+              <ul class="space-y-2">
+                @for (student of classDrilldownStudents(); track student.id) {
+                  <li>
+                    <a
+                      class="flex items-center gap-3 rounded-lg border border-[#ebe6ef] p-3 transition hover:border-[#d3c6db] hover:bg-[#fdfcff]"
+                      [routerLink]="['/students', student.id]"
+                      (click)="closeClassDrilldown()"
+                    >
+                      <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1edf4] text-xs font-bold text-[#5b287d]">{{ studentInitials(student.fullName) }}</span>
+                      <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-semibold text-[#32124f]">{{ student.fullName }}</span>
+                        <span class="mt-0.5 block truncate text-xs text-[#7c7284]">{{ student.sisUserId }} · {{ student.homeroom || (languageService.t('reports.grade') + ' ' + (student.gradeLevel || '—')) }}</span>
+                      </span>
+                      <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold" [ngClass]="riskBadgeClass(student.riskLevel)">{{ riskLabel(student.riskLevel) }}</span>
+                      <span aria-hidden="true" class="text-[#6d3a91]">→</span>
+                    </a>
+                  </li>
+                } @empty {
+                  <li class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center text-sm text-[#7c7284]">{{ languageService.t('reports.drilldown.empty') }}</li>
+                }
+              </ul>
+            }
+          </div>
+
+          @if (!classDrilldownLoading() && !classDrilldownLoadFailed() && classDrilldownTotalCount() > 0) {
+            <div class="flex items-center justify-between gap-3 border-t border-[#ebe6ef] px-6 py-4">
+              <span class="text-xs text-[#6f6877]">{{ classDrilldownPageLabel() }}</span>
+              <div class="flex gap-2">
+                <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] disabled:cursor-not-allowed disabled:opacity-40" type="button" [disabled]="classDrilldownPage() <= 1" (click)="loadClassDrilldown(classDrilldownPage() - 1)">{{ languageService.t('pagination.previous') }}</button>
+                <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] disabled:cursor-not-allowed disabled:opacity-40" type="button" [disabled]="classDrilldownPage() >= classDrilldownTotalPages()" (click)="loadClassDrilldown(classDrilldownPage() + 1)">{{ languageService.t('pagination.next') }}</button>
+              </div>
+            </div>
+          }
+        </aside>
+      </div>
+    }
   `,
   styles: `
     :host { display: block; }
@@ -441,7 +588,7 @@ interface LearningReportRow {
     }
   `,
 })
-export class StaticReportsComponent implements OnInit {
+export class StaticReportsComponent implements OnInit, OnDestroy {
   private readonly reportBuilder = inject(ReportBuilderService);
   private readonly overviewService = inject(DashboardOverviewService);
   private readonly studentsService = inject(StudentsService);
@@ -471,6 +618,16 @@ export class StaticReportsComponent implements OnInit {
   readonly studentTotalPages = signal(0);
   readonly classPage = signal(1);
   readonly classPageSize = signal(10);
+  readonly classDrilldownMounted = signal(false);
+  readonly classDrilldownOpen = signal(false);
+  readonly classDrilldownLoading = signal(false);
+  readonly classDrilldownLoadFailed = signal(false);
+  readonly classDrilldownContext = signal<ClassDrilldownContext | null>(null);
+  readonly classDrilldownStudents = signal<StudentListItem[]>([]);
+  readonly classDrilldownSearch = signal('');
+  readonly classDrilldownPage = signal(1);
+  readonly classDrilldownTotalCount = signal(0);
+  readonly classDrilldownTotalPages = signal(0);
   selectedYear = '';
   selectedTerm = 'all';
   readonly studentSearch = signal('');
@@ -478,6 +635,10 @@ export class StaticReportsComponent implements OnInit {
   private requestId = 0;
   private studentRequestId = 0;
   private studentSearchTimer: number | undefined;
+  private classDrilldownRequestId = 0;
+  private classDrilldownSearchTimer: number | undefined;
+  private classDrilldownUnmountTimer: number | undefined;
+  private readonly classDrilldownPageSize = 20;
 
   readonly periodLabel = computed(() => {
     const year = this.overview()?.periodYear || this.selectedYear;
@@ -531,12 +692,126 @@ export class StaticReportsComponent implements OnInit {
     });
   }
 
+  ngOnDestroy(): void {
+    if (this.studentSearchTimer !== undefined) window.clearTimeout(this.studentSearchTimer);
+    if (this.classDrilldownSearchTimer !== undefined) window.clearTimeout(this.classDrilldownSearchTimer);
+    if (this.classDrilldownUnmountTimer !== undefined) window.clearTimeout(this.classDrilldownUnmountTimer);
+  }
+
+  @HostListener('document:keydown.escape')
+  closeClassDrilldownOnEscape(): void {
+    if (this.classDrilldownMounted()) this.closeClassDrilldown();
+  }
+
   selectReport(report: StaticReportId): void {
     this.activeReport.set(report);
   }
 
   toggleReportMenu(): void {
     this.reportMenuCollapsed.update((collapsed) => !collapsed);
+  }
+
+  openClassDrilldown(row: DashboardGrade, kind: ClassDrilldownKind): void {
+    if ((kind === 'students' ? row.students : row.atRisk) <= 0) return;
+    if (this.classDrilldownUnmountTimer !== undefined) {
+      window.clearTimeout(this.classDrilldownUnmountTimer);
+      this.classDrilldownUnmountTimer = undefined;
+    }
+    this.classDrilldownContext.set({ grade: row.grade, kind });
+    this.classDrilldownSearch.set('');
+    this.classDrilldownStudents.set([]);
+    this.classDrilldownPage.set(1);
+    this.classDrilldownTotalCount.set(0);
+    this.classDrilldownTotalPages.set(0);
+    this.classDrilldownMounted.set(true);
+    window.requestAnimationFrame(() => this.classDrilldownOpen.set(true));
+    this.loadClassDrilldown(1);
+  }
+
+  closeClassDrilldown(): void {
+    if (this.classDrilldownSearchTimer !== undefined) {
+      window.clearTimeout(this.classDrilldownSearchTimer);
+      this.classDrilldownSearchTimer = undefined;
+    }
+    this.classDrilldownRequestId++;
+    this.classDrilldownOpen.set(false);
+    this.classDrilldownUnmountTimer = window.setTimeout(() => {
+      this.classDrilldownMounted.set(false);
+      this.classDrilldownContext.set(null);
+      this.classDrilldownUnmountTimer = undefined;
+    }, 300);
+  }
+
+  loadClassDrilldown(page: number): void {
+    const context = this.classDrilldownContext();
+    if (!context || page < 1 || (this.classDrilldownTotalPages() > 0 && page > this.classDrilldownTotalPages())) return;
+
+    const requestId = ++this.classDrilldownRequestId;
+    this.classDrilldownLoading.set(true);
+    this.classDrilldownLoadFailed.set(false);
+    const request$: Observable<ClassDrilldownPage> = context.kind === 'support'
+      ? this.studentsService.atRisk(page, this.classDrilldownPageSize, this.classDrilldownSearch(), context.grade)
+      : this.studentsService.list(page, this.classDrilldownPageSize, this.classDrilldownSearch(), context.grade, false);
+
+    request$.subscribe({
+      next: (response) => {
+        if (requestId !== this.classDrilldownRequestId) return;
+        this.classDrilldownStudents.set(response.items);
+        this.classDrilldownPage.set(response.page);
+        this.classDrilldownTotalCount.set(response.totalCount);
+        this.classDrilldownTotalPages.set(response.totalPages);
+        this.classDrilldownLoading.set(false);
+      },
+      error: () => {
+        if (requestId !== this.classDrilldownRequestId) return;
+        this.classDrilldownLoadFailed.set(true);
+        this.classDrilldownLoading.set(false);
+      },
+    });
+  }
+
+  onClassDrilldownSearch(value: string): void {
+    this.classDrilldownSearch.set(value);
+    if (this.classDrilldownSearchTimer !== undefined) window.clearTimeout(this.classDrilldownSearchTimer);
+    this.classDrilldownSearchTimer = window.setTimeout(() => {
+      this.classDrilldownSearchTimer = undefined;
+      this.loadClassDrilldown(1);
+    }, 300);
+  }
+
+  clearClassDrilldownSearch(): void {
+    if (this.classDrilldownSearchTimer !== undefined) {
+      window.clearTimeout(this.classDrilldownSearchTimer);
+      this.classDrilldownSearchTimer = undefined;
+    }
+    this.classDrilldownSearch.set('');
+    this.loadClassDrilldown(1);
+  }
+
+  classDrilldownTitle(): string {
+    const key = this.classDrilldownContext()?.kind === 'support'
+      ? 'reports.drilldown.supportTitle'
+      : 'reports.drilldown.studentsTitle';
+    return this.languageService.t(key);
+  }
+
+  classDrilldownOpenLabel(grade: string, kind: ClassDrilldownKind): string {
+    const key = kind === 'support'
+      ? 'reports.drilldown.openSupport'
+      : 'reports.drilldown.openStudents';
+    return this.languageService.t(key).replace('{grade}', grade);
+  }
+
+  classDrilldownPageLabel(): string {
+    return this.pageLabel(
+      this.classDrilldownPage(),
+      this.classDrilldownTotalPages(),
+      this.classDrilldownTotalCount(),
+    );
+  }
+
+  studentInitials(name: string): string {
+    return name.trim().split(/\s+/).slice(-2).map((part) => part[0]?.toUpperCase()).join('') || 'S';
   }
 
   onStudentSearchChange(value: string): void {
@@ -696,7 +971,10 @@ export class StaticReportsComponent implements OnInit {
   }
 
   riskBadgeClass(level: string): string {
-    return level === 'High' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800';
+    if (level === 'High') return 'bg-red-100 text-red-800';
+    if (level === 'Medium') return 'bg-amber-100 text-amber-800';
+    if (level === 'Low') return 'bg-sky-100 text-sky-800';
+    return 'bg-emerald-100 text-emerald-800';
   }
 
   riskLabel(level: string): string {

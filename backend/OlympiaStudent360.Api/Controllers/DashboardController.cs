@@ -379,33 +379,22 @@ public class DashboardController : ControllerBase
 
     private async Task<(List<string> AcademicYears, List<string> Terms)> LoadFilterPeriods(bool canvasOnly)
     {
-        // Collapse fact timestamps in SQL. Selecting the exact timestamp here previously returned
-        // almost one row per submission before .NET reduced them to academic years.
-        var canvasPeriods = await _context.CanvasCourseScores.AsNoTracking()
-            .Where(item => item.StudentProfileId != null &&
-                (item.FinalScore != null || item.CurrentScore != null) &&
-                (item.GradingPeriodEndDate != null || item.Enrollment!.Course!.EndAt != null))
+        // Period options are dimensions, so read them from Canvas course/enrollment metadata.
+        // Scanning the submissions fact table here made the dashboard wait on hundreds of
+        // thousands of rows merely to populate two small dropdowns.
+        var canvasCoursePeriods = await _context.CanvasCourses.AsNoTracking()
+            .Where(item => item.Enrollments.Any(enrollment => enrollment.StudentProfileId != null))
             .Select(item => new
             {
-                Year = (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Year,
-                Month = (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Month,
-                Term = item.GradingPeriodTitle
+                item.EnrollmentTermName,
+                item.StartAt,
+                item.EndAt
             })
-            .Concat(_context.CanvasSubmissions.AsNoTracking()
-                .Where(item => item.StudentProfileId != null &&
-                    (item.SubmittedAt != null ||
-                     (item.WorkflowState != null && item.WorkflowState.ToLower() == "graded" &&
-                      (item.GradedAt != null || item.SubmittedAt != null)) ||
-                     (item.Missing && item.Excused != true &&
-                      (item.CachedDueDate != null || item.Assignment!.DueAt != null))))
-                .Select(item => new
-                {
-                    Year = (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt)!
-                        .Value.Year,
-                    Month = (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt)!
-                        .Value.Month,
-                    Term = (string?)null
-                }))
+            .Distinct()
+            .ToListAsync();
+        var canvasTerms = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(item => item.StudentProfileId != null && item.GradingPeriodTitle != null)
+            .Select(item => item.GradingPeriodTitle!)
             .Distinct()
             .ToListAsync();
 
@@ -429,8 +418,9 @@ public class DashboardController : ControllerBase
                 .Select(item => new { Year = item.ExamTime.Year, Month = item.ExamTime.Month })
                 .Distinct()
                 .ToListAsync();
-        var academicYears = canvasPeriods
-            .Select(item => DashboardPeriodNormalizer.AcademicYear(new DateTime(item.Year, item.Month, 1)))
+        var academicYears = canvasCoursePeriods
+            .Select(item => DashboardPeriodNormalizer.AcademicYear(
+                item.EnrollmentTermName ?? "", item.EndAt ?? item.StartAt))
             .Concat(importedAcademicYears.Select(DashboardPeriodNormalizer.AcademicYear))
             .Concat(healthVisitPeriods.Select(item =>
                 DashboardPeriodNormalizer.AcademicYear(new DateTime(item.Year, item.Month, 1))))
@@ -453,8 +443,7 @@ public class DashboardController : ControllerBase
                     .Select(item => item.Term!))
                 .Distinct()
                 .ToListAsync();
-        var terms = canvasPeriods.Where(item => item.Term != null).Select(item => item.Term!)
-            .Concat(importedTerms)
+        var terms = canvasTerms.Concat(importedTerms)
             .Select(DashboardPeriodNormalizer.Term)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -2147,6 +2136,7 @@ public class DashboardController : ControllerBase
     {
         var now = DateTime.UtcNow;
         var period = await ResolvePeriod(year, term, now);
+        var lastSuccessfulCanvasSyncAtUtc = await LastSuccessfulCanvasSyncAtUtc();
 
         var students = await VisibleStudents()
             .Include(student => student.Behaviours)
@@ -2174,6 +2164,7 @@ public class DashboardController : ControllerBase
         {
             PeriodYear = period.Year,
             PeriodTerm = period.Term,
+            LastSuccessfulCanvasSyncAtUtc = lastSuccessfulCanvasSyncAtUtc,
             TotalStudents = students.Count,
             TotalProjects = students.Sum(student => student.Projects.Count(project => InPeriod(project, period))),
             ActiveProjects = students.Sum(student => student.Projects
@@ -2234,7 +2225,8 @@ public class DashboardController : ControllerBase
                 }
             }
 
-            var gradeKey = string.IsNullOrWhiteSpace(student.GradeLevel) ? "—" : student.GradeLevel!;
+            var resolvedGrade = student.GradeLevel ?? student.CanvasGradeLevel;
+            var gradeKey = string.IsNullOrWhiteSpace(resolvedGrade) ? "—" : resolvedGrade;
             if (!gradeBuckets.TryGetValue(gradeKey, out var bucket))
             {
                 bucket = new DashboardGradeDto { Grade = gradeKey };
@@ -2269,6 +2261,11 @@ public class DashboardController : ControllerBase
         overview.GradeDistribution = gradeBuckets.Values
             .OrderBy(grade => grade.Grade, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        overview.IncludedGradeLevels = gradeBuckets.Keys
+            .Where(grade => int.TryParse(grade, out _))
+            .OrderBy(grade => int.TryParse(grade, out var number) ? number : int.MaxValue)
+            .ThenBy(grade => grade, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         overview.TopAtRisk = attentionCandidates
             .OrderBy(candidate => candidate.RiskLevel == "High" ? 0 : 1)
             .ThenByDescending(candidate => candidate.SignalCount)
@@ -2286,6 +2283,32 @@ public class DashboardController : ControllerBase
             .ToList();
 
         return Ok(overview);
+    }
+
+    private async Task<DateTime?> LastSuccessfulCanvasSyncAtUtc()
+    {
+        var completedRunAt = await _context.CanvasSyncRuns.AsNoTracking()
+            .Where(run => run.Status == "completed" && run.CompletedAtUtc != null)
+            .OrderByDescending(run => run.CompletedAtUtc)
+            .Select(run => run.CompletedAtUtc)
+            .FirstOrDefaultAsync();
+        var state = await _context.CanvasSyncStates.AsNoTracking()
+            .Where(item => item.LastSuccessfulWatermarkUtc != null)
+            .OrderByDescending(item => item.LastSuccessfulWatermarkUtc)
+            .Select(item => new
+            {
+                item.LastSuccessfulWatermarkUtc,
+                item.LastCompletedAtUtc,
+                item.LastStatus
+            })
+            .FirstOrDefaultAsync();
+        var successfulStateAt = state?.LastStatus == "completed"
+            ? state.LastCompletedAtUtc ?? state.LastSuccessfulWatermarkUtc
+            : state?.LastSuccessfulWatermarkUtc;
+
+        if (completedRunAt is null) return successfulStateAt;
+        if (successfulStateAt is null) return completedRunAt;
+        return completedRunAt > successfulStateAt ? completedRunAt : successfulStateAt;
     }
 
     private async Task<(string Year, string Term, DateTime Start, DateTime End)> ResolvePeriod(
