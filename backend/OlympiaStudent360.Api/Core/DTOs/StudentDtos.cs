@@ -137,8 +137,10 @@ public class StudentBehaviourTrendPointDto
 public class StudentCanvasDto
 {
     public bool HasData { get; set; }
-    /// <summary>Academic year the headline tiles/courses reflect (the student's latest year).</summary>
+    /// <summary>Academic year the headline tiles, courses, and submissions currently reflect.</summary>
     public string? AcademicYear { get; set; }
+    /// <summary>Every academic year for which this student has Canvas scores or submissions.</summary>
+    public List<string> AcademicYears { get; set; } = [];
     public int CoursesEnrolled { get; set; }
     public decimal? AverageCourseGrade { get; set; }
     public decimal? AverageAssignmentScore { get; set; }

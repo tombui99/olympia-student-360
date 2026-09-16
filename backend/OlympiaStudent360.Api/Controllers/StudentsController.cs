@@ -842,9 +842,23 @@ public class StudentsController : ControllerBase
         return Ok(await LoadCanvasCourseGrades(id, year, page, pageSize));
     }
 
+    [HttpGet("{id:int}/canvas/summary")]
+    public async Task<ActionResult<StudentCanvasDto>> GetCanvasSummary(
+        int id,
+        [FromQuery] string? academicYear)
+    {
+        if (!await VisibleStudents().AnyAsync(student => student.Id == id))
+        {
+            return NotFound(new { Message = "Student was not found." });
+        }
+
+        return Ok(await BuildCanvasSummary(id, academicYear));
+    }
+
     [HttpGet("{id:int}/canvas/recent-submissions")]
     public async Task<ActionResult<StudentCanvasSubmissionsPageDto>> GetCanvasRecentSubmissions(
         int id,
+        [FromQuery] string? academicYear,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
@@ -853,7 +867,8 @@ public class StudentsController : ControllerBase
             return NotFound(new { Message = "Student was not found." });
         }
 
-        return Ok(await LoadCanvasRecentSubmissions(id, page, pageSize));
+        var year = await ResolveCanvasYear(id, academicYear);
+        return Ok(await LoadCanvasRecentSubmissions(id, year, page, pageSize));
     }
 
     [HttpGet("{id:int}/canvas/submissions")]
@@ -893,7 +908,8 @@ public class StudentsController : ControllerBase
 
         // Headline tiles/courses reflect one focus year (the selected year, or the latest on
         // record by default); the journey below always spans every year.
-        var year = await ResolveCanvasYear(studentProfileId, focusYear);
+        var academicYears = await LoadCanvasAcademicYears(studentProfileId);
+        var year = ResolveCanvasYear(focusYear, academicYears);
         var yearAliases = year is null ? [] : await CanvasAcademicYearAliases(year);
         var latestScores = year is null
             ? scoreQuery.Where(_ => false)
@@ -924,16 +940,18 @@ public class StudentsController : ControllerBase
             submission.Missing && submission.Excused != true);
         var lateSubmissions = await latestSubmissions.CountAsync(submission => submission.Late);
 
-        // Grade trajectory: a reporting average of Canvas final_score grouped only by the exact
-        // Canvas enrollment-term name and grading-period title. Historical grade level is not
-        // inferred because neither Canvas nor SIS supplied it for that historical period.
+        // Grade trajectory: a semester average for HK1 and HK2 in each academic year.
+        // Whole-course/full-year facts are deliberately excluded because they duplicate the
+        // semester journey. Historical grade level is not inferred because neither Canvas nor
+        // SIS supplied it for that historical period.
         var journeyRows = await scoreQuery
             .Where(score => score.FinalScore != null &&
-                score.Enrollment!.Course!.EnrollmentTermName != null)
+                score.Enrollment!.Course!.EnrollmentTermName != null &&
+                score.GradingPeriodTitle != null)
             .GroupBy(score => new
             {
                 AcademicYear = score.Enrollment!.Course!.EnrollmentTermName,
-                Term = score.GradingPeriodTitle ?? score.Enrollment.Course.EnrollmentTermName,
+                Term = score.GradingPeriodTitle,
                 score.GradingPeriodEndDate
             })
             .Select(group => new
@@ -955,13 +973,14 @@ public class StudentsController : ControllerBase
                 return new
                 {
                     AcademicYear = academicYear,
-                    Term = normalizedTerm is "hk1" or "hk2" ? normalizedTerm : "YR",
+                    Term = normalizedTerm,
                     item.AverageGrade,
                     item.CourseCount,
                     item.RecordCount
                 };
             })
-            .Where(item => DashboardPeriodNormalizer.IsAcademicYear(item.AcademicYear))
+            .Where(item => DashboardPeriodNormalizer.IsAcademicYear(item.AcademicYear) &&
+                item.Term is "hk1" or "hk2")
             .GroupBy(item => new { item.AcademicYear, item.Term })
             .Select(group => new StudentCanvasJourneyPointDto
             {
@@ -974,16 +993,17 @@ public class StudentsController : ControllerBase
                 CourseCount = group.Sum(item => item.CourseCount)
             })
             .OrderBy(point => DashboardPeriodNormalizer.AcademicYearStart(point.AcademicYear))
-            .ThenBy(point => point.Term == "hk1" ? 1 : point.Term == "hk2" ? 2 : 3)
+            .ThenBy(point => point.Term == "hk1" ? 1 : 2)
             .ToList();
 
         var courseGradesPage = await LoadCanvasCourseGrades(studentProfileId, year, 1, 10);
-        var submissionsPage = await LoadCanvasRecentSubmissions(studentProfileId, 1, 10);
+        var submissionsPage = await LoadCanvasRecentSubmissions(studentProfileId, year, 1, 10);
 
         return new StudentCanvasDto
         {
             HasData = true,
             AcademicYear = year,
+            AcademicYears = academicYears,
             CoursesEnrolled = enrolledCourses,
             AverageCourseGrade = averageCourseGrade == null
                 ? null : Math.Round((decimal)averageCourseGrade.Value, 1),
@@ -1009,26 +1029,24 @@ public class StudentsController : ControllerBase
 
     private async Task<string?> ResolveCanvasYear(int studentProfileId, string? requestedYear)
     {
+        return ResolveCanvasYear(requestedYear, await LoadCanvasAcademicYears(studentProfileId));
+    }
+
+    private static string? ResolveCanvasYear(string? requestedYear, IReadOnlyList<string> academicYears)
+    {
         var requested = string.IsNullOrWhiteSpace(requestedYear) || requestedYear == "all"
             ? null
             : DashboardPeriodNormalizer.AcademicYear(requestedYear.Trim());
-        if (requested is not null)
+        if (requested is not null && academicYears.Contains(requested, StringComparer.OrdinalIgnoreCase))
         {
-            var aliases = await CanvasAcademicYearAliases(requested);
-            var requestedExists = await FilterCanvasScoresByAcademicYear(
-                    _context.CanvasCourseScores.AsNoTracking()
-                        .Where(score => score.StudentProfileId == studentProfileId), requested, aliases)
-                .AnyAsync()
-                || await FilterCanvasSubmissionsByAcademicYear(
-                    _context.CanvasSubmissions.AsNoTracking()
-                        .Where(submission => submission.StudentProfileId == studentProfileId), requested, aliases)
-                .AnyAsync();
-            if (requestedExists)
-            {
-                return requested;
-            }
+            return requested;
         }
 
+        return academicYears.FirstOrDefault();
+    }
+
+    private async Task<List<string>> LoadCanvasAcademicYears(int studentProfileId)
+    {
         var scoreYears = await _context.CanvasCourseScores.AsNoTracking()
             .Where(score => score.StudentProfileId == studentProfileId &&
                 score.Enrollment!.Course!.EnrollmentTermName != null)
@@ -1056,7 +1074,7 @@ public class StudentsController : ControllerBase
             .Where(DashboardPeriodNormalizer.IsAcademicYear)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(DashboardPeriodNormalizer.AcademicYearStart)
-            .FirstOrDefault();
+            .ToList();
     }
 
     private async Task<StudentCanvasCoursesPageDto> LoadCanvasCourseGrades(
@@ -1108,11 +1126,15 @@ public class StudentsController : ControllerBase
     }
 
     private async Task<StudentCanvasSubmissionsPageDto> LoadCanvasRecentSubmissions(
-        int studentProfileId, int page, int pageSize)
+        int studentProfileId, string? academicYear, int page, int pageSize)
     {
         (page, pageSize) = NormalizeCanvasPaging(page, pageSize);
-        var query = _context.CanvasSubmissions.AsNoTracking()
+        var aliases = academicYear is null ? [] : await CanvasAcademicYearAliases(academicYear);
+        var baseQuery = _context.CanvasSubmissions.AsNoTracking()
             .Where(submission => submission.StudentProfileId == studentProfileId);
+        var query = academicYear is null
+            ? baseQuery.Where(_ => false)
+            : FilterCanvasSubmissionsByAcademicYear(baseQuery, academicYear, aliases);
         var totalCount = await query.CountAsync();
         var totalPages = TotalPages(totalCount, pageSize);
         page = ClampPage(page, totalPages);

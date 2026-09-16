@@ -222,6 +222,8 @@ export interface StudentCanvasJourneyPoint {
 export interface StudentCanvas {
   hasData: boolean;
   academicYear?: string | null;
+  /** Available in API versions that expose Canvas year selection. */
+  academicYears?: string[];
   coursesEnrolled: number;
   averageCourseGrade?: number | null;
   averageAssignmentScore?: number | null;
@@ -349,6 +351,11 @@ export class StudentsService {
     return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
   }
 
+  canvasSummary(id: number, academicYear: string): Observable<StudentCanvas> {
+    const params = new HttpParams().set('academicYear', academicYear);
+    return this.http.get<StudentCanvas>(`${this.basePath}/api/students/${id}/canvas/summary`, { params });
+  }
+
   canvasCourseGrades(
     id: number,
     page: number,
@@ -367,8 +374,10 @@ export class StudentsService {
     id: number,
     page: number,
     pageSize: number,
+    academicYear?: string,
   ): Observable<StudentCanvasSubmissionsPage> {
-    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    let params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    if (academicYear) params = params.set('academicYear', academicYear);
     return this.http.get<StudentCanvasSubmissionsPage>(
       `${this.basePath}/api/students/${id}/canvas/recent-submissions`,
       { params },

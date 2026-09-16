@@ -569,10 +569,25 @@ type ProfileSection =
                 <div echarts class="mt-4 h-64 w-full" [options]="canvasJourneyOptions()" role="img"></div>
               </div>
             }
-            <p class="px-6 pt-5 text-xs uppercase tracking-[0.12em] text-[#8a6811]">
-              {{ languageService.t('studentProfile.canvas.currentYear') }}
-              <span class="font-semibold">{{ profile.canvas.academicYear || '—' }}</span>
-            </p>
+            <div class="flex flex-wrap items-center gap-3 px-6 pt-5">
+              <label class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6811]">
+                <span>{{ languageService.t('studentProfile.canvas.currentYear') }}</span>
+                <select
+                  class="rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-[#32124f] outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10 disabled:cursor-wait disabled:opacity-60"
+                  [attr.aria-label]="languageService.t('studentProfile.canvas.yearSelectLabel')"
+                  [disabled]="canvasYearLoading()"
+                  [ngModel]="selectedCanvasYear()"
+                  (ngModelChange)="onCanvasYearChange($event)"
+                >
+                  @for (year of canvasYearOptions(); track year) {
+                    <option [value]="year">{{ year }}</option>
+                  }
+                </select>
+              </label>
+              @if (canvasYearLoading()) {
+                <span class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.loadingYear') }}</span>
+              }
+            </div>
             <div class="grid gap-4 px-6 pb-6 pt-3 sm:grid-cols-2 xl:grid-cols-4">
               <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
                 <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgCourseGrade') }}</p>
@@ -781,6 +796,7 @@ export class StudentProfileComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly courseGradesLoading = signal(false);
   readonly recentSubmissionsLoading = signal(false);
+  readonly canvasYearLoading = signal(false);
   readonly canvasSheetKind = signal<CanvasSubmissionSheetKind | null>(null);
   readonly activeSection = signal<ProfileSection>('overview');
 
@@ -875,6 +891,7 @@ export class StudentProfileComponent implements OnInit {
 
   readonly canvasJourneyOptions = computed<EChartsCoreOption>(() => {
     const journey = this.student()?.canvas.journey ?? [];
+    const labels = journey.map((point) => this.canvasJourneyLabel(point));
     return {
       color: ['#32124f'],
       grid: { left: 44, right: 16, top: 28, bottom: 56, containLabel: true },
@@ -884,14 +901,13 @@ export class StudentProfileComponent implements OnInit {
           const p = params[0];
           const point = journey[p.dataIndex];
           const grade = point?.averageGrade ?? p.value;
-          const year = point ? ` · ${point.academicYear}` : '';
-          return `${point?.label ?? ''}${year}<br/><b>${grade === null || grade === undefined ? '—' : grade + '%'}</b>`;
+          return `${point ? this.canvasJourneyLabel(point) : ''}<br/><b>${grade === null || grade === undefined ? '—' : grade + '%'}</b>`;
         },
       },
       xAxis: {
         type: 'category',
-        data: journey.map((point) => point.label),
-        axisLabel: { color: '#6f6877', interval: 0, rotate: journey.length > 6 ? 35 : 0 },
+        data: labels,
+        axisLabel: { color: '#6f6877', interval: 0, rotate: journey.length > 4 ? 28 : 0 },
         axisLine: { lineStyle: { color: '#d8d0df' } },
       },
       yAxis: {
@@ -920,15 +936,43 @@ export class StudentProfileComponent implements OnInit {
     };
   });
 
+  private canvasJourneyLabel(point: { academicYear: string; term?: string | null }): string {
+    const normalizedTerm = point.term?.toLowerCase();
+    const termLabel = normalizedTerm === 'hk1'
+      ? this.languageService.t('studentProfile.canvas.journeyTerm.hk1')
+      : normalizedTerm === 'hk2'
+        ? this.languageService.t('studentProfile.canvas.journeyTerm.hk2')
+        : point.term?.toUpperCase() ?? '';
+    return `${point.academicYear.replace('-', '–')} · ${termLabel}`;
+  }
+
   private studentId = 0;
   readonly selectedYear = signal<string>('');
+  readonly selectedCanvasYear = signal<string>('');
   private readonly knownYears = signal<string[]>([]);
+
+  /**
+   * Prefer the API's explicit Canvas-year list, but remain compatible with a backend that has
+   * not restarted onto the latest contract by deriving years from the journey/current year.
+   */
+  readonly canvasYearOptions = computed<string[]>(() => {
+    const canvas = this.student()?.canvas;
+    if (!canvas) return [];
+
+    const years = new Set(canvas.academicYears ?? []);
+    for (const point of canvas.journey ?? []) years.add(point.academicYear);
+    if (canvas.academicYear) years.add(canvas.academicYear);
+    return Array.from(years).sort((a, b) => b.localeCompare(a));
+  });
 
   /** Distinct academic years represented anywhere on the student profile, labelled by grade when known. */
   readonly yearOptions = computed<{ value: string; label: string }[]>(() => {
     const profile = this.student();
     const journey = profile?.canvas.journey ?? [];
     const seen = new Map<string, string | null | undefined>(this.knownYears().map((year) => [year, null]));
+    for (const year of profile?.canvas.academicYears ?? []) {
+      if (!seen.has(year)) seen.set(year, null);
+    }
     for (const point of journey) {
       if (!seen.has(point.academicYear)) seen.set(point.academicYear, point.gradeLevel);
     }
@@ -975,6 +1019,28 @@ export class StudentProfileComponent implements OnInit {
     this.loadStudent();
   }
 
+  onCanvasYearChange(year: string): void {
+    const profile = this.student();
+    if (!profile || !year || year === profile.canvas.academicYear || this.canvasYearLoading()) return;
+
+    const previousYear = profile.canvas.academicYear ?? '';
+    this.selectedCanvasYear.set(year);
+    this.canvasYearLoading.set(true);
+    this.closeCanvasSubmissionSheet();
+    this.studentsService.canvasSummary(this.studentId, year).subscribe({
+      next: (canvas) => {
+        this.student.update((current) => current ? { ...current, canvas } : current);
+        this.selectedCanvasYear.set(canvas.academicYear ?? year);
+        this.rememberCanvasAcademicYears(canvas.academicYears ?? this.canvasYearOptions());
+        this.canvasYearLoading.set(false);
+      },
+      error: () => {
+        this.selectedCanvasYear.set(previousYear);
+        this.canvasYearLoading.set(false);
+      },
+    });
+  }
+
   loadCourseGradesPage(page: number): void {
     const profile = this.student();
     if (!profile || this.courseGradesLoading() || page < 1 || page > profile.canvas.courseGradesTotalPages) return;
@@ -983,7 +1049,7 @@ export class StudentProfileComponent implements OnInit {
       this.studentId,
       page,
       profile.canvas.courseGradesPageSize,
-      this.selectedYear() || undefined,
+      profile.canvas.academicYear || undefined,
     ).subscribe({
       next: (result) => {
         this.student.update((current) => current ? {
@@ -1011,6 +1077,7 @@ export class StudentProfileComponent implements OnInit {
       this.studentId,
       page,
       profile.canvas.recentSubmissionsPageSize,
+      profile.canvas.academicYear || undefined,
     ).subscribe({
       next: (result) => {
         this.student.update((current) => current ? {
@@ -1062,6 +1129,7 @@ export class StudentProfileComponent implements OnInit {
       next: (profile) => {
         this.rememberAcademicYears(profile);
         this.student.set(profile);
+        this.selectedCanvasYear.set(profile.canvas.academicYear ?? '');
         this.loading.set(false);
       },
       error: (response) => {
@@ -1078,10 +1146,17 @@ export class StudentProfileComponent implements OnInit {
   private rememberAcademicYears(profile: StudentProfileDetail): void {
     const years = new Set(this.knownYears());
     for (const point of profile.canvas.journey) years.add(point.academicYear);
+    for (const year of profile.canvas.academicYears ?? []) years.add(year);
     for (const item of [...profile.behaviours, ...profile.projects, ...profile.busAttendanceRecords]) {
       if (item.academicYear) years.add(item.academicYear);
     }
     for (const item of profile.mentalHealthRecords) years.add(item.academicYear);
+    this.knownYears.set(Array.from(years).sort());
+  }
+
+  private rememberCanvasAcademicYears(academicYears: string[]): void {
+    const years = new Set(this.knownYears());
+    for (const year of academicYears) years.add(year);
     this.knownYears.set(Array.from(years).sort());
   }
 
