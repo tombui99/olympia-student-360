@@ -668,6 +668,7 @@ public class StudentsController : ControllerBase
             .Include(candidate => candidate.Behaviours)
             .Include(candidate => candidate.Projects)
             .Include(candidate => candidate.Parents)
+                .ThenInclude(parent => parent.ContactNote)
             .Include(candidate => candidate.MentalHealthRecords)
             .Include(candidate => candidate.BusAttendanceRecords)
             .Include(candidate => candidate.HealthVisits)
@@ -784,7 +785,10 @@ public class StudentsController : ControllerBase
                     BirthYear = parent.BirthYear,
                     AgeGroup = parent.AgeGroup,
                     Occupation = parent.Occupation,
-                    EmploymentSector = parent.EmploymentSector
+                    EmploymentSector = parent.EmploymentSector,
+                    Notes = parent.ContactNote == null ? null : parent.ContactNote.Notes,
+                    NotesUpdatedAt = parent.ContactNote == null ? null : parent.ContactNote.UpdatedAt ?? parent.ContactNote.CreatedAt,
+                    NotesUpdatedByName = parent.ContactNote == null ? null : parent.ContactNote.UpdatedByName
                 })
                 .ToList(),
             MentalHealthRecords = student.MentalHealthRecords
@@ -808,6 +812,82 @@ public class StudentsController : ControllerBase
 
         return Ok(detail);
     }
+
+    [HttpPut("{studentId:int}/parents/{parentId:int}/note")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal,Teacher")]
+    public async Task<ActionResult<StudentParentDto>> SaveParentNote(
+        int studentId,
+        int parentId,
+        [FromBody] UpdateStudentParentNoteDto model)
+    {
+        if (!await VisibleStudents().AnyAsync(student => student.Id == studentId))
+        {
+            return NotFound(new { Message = "Student was not found." });
+        }
+
+        var parent = await _context.SISStudentParents
+            .Include(item => item.ContactNote)
+            .FirstOrDefaultAsync(item => item.Id == parentId && item.StudentProfileId == studentId);
+        if (parent == null)
+        {
+            return NotFound(new { Message = "Parent or guardian was not found for this student." });
+        }
+
+        var notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim();
+        if (notes?.Length > 2000)
+        {
+            return BadRequest(new { Message = "Parent notes cannot exceed 2,000 characters." });
+        }
+
+        if (notes == null)
+        {
+            if (parent.ContactNote != null)
+            {
+                _context.StudentParentNotes.Remove(parent.ContactNote);
+                parent.ContactNote = null;
+            }
+        }
+        else
+        {
+            var updatedByName = await CurrentUserDisplayName();
+            if (parent.ContactNote == null)
+            {
+                parent.ContactNote = new StudentParentNote
+                {
+                    Notes = notes,
+                    UpdatedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
+                    UpdatedByName = updatedByName
+                };
+            }
+            else
+            {
+                parent.ContactNote.Notes = notes;
+                parent.ContactNote.UpdatedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+                parent.ContactNote.UpdatedByName = updatedByName;
+                parent.ContactNote.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return Ok(ToParentDto(parent));
+    }
+
+    private static StudentParentDto ToParentDto(SISStudentParent parent) => new()
+    {
+        Id = parent.Id,
+        FullName = parent.FullName,
+        Relationship = parent.Relationship,
+        Username = parent.Username,
+        PhoneNumber = parent.PhoneNumber,
+        Email = parent.Email,
+        BirthYear = parent.BirthYear,
+        AgeGroup = parent.AgeGroup,
+        Occupation = parent.Occupation,
+        EmploymentSector = parent.EmploymentSector,
+        Notes = parent.ContactNote?.Notes,
+        NotesUpdatedAt = parent.ContactNote == null ? null : parent.ContactNote.UpdatedAt ?? parent.ContactNote.CreatedAt,
+        NotesUpdatedByName = parent.ContactNote?.UpdatedByName
+    };
 
     private static List<StudentBehaviourTrendPointDto> BuildStudentBehaviourTrend(
         IReadOnlyCollection<StudentBehaviour> behaviours,

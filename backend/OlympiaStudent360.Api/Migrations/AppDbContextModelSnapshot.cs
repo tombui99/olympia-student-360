@@ -1908,6 +1908,44 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("StudentMentalHealthRecords");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentParentNote", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Notes")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<int>("SISStudentParentId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedByName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SISStudentParentId")
+                        .IsUnique();
+
+                    b.ToTable("StudentParentNotes");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -2421,6 +2459,17 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentParentNote", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.SISStudentParent", "Parent")
+                        .WithOne("ContactNote")
+                        .HasForeignKey("OlympiaStudent360.Api.Core.Entities.StudentParentNote", "SISStudentParentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Parent");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProject", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.ImportHistory", "ImportHistory")
@@ -2497,6 +2546,11 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("MentalHealthRecords");
 
                     b.Navigation("Projects");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.SISStudentParent", b =>
+                {
+                    b.Navigation("ContactNote");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentProfile", b =>

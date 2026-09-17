@@ -179,6 +179,9 @@ export interface StudentParent {
   ageGroup?: string | null;
   occupation?: string | null;
   employmentSector?: string | null;
+  notes?: string | null;
+  notesUpdatedAt?: string | null;
+  notesUpdatedByName?: string | null;
 }
 
 export interface StudentCanvasCourse {
@@ -369,6 +372,13 @@ export class StudentsService {
   get(id: number, academicYear?: string): Observable<StudentProfileDetail> {
     const params = academicYear ? new HttpParams().set('academicYear', academicYear) : undefined;
     return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
+  }
+
+  saveParentNote(studentId: number, parentId: number, notes: string): Observable<StudentParent> {
+    return this.http.put<StudentParent>(
+      `${this.basePath}/api/students/${studentId}/parents/${parentId}/note`,
+      { notes },
+    );
   }
 
   canvasSummary(id: number, academicYear: string, term?: string | null): Observable<StudentCanvas> {

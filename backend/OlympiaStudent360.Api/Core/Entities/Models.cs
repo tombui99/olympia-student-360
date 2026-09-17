@@ -159,6 +159,20 @@ public class SISStudentParent : BaseEntity
     public string? AgeGroup { get; set; }
     public string? Occupation { get; set; }
     public string? EmploymentSector { get; set; }
+    public StudentParentNote? ContactNote { get; set; }
+}
+
+/// <summary>
+/// Student 360-owned context recorded by school staff before contacting an SIS parent.
+/// Kept separate from SISStudentParent so SIS remains the source of truth for contact data.
+/// </summary>
+public class StudentParentNote : BaseEntity
+{
+    public int SISStudentParentId { get; set; }
+    public SISStudentParent Parent { get; set; } = default!;
+    public string Notes { get; set; } = default!;
+    public string UpdatedByUserId { get; set; } = default!;
+    public string UpdatedByName { get; set; } = default!;
 }
 
 public class StudentBehaviour : BaseEntity

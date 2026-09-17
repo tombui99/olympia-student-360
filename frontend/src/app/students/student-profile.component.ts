@@ -5,7 +5,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
 import { LanguageService } from '../core/language/language.service';
-import { RiskFlag, StudentProfileDetail, StudentsService } from './students.service';
+import { RiskFlag, StudentParent, StudentProfileDetail, StudentsService } from './students.service';
 import { riskBadgeClass } from './risk.util';
 import {
   CanvasSubmissionSheetKind,
@@ -156,37 +156,87 @@ type ProfileSection =
             <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.parents.title') }}</h3>
             <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.parents.hint') }}</p>
           </div>
-          <div class="grid gap-4 p-5 md:grid-cols-2">
+          <div class="grid gap-5 p-5 lg:grid-cols-2">
             @for (parent of profile.parents; track parent.id) {
-              <article class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-5">
-                <div class="flex flex-wrap items-start justify-between gap-2">
-                  <h4 class="font-semibold text-[#32124f]">{{ parent.fullName }}</h4>
-                  @if (parent.relationship) {
-                    <span class="rounded-full bg-[#eee8f3] px-3 py-1 text-xs font-semibold text-[#5b287d]">
-                      {{ parent.relationship }}
-                    </span>
-                  }
+              <article class="overflow-hidden rounded-lg border border-[#ddd3e4] bg-white shadow-[0_8px_24px_rgba(50,18,79,0.06)]">
+                <div class="border-b border-[#e8e0ec] bg-gradient-to-r from-[#f5f0f8] to-[#fffaf0] px-5 py-4">
+                  <p class="text-xs font-semibold uppercase tracking-[0.16em] text-[#8a6811]">
+                    {{ languageService.t('studentProfile.parents.relationship') }}
+                  </p>
+                  <div class="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h4 class="text-xl font-bold text-[#32124f]">
+                      {{ relationshipLabel(parent.relationship) }}
+                    </h4>
+                    <p class="text-base font-semibold text-[#4e4355]">{{ parent.fullName }}</p>
+                  </div>
                 </div>
-                <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.birthYear') }}</dt>
-                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.birthYear || '—' }}</dd>
+                <div class="space-y-5 p-5">
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <div class="rounded-md border border-[#eadcb5] bg-[#fff9e8] p-3.5">
+                      <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a5b12]">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.69 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.33 1.84.56 2.8.69A2 2 0 0 1 22 16.92z"/></svg>
+                        {{ languageService.t('studentProfile.parents.phone') }}
+                      </p>
+                      @if (parent.phoneNumber) {
+                        <a class="mt-1.5 block break-all text-base font-bold text-[#32124f] underline decoration-[#d7b44a] decoration-2 underline-offset-4" [href]="'tel:' + parent.phoneNumber">{{ parent.phoneNumber }}</a>
+                      } @else {
+                        <p class="mt-1.5 font-semibold text-[#7c7284]">—</p>
+                      }
+                    </div>
+                    <div class="rounded-md border border-[#d9cce2] bg-[#f7f2fa] p-3.5">
+                      <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#5b287d]">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="m22 6-10 7L2 6"/></svg>
+                        {{ languageService.t('studentProfile.parents.email') }}
+                      </p>
+                      @if (parent.email) {
+                        <a class="mt-1.5 block break-all text-base font-bold text-[#32124f] underline decoration-[#9d79b5] decoration-2 underline-offset-4" [href]="'mailto:' + parent.email">{{ parent.email }}</a>
+                      } @else {
+                        <p class="mt-1.5 font-semibold text-[#7c7284]">—</p>
+                      }
+                    </div>
                   </div>
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.occupation') }}</dt>
-                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.occupation || '—' }}</dd>
+
+                  <dl class="grid gap-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.birthYear') }}</dt>
+                      <dd class="mt-1 font-medium text-[#32124f]">{{ parent.birthYear || '—' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.occupation') }}</dt>
+                      <dd class="mt-1 font-medium text-[#32124f]">{{ parent.occupation || '—' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.username') }}</dt>
+                      <dd class="mt-1 font-medium text-[#32124f]">{{ parent.username || '—' }}</dd>
+                    </div>
+                  </dl>
+
+                  <div class="rounded-md border border-[#e5dee9] bg-[#faf9fb] p-4">
+                    <div class="flex items-start justify-between gap-4">
+                      <div class="min-w-0">
+                        <p class="text-sm font-semibold text-[#32124f]">{{ languageService.t('studentProfile.parents.notes') }}</p>
+                        @if (parent.notes) {
+                          <p class="mt-1.5 line-clamp-3 whitespace-pre-line text-sm leading-6 text-[#574d5d]">{{ parent.notes }}</p>
+                          @if (parent.notesUpdatedAt) {
+                            <p class="mt-2 text-xs text-[#7c7284]">
+                              {{ languageService.t('studentProfile.parents.notesUpdated') }} {{ formatDateTime(parent.notesUpdatedAt) }}
+                              @if (parent.notesUpdatedByName) { · {{ parent.notesUpdatedByName }} }
+                            </p>
+                          }
+                        } @else {
+                          <p class="mt-1 text-sm text-[#7c7284]">{{ languageService.t('studentProfile.parents.notesEmpty') }}</p>
+                        }
+                      </div>
+                      <button
+                        type="button"
+                        class="shrink-0 rounded-md border border-[#cfc3d6] bg-white px-3.5 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#6e3b8b] hover:bg-[#f7f2fa]"
+                        (click)="openParentNoteModal(parent)"
+                      >
+                        {{ languageService.t(parent.notes ? 'studentProfile.parents.notesEdit' : 'studentProfile.parents.notesAdd') }}
+                      </button>
+                    </div>
                   </div>
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.parents.username') }}</dt>
-                    <dd class="mt-1 font-medium text-[#32124f]">{{ parent.username || '—' }}</dd>
-                  </div>
-                </dl>
-                @if (parent.phoneNumber || parent.email) {
-                  <div class="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-t border-[#e5dee9] pt-3 text-sm text-[#6f6877]">
-                    @if (parent.phoneNumber) { <span>{{ parent.phoneNumber }}</span> }
-                    @if (parent.email) { <span>{{ parent.email }}</span> }
-                  </div>
-                }
+                </div>
               </article>
             } @empty {
               <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-8 text-center text-sm text-[#7c7284] md:col-span-2">
@@ -788,6 +838,88 @@ type ProfileSection =
         }
         </main>
 
+        @if (parentNoteModalParent(); as noteParent) {
+          <div class="fixed inset-0 z-[70] grid place-items-center p-4" (keydown.escape)="closeParentNoteModal()">
+            <button
+              type="button"
+              class="absolute inset-0 bg-[#24182f]/50 backdrop-blur-[1px]"
+              [attr.aria-label]="languageService.t('studentProfile.parents.notesClose')"
+              (click)="closeParentNoteModal()"
+            ></button>
+            <section
+              class="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-[0_28px_90px_rgba(36,24,47,0.3)]"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="parent-note-modal-title"
+            >
+              <div class="flex items-start justify-between gap-4 border-b border-[#ebe6ef] px-6 py-5">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-[0.16em] text-[#8a6811]">
+                    {{ relationshipLabel(noteParent.relationship) }} · {{ noteParent.fullName }}
+                  </p>
+                  <h3 id="parent-note-modal-title" class="mt-1 text-2xl font-semibold text-[#32124f]">
+                    {{ languageService.t('studentProfile.parents.notesModalTitle') }}
+                  </h3>
+                  <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.parents.notesHint') }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#d8d0df] text-xl text-[#32124f] transition hover:bg-[#f7f2fa]"
+                  [attr.aria-label]="languageService.t('studentProfile.parents.notesClose')"
+                  (click)="closeParentNoteModal()"
+                >×</button>
+              </div>
+
+              <form class="min-h-0 overflow-y-auto" (ngSubmit)="saveParentNote(noteParent)">
+                <div class="p-6">
+                  <div class="rounded-md border border-[#eadcb5] bg-[#fff9e8] px-4 py-3 text-sm text-[#6d5317]">
+                    {{ languageService.t('studentProfile.parents.notesSource') }}
+                  </div>
+                  <label class="mt-5 block" for="parent-note-modal-field">
+                    <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('studentProfile.parents.notes') }}</span>
+                  </label>
+                  <textarea
+                    id="parent-note-modal-field"
+                    name="parentNote"
+                    class="mt-2 min-h-44 w-full resize-y rounded-md border border-[#cfc3d6] bg-white px-3.5 py-3 text-sm text-[#34243d] outline-none transition placeholder:text-[#9b929f] focus:border-[#6e3b8b] focus:ring-2 focus:ring-[#6e3b8b]/15"
+                    maxlength="2000"
+                    [placeholder]="languageService.t('studentProfile.parents.notesPlaceholder')"
+                    [ngModel]="parentNoteDraft(noteParent)"
+                    (ngModelChange)="updateParentNoteDraft(noteParent.id, $event)"
+                  ></textarea>
+                  <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                    <div>
+                      @if (parentNoteState(noteParent.id) === 'error') {
+                        <span class="font-semibold text-red-700">{{ languageService.t('studentProfile.parents.notesSaveError') }}</span>
+                      } @else if (noteParent.notesUpdatedAt) {
+                        <span class="text-[#7c7284]">
+                          {{ languageService.t('studentProfile.parents.notesUpdated') }} {{ formatDateTime(noteParent.notesUpdatedAt) }}
+                          @if (noteParent.notesUpdatedByName) { · {{ noteParent.notesUpdatedByName }} }
+                        </span>
+                      }
+                    </div>
+                    <span class="text-[#7c7284]">{{ parentNoteDraft(noteParent).length }}/2000</span>
+                  </div>
+                </div>
+                <div class="flex justify-end gap-3 border-t border-[#ebe6ef] bg-[#faf9f6] px-6 py-4">
+                  <button
+                    type="button"
+                    class="rounded-md border border-[#d8d0df] px-5 py-2.5 text-sm font-semibold text-[#32124f] transition hover:bg-white"
+                    (click)="closeParentNoteModal()"
+                  >{{ languageService.t('studentProfile.parents.notesCancel') }}</button>
+                  <button
+                    type="submit"
+                    class="rounded-md bg-[#32124f] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4b2070] disabled:cursor-not-allowed disabled:opacity-45"
+                    [disabled]="!parentNoteChanged(noteParent) || parentNoteState(noteParent.id) === 'saving'"
+                  >
+                    {{ parentNoteState(noteParent.id) === 'saving' ? languageService.t('studentProfile.parents.notesSaving') : languageService.t('studentProfile.parents.notesSave') }}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        }
+
         @if (canvasSheetKind(); as sheetKind) {
           <app-student-canvas-submission-sheet
             [studentId]="profile.id"
@@ -820,6 +952,15 @@ export class StudentProfileComponent implements OnInit {
   readonly canvasYearLoading = signal(false);
   readonly canvasSheetKind = signal<CanvasSubmissionSheetKind | null>(null);
   readonly activeSection = signal<ProfileSection>('overview');
+  private readonly parentNoteModalParentId = signal<number | null>(null);
+  private readonly parentNoteDrafts = signal<Record<number, string>>({});
+  private readonly parentNoteStates = signal<Record<number, 'idle' | 'saving' | 'saved' | 'error'>>({});
+  readonly parentNoteModalParent = computed(() => {
+    const parentId = this.parentNoteModalParentId();
+    return parentId === null
+      ? null
+      : this.student()?.parents.find((parent) => parent.id === parentId) ?? null;
+  });
 
   readonly profileSections = computed<{ id: ProfileSection; label: string; count: number | null }[]>(
     () => {
@@ -1201,6 +1342,8 @@ export class StudentProfileComponent implements OnInit {
       next: (profile) => {
         this.rememberAcademicYears(profile);
         this.student.set(profile);
+        this.parentNoteDrafts.set(Object.fromEntries(profile.parents.map((parent) => [parent.id, parent.notes ?? ''])));
+        this.parentNoteStates.set({});
         this.selectedCanvasYear.set(profile.canvas.academicYear ?? '');
         this.selectedCanvasTerm.set(profile.canvas.term ?? '');
         this.loading.set(false);
@@ -1213,6 +1356,55 @@ export class StudentProfileComponent implements OnInit {
             : this.languageService.t('studentProfile.loadError'),
         );
       },
+    });
+  }
+
+  parentNoteDraft(parent: StudentParent): string {
+    return this.parentNoteDrafts()[parent.id] ?? parent.notes ?? '';
+  }
+
+  openParentNoteModal(parent: StudentParent): void {
+    this.parentNoteDrafts.update((drafts) => ({ ...drafts, [parent.id]: parent.notes ?? '' }));
+    this.parentNoteStates.update((states) => ({ ...states, [parent.id]: 'idle' }));
+    this.parentNoteModalParentId.set(parent.id);
+  }
+
+  closeParentNoteModal(): void {
+    const parent = this.parentNoteModalParent();
+    if (parent) {
+      this.parentNoteDrafts.update((drafts) => ({ ...drafts, [parent.id]: parent.notes ?? '' }));
+      this.parentNoteStates.update((states) => ({ ...states, [parent.id]: 'idle' }));
+    }
+    this.parentNoteModalParentId.set(null);
+  }
+
+  parentNoteState(parentId: number): 'idle' | 'saving' | 'saved' | 'error' {
+    return this.parentNoteStates()[parentId] ?? 'idle';
+  }
+
+  parentNoteChanged(parent: StudentParent): boolean {
+    return this.parentNoteDraft(parent).trim() !== (parent.notes ?? '').trim();
+  }
+
+  updateParentNoteDraft(parentId: number, notes: string): void {
+    this.parentNoteDrafts.update((drafts) => ({ ...drafts, [parentId]: notes }));
+    this.parentNoteStates.update((states) => ({ ...states, [parentId]: 'idle' }));
+  }
+
+  saveParentNote(parent: StudentParent): void {
+    if (!this.parentNoteChanged(parent) || this.parentNoteState(parent.id) === 'saving') return;
+    this.parentNoteStates.update((states) => ({ ...states, [parent.id]: 'saving' }));
+    this.studentsService.saveParentNote(this.studentId, parent.id, this.parentNoteDraft(parent)).subscribe({
+      next: (savedParent) => {
+        this.student.update((profile) => profile ? {
+          ...profile,
+          parents: profile.parents.map((item) => item.id === savedParent.id ? savedParent : item),
+        } : profile);
+        this.parentNoteDrafts.update((drafts) => ({ ...drafts, [parent.id]: savedParent.notes ?? '' }));
+        this.parentNoteStates.update((states) => ({ ...states, [parent.id]: 'saved' }));
+        this.parentNoteModalParentId.set(null);
+      },
+      error: () => this.parentNoteStates.update((states) => ({ ...states, [parent.id]: 'error' })),
     });
   }
 
@@ -1265,6 +1457,15 @@ export class StudentProfileComponent implements OnInit {
     const normalized = value.trim().toLowerCase();
     if (normalized === 'public' || normalized === 'private') {
       return this.languageService.t(`studentProfile.parents.sector.${normalized}`);
+    }
+    return value;
+  }
+
+  relationshipLabel(value?: string | null): string {
+    if (!value) return this.languageService.t('studentProfile.parents.guardian');
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'father' || normalized === 'mother') {
+      return this.languageService.t(`studentProfile.parents.relationship.${normalized}`);
     }
     return value;
   }

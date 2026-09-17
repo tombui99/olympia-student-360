@@ -14,6 +14,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<SISStudentParent> SISStudentParents { get; set; }
+    public DbSet<StudentParentNote> StudentParentNotes { get; set; }
     public DbSet<StudentMentalHealthRecord> StudentMentalHealthRecords { get; set; }
     public DbSet<StudentHealthVisit> StudentHealthVisits { get; set; }
     public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
@@ -219,6 +220,18 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             parent.HasOne(p => p.Student)
                 .WithMany(s => s.Parents)
                 .HasForeignKey(p => p.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StudentParentNote>(note =>
+        {
+            note.Property(item => item.Notes).HasMaxLength(2000);
+            note.Property(item => item.UpdatedByUserId).HasMaxLength(450);
+            note.Property(item => item.UpdatedByName).HasMaxLength(255);
+            note.HasIndex(item => item.SISStudentParentId).IsUnique();
+            note.HasOne(item => item.Parent)
+                .WithOne(parent => parent.ContactNote)
+                .HasForeignKey<StudentParentNote>(item => item.SISStudentParentId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

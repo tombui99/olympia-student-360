@@ -292,6 +292,14 @@ public class StudentParentDto
     public string? AgeGroup { get; set; }
     public string? Occupation { get; set; }
     public string? EmploymentSector { get; set; }
+    public string? Notes { get; set; }
+    public DateTime? NotesUpdatedAt { get; set; }
+    public string? NotesUpdatedByName { get; set; }
+}
+
+public class UpdateStudentParentNoteDto
+{
+    public string? Notes { get; set; }
 }
 
 public class StudentSummaryDto
