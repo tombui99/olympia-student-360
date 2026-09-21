@@ -382,6 +382,8 @@
   "students.studentsLabel": "students",
   "students.searchPlaceholder": "Search by name, code, homeroom...",
   "students.allGrades": "All grades",
+  "students.allClasses": "All classes",
+  "students.resetFilters": "Reset filters",
   "students.grade": "Grade",
   "students.student": "Student",
   "students.homeroom": "Homeroom",

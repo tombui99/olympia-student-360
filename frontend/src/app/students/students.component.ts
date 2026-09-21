@@ -66,10 +66,27 @@ import { riskBadgeClass } from './risk.util';
                 </option>
               }
             </select>
+            <select
+              class="rounded-md border border-[#e1dbe6] bg-[#f8f6fa] px-3 py-2.5 text-sm outline-none transition focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
+              [(ngModel)]="homeroomFilter"
+            >
+              <option value="">{{ languageService.t('students.allClasses') }}</option>
+              @for (homeroom of homerooms(); track homeroom) {
+                <option [value]="homeroom">{{ homeroom }}</option>
+              }
+            </select>
             <label class="flex items-center gap-2 text-sm text-[#6f6877]">
               <input type="checkbox" [(ngModel)]="atRiskOnly" />
               {{ languageService.t('students.atRiskOnly') }}
             </label>
+            <button
+              class="rounded-md border border-[#d8d0df] bg-white px-3 py-2.5 text-sm font-medium text-[#5b287d] transition hover:border-[#6d3a91] hover:bg-[#f7f3fa] disabled:cursor-not-allowed disabled:opacity-40"
+              type="button"
+              [disabled]="!hasActiveFilters()"
+              (click)="resetFilters()"
+            >
+              {{ languageService.t('students.resetFilters') }}
+            </button>
           </div>
         </div>
 
@@ -201,8 +218,10 @@ export class StudentsComponent implements OnInit, OnDestroy {
   readonly totalCount = signal(0);
   readonly totalPages = signal(0);
   readonly gradeLevels = signal<string[]>([]);
+  readonly homerooms = signal<string[]>([]);
   private readonly searchSignal = signal('');
   private readonly gradeFilterSignal = signal('');
+  private readonly homeroomFilterSignal = signal('');
   private readonly atRiskOnlySignal = signal(false);
   private searchTimer: number | null = null;
   private requestId = 0;
@@ -223,6 +242,16 @@ export class StudentsComponent implements OnInit, OnDestroy {
 
   set gradeFilter(value: string) {
     this.gradeFilterSignal.set(value);
+    this.homeroomFilterSignal.set('');
+    this.loadPage(1);
+  }
+
+  get homeroomFilter(): string {
+    return this.homeroomFilterSignal();
+  }
+
+  set homeroomFilter(value: string) {
+    this.homeroomFilterSignal.set(value);
     this.loadPage(1);
   }
 
@@ -232,6 +261,27 @@ export class StudentsComponent implements OnInit, OnDestroy {
 
   set atRiskOnly(value: boolean) {
     this.atRiskOnlySignal.set(value);
+    this.loadPage(1);
+  }
+
+  hasActiveFilters(): boolean {
+    return Boolean(
+      this.searchSignal() ||
+      this.gradeFilterSignal() ||
+      this.homeroomFilterSignal() ||
+      this.atRiskOnlySignal()
+    );
+  }
+
+  resetFilters(): void {
+    if (this.searchTimer !== null) {
+      window.clearTimeout(this.searchTimer);
+      this.searchTimer = null;
+    }
+    this.searchSignal.set('');
+    this.gradeFilterSignal.set('');
+    this.homeroomFilterSignal.set('');
+    this.atRiskOnlySignal.set(false);
     this.loadPage(1);
   }
 
@@ -247,7 +297,7 @@ export class StudentsComponent implements OnInit, OnDestroy {
       this.gradeFilterSignal.set(grade);
     }
     if (homeroom) {
-      this.searchSignal.set(homeroom);
+      this.homeroomFilterSignal.set(homeroom);
     }
 
     this.loadPage(1);
@@ -263,6 +313,7 @@ export class StudentsComponent implements OnInit, OnDestroy {
     this.error.set(null);
     this.studentsService.list(
       page, this.pageSize(), this.searchSignal(), this.gradeFilterSignal(), this.atRiskOnlySignal(),
+      this.homeroomFilterSignal(),
     ).subscribe({
       next: (response) => {
         if (requestId !== this.requestId) return;
@@ -271,6 +322,7 @@ export class StudentsComponent implements OnInit, OnDestroy {
         this.totalCount.set(response.totalCount);
         this.totalPages.set(response.totalPages);
         this.gradeLevels.set(response.availableGrades);
+        this.homerooms.set(response.availableHomerooms);
         this.loading.set(false);
       },
       error: () => {

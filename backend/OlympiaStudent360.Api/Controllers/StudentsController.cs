@@ -34,7 +34,8 @@ public class StudentsController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] string? search = null,
         [FromQuery] string? grade = null,
-        [FromQuery] bool atRiskOnly = false)
+        [FromQuery] bool atRiskOnly = false,
+        [FromQuery] string? homeroom = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
         var visible = VisibleStudents();
@@ -46,6 +47,23 @@ public class StudentsController : ControllerBase
             .ToListAsync())
             .OrderBy(value => int.TryParse(value, out var number) ? number : int.MaxValue)
             .ThenBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var normalizedGrade = grade?.Trim();
+        var homeroomOptionsQuery = visible;
+        if (!string.IsNullOrWhiteSpace(normalizedGrade))
+        {
+            homeroomOptionsQuery = normalizedGrade == "—"
+                ? homeroomOptionsQuery.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == null ||
+                    (student.GradeLevel ?? student.CanvasGradeLevel) == "")
+                : homeroomOptionsQuery.Where(student =>
+                    (student.GradeLevel ?? student.CanvasGradeLevel) == normalizedGrade);
+        }
+        var availableHomerooms = (await homeroomOptionsQuery
+            .Where(student => student.Homeroom != null && student.Homeroom != "")
+            .Select(student => student.Homeroom!)
+            .Distinct()
+            .ToListAsync())
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var query = visible;
@@ -61,13 +79,17 @@ public class StudentsController : ControllerBase
                 student.Email != null && EF.Functions.Like(student.Email, pattern, "!") ||
                 student.Homeroom != null && EF.Functions.Like(student.Homeroom, pattern, "!"));
         }
-        if (!string.IsNullOrWhiteSpace(grade))
+        if (!string.IsNullOrWhiteSpace(normalizedGrade))
         {
-            var normalizedGrade = grade.Trim();
             query = normalizedGrade == "—"
                 ? query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == null ||
                     (student.GradeLevel ?? student.CanvasGradeLevel) == "")
                 : query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == normalizedGrade);
+        }
+        if (!string.IsNullOrWhiteSpace(homeroom))
+        {
+            var normalizedHomeroom = homeroom.Trim();
+            query = query.Where(student => student.Homeroom == normalizedHomeroom);
         }
 
         var settings = await ClassificationSettings();
@@ -152,7 +174,8 @@ public class StudentsController : ControllerBase
             PageSize = pageSize,
             TotalCount = totalCount,
             TotalPages = totalPages,
-            AvailableGrades = availableGrades
+            AvailableGrades = availableGrades,
+            AvailableHomerooms = availableHomerooms
         });
     }
 

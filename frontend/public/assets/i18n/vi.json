@@ -382,6 +382,8 @@
   "students.studentsLabel": "học sinh",
   "students.searchPlaceholder": "Tìm theo tên, mã, lớp chủ nhiệm...",
   "students.allGrades": "Tất cả khối",
+  "students.allClasses": "Tất cả lớp",
+  "students.resetFilters": "Đặt lại bộ lọc",
   "students.grade": "Khối",
   "students.student": "Học sinh",
   "students.homeroom": "Lớp chủ nhiệm",

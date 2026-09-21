@@ -28,6 +28,7 @@ public class StudentsPageDto
     public int TotalCount { get; set; }
     public int TotalPages { get; set; }
     public List<string> AvailableGrades { get; set; } = [];
+    public List<string> AvailableHomerooms { get; set; } = [];
 }
 
 public class RiskFlagDto

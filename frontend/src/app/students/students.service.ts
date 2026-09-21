@@ -34,6 +34,7 @@ export interface StudentsPage {
   totalCount: number;
   totalPages: number;
   availableGrades: string[];
+  availableHomerooms: string[];
 }
 
 export interface AtRiskStudent extends StudentListItem {
@@ -315,11 +316,13 @@ export class StudentsService {
     search = '',
     grade = '',
     atRiskOnly = false,
+    homeroom = '',
   ): Observable<StudentsPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) params = params.set('search', search.trim());
     if (grade) params = params.set('grade', grade);
     if (atRiskOnly) params = params.set('atRiskOnly', true);
+    if (homeroom) params = params.set('homeroom', homeroom);
     return this.http.get<StudentsPage>(`${this.basePath}/api/students`, { params });
   }
 
