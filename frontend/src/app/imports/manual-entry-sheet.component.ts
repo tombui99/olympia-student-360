@@ -5,6 +5,11 @@ import { LanguageService } from '../core/language/language.service';
 import { ManualEntryOptions, ManualEntryService, ManualEntryStudent } from './manual-entry.service';
 import { ImportModuleField, ImportModuleFieldsService } from './import-module-fields.service';
 
+const localDateTimeNow = (): string => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+
 @Component({
   selector: 'app-manual-entry-sheet',
   imports: [FormsModule],
@@ -276,26 +281,20 @@ import { ImportModuleField, ImportModuleFieldsService } from './import-module-fi
             } @else {
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.visitDate') }}</span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" type="date" name="visitDate" required [(ngModel)]="visitDate" />
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" type="datetime-local" name="visitDate" required [(ngModel)]="visitDate" />
               </label>
               <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.symptoms') }}</span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="symptoms" maxlength="1000" required [(ngModel)]="symptoms"></textarea>
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.classification') }}</span>
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="classification" maxlength="100" [(ngModel)]="classification" [placeholder]="languageService.t('imports.manual.optional')" />
               </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.diagnosis') }}</span>
                 <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="diagnosis" maxlength="1000" [(ngModel)]="diagnosis" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
               </label>
-              <div class="grid gap-5 sm:grid-cols-2">
-                <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.classification') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="classification" maxlength="100" [(ngModel)]="classification" [placeholder]="languageService.t('imports.manual.optional')" />
-                </label>
-                <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.examinedBy') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="examinedBy" maxlength="255" [(ngModel)]="examinedBy" [placeholder]="languageService.t('imports.manual.optional')" />
-                </label>
-              </div>
+              <label class="block">
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.symptoms') }}</span>
+                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="symptoms" maxlength="1000" required [(ngModel)]="symptoms"></textarea>
+              </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.treatment') }}</span>
                 <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="treatment" maxlength="1000" [(ngModel)]="treatment" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
@@ -303,6 +302,14 @@ import { ImportModuleField, ImportModuleFieldsService } from './import-module-fi
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.medication') }}</span>
                 <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="medication" maxlength="500" [(ngModel)]="medication" [placeholder]="languageService.t('imports.manual.optional')" />
+              </label>
+              <label class="block">
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.notes') }}</span>
+                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="healthNotes" maxlength="1000" [(ngModel)]="notes" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
+              </label>
+              <label class="flex items-center gap-3 rounded-md border border-[#e5dfe8] bg-[#faf9fb] px-4 py-3 text-sm font-semibold text-[#32124f]">
+                <input class="h-4 w-4 accent-[#5d2d7b]" type="checkbox" name="notificationSent" [(ngModel)]="notificationSent" />
+                {{ languageService.t('imports.manual.notificationSent') }}
               </label>
             }
 
@@ -416,13 +423,13 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
   violationType = '';
   busCode = '';
   routeName = '';
-  visitDate = new Date().toISOString().slice(0, 10);
+  visitDate = localDateTimeNow();
   symptoms = '';
   diagnosis = '';
   classification = '';
   treatment = '';
   medication = '';
-  examinedBy = '';
+  notificationSent = false;
 
   ngOnInit(): void {
     this.studentSearchInput.pipe(
@@ -627,7 +634,8 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
           classification: this.classification.trim() || null,
           treatment: this.treatment.trim() || null,
           medication: this.medication.trim() || null,
-          examinedBy: this.examinedBy.trim() || null,
+          notes: this.notes.trim() || null,
+          notificationSent: this.notificationSent,
           customFields,
         });
 

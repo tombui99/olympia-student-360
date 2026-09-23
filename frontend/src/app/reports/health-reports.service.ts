@@ -42,6 +42,8 @@ export interface HealthVisitReportDetail {
   symptoms?: string | null;
   treatment?: string | null;
   medication?: string | null;
+  notes?: string | null;
+  notificationSent: boolean;
   examinedBy?: string | null;
   customFields: Record<string, string>;
 }

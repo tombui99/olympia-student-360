@@ -177,7 +177,9 @@ export class SupplementalReportComponent implements OnChanges {
   readonly loadFailed = signal(false);
   private requestId = 0;
 
-  readonly distinctStudents = computed(() => new Set(this.records().map((record) => record.studentProfileId)).size);
+  readonly distinctStudents = computed(() => new Set(
+    this.records().flatMap((record) => record.studentProfileId == null ? [] : [record.studentProfileId]),
+  ).size);
   readonly recentRecords = computed(() => this.records().slice(0, 20));
   readonly attentionCount = computed(() => this.records().filter((record) => this.needsAttention(record)).length);
   readonly distribution = computed<DistributionRow[]>(() => {
@@ -186,7 +188,7 @@ export class SupplementalReportComponent implements OnChanges {
       const label = this.groupLabel(record);
       const current = groups.get(label) ?? { records: 0, students: new Set<number>() };
       current.records++;
-      current.students.add(record.studentProfileId);
+      if (record.studentProfileId != null) current.students.add(record.studentProfileId);
       groups.set(label, current);
     }
     const total = Math.max(1, this.records().length);

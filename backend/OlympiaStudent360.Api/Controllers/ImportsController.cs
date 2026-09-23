@@ -294,6 +294,8 @@ public class ImportsController : ControllerBase
                 Classification = Clean(row.Classification),
                 Treatment = Clean(row.Treatment),
                 Medication = Clean(row.Medication),
+                Notes = Clean(row.Notes),
+                NotificationSent = row.NotificationSent,
                 ExaminedBy = Clean(row.ExaminedBy),
                 CustomFieldsJson = customJson
             });

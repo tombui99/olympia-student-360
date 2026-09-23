@@ -213,9 +213,10 @@ public class ImportHistoryController : ControllerBase
             .Where(item => item.ImportHistoryId == historyId && item.Student != null)
             .OrderByDescending(item => item.ExamTime).ToListAsync();
         return items.Select(item => Record(item.Id, item.Student!, item.CustomFieldsJson,
-            ("visit_date", item.ExamTime.ToString("yyyy-MM-dd")), ("symptoms", item.Symptoms),
+            ("visit_date", item.ExamTime.ToString("yyyy-MM-ddTHH:mm")), ("symptoms", item.Symptoms),
             ("diagnosis", item.Diagnosis), ("classification", item.Classification),
             ("treatment", item.Treatment), ("medication", item.Medication),
+            ("notes", item.Notes), ("notification_sent", item.NotificationSent ? "true" : "false"),
             ("examined_by", item.ExaminedBy))).ToList();
     }
 
@@ -302,7 +303,7 @@ public class ImportHistoryController : ControllerBase
     {
         var item = await _context.StudentHealthVisits.FirstOrDefaultAsync(x => x.Id == id && x.ImportHistoryId == historyId);
         if (item == null) return "The imported record was not found.";
-        if (!TryDate(values, "visit_date", out var date)) return "visit_date is invalid.";
+        if (!TryDateTime(values, "visit_date", out var date)) return "visit_date is invalid.";
         var symptoms = Required(values, "symptoms");
         if (symptoms == null) return "symptoms is required.";
         var custom = await BuildCustomFields("student-health-visits", values);
@@ -312,7 +313,9 @@ public class ImportHistoryController : ControllerBase
         item.Classification = Clean(Value(values, "classification"));
         item.Treatment = Clean(Value(values, "treatment"));
         item.Medication = Clean(Value(values, "medication"));
-        item.ExaminedBy = Clean(Value(values, "examined_by"));
+        item.Notes = Clean(Value(values, "notes"));
+        item.NotificationSent = Checkbox(Value(values, "notification_sent"));
+        if (values.ContainsKey("examined_by")) item.ExaminedBy = Clean(Value(values, "examined_by"));
         item.CustomFieldsJson = custom.Json; item.UpdatedAt = DateTime.UtcNow;
         return null;
     }
@@ -352,6 +355,16 @@ public class ImportHistoryController : ControllerBase
         }
         return false;
     }
+    private static bool TryDateTime(IDictionary<string, string?> values, string key, out DateTime date)
+    {
+        if (DateTime.TryParse(Value(values, key), out date))
+        {
+            date = DateTime.SpecifyKind(date, DateTimeKind.Utc);
+            return true;
+        }
+        return false;
+    }
+    private static bool Checkbox(string? value) => value?.Trim().ToLowerInvariant() is "true" or "1" or "yes" or "y" or "on" or "có";
 
     private static ImportHistoryDto ToDto(ImportHistory history) => new()
     {

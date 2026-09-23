@@ -268,6 +268,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             visit.Property(v => v.Classification).HasMaxLength(100);
             visit.Property(v => v.Treatment).HasMaxLength(1000);
             visit.Property(v => v.Medication).HasMaxLength(500);
+            visit.Property(v => v.Notes).HasMaxLength(1000);
             visit.Property(v => v.ExaminedBy).HasMaxLength(255);
             visit.Property(v => v.SISUserId).HasMaxLength(100);
             visit.HasIndex(v => v.SISUserId);

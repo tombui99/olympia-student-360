@@ -94,6 +94,8 @@ public class CreateStudentHealthVisitDto
     [MaxLength(100)] public string? Classification { get; set; }
     [MaxLength(1000)] public string? Treatment { get; set; }
     [MaxLength(500)] public string? Medication { get; set; }
+    [MaxLength(1000)] public string? Notes { get; set; }
+    public bool NotificationSent { get; set; }
     [MaxLength(255)] public string? ExaminedBy { get; set; }
     public Dictionary<string, string?>? CustomFields { get; set; }
 }

@@ -262,6 +262,8 @@ public class StudentHealthVisitDto
     public string? Classification { get; set; }
     public string? Treatment { get; set; }
     public string? Medication { get; set; }
+    public string? Notes { get; set; }
+    public bool NotificationSent { get; set; }
     public string? ExaminedBy { get; set; }
     public Dictionary<string, string> CustomFields { get; set; } = [];
 }

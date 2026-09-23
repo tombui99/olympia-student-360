@@ -671,6 +671,8 @@ public class StudentsController : ControllerBase
             Classification = Clean(model.Classification),
             Treatment = Clean(model.Treatment),
             Medication = Clean(model.Medication),
+            Notes = Clean(model.Notes),
+            NotificationSent = model.NotificationSent,
             ExaminedBy = Clean(model.ExaminedBy),
             CustomFieldsJson = customJson
         };
@@ -1507,6 +1509,8 @@ public class StudentsController : ControllerBase
         Classification = visit.Classification,
         Treatment = visit.Treatment,
         Medication = visit.Medication,
+        Notes = visit.Notes,
+        NotificationSent = visit.NotificationSent,
         ExaminedBy = visit.ExaminedBy,
         CustomFields = ImportCustomFieldService.Parse(visit.CustomFieldsJson)
     };

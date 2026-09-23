@@ -15,7 +15,7 @@ import { ModuleRecord, ModuleRecordsService } from './module-records.service';
 type RecordField = {
   key: string;
   required: boolean;
-  type: 'text' | 'textarea' | 'number' | 'date' | 'select' | 'checkbox';
+  type: 'text' | 'textarea' | 'number' | 'date' | 'datetime-local' | 'select' | 'checkbox';
   options: string[];
   custom: boolean;
   label?: string;
@@ -104,9 +104,15 @@ type RecordField = {
           <table class="w-full min-w-max text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
               <tr>
+                @if (isHealthModule()) {
+                  <th class="min-w-28 px-5 py-4 font-semibold">{{ t('imports.templateFields.class_name') }}</th>
+                }
                 <th class="min-w-56 px-5 py-4 font-semibold">{{ t('moduleRecords.student') }}</th>
                 @for (field of fields(); track field.key) {
                   <th class="min-w-36 px-5 py-4 font-semibold">{{ fieldLabel(field) }}</th>
+                }
+                @if (isHealthModule()) {
+                  <th class="min-w-32 px-5 py-4 font-semibold">{{ t('imports.templateFields.sis') }}</th>
                 }
                 <th class="min-w-40 px-5 py-4 font-semibold">{{ t('moduleRecords.enteredBy') }}</th>
                 <th class="sticky right-0 min-w-40 bg-[#faf9f6] px-5 py-4 text-right font-semibold">{{ t('moduleRecords.actions') }}</th>
@@ -115,16 +121,23 @@ type RecordField = {
             <tbody class="divide-y divide-[#ebe6ef]">
               @for (record of records(); track record.id) {
                 <tr class="align-top text-sm transition hover:bg-[#fdfcff]">
+                  @if (isHealthModule()) {
+                    <td class="whitespace-nowrap px-5 py-4 font-semibold text-[#32124f]">{{ record.homeroom || '—' }}</td>
+                  }
                   <td class="px-5 py-4">
-                    <a class="font-semibold text-[#32124f] hover:text-[#6d3a91] hover:underline" [routerLink]="['/students', record.studentProfileId]">
-                      {{ record.studentName }}
-                    </a>
-                    <span class="mt-1 block text-xs text-[#8b8193]">
-                      {{ record.sisUserId }}@if (record.gradeLevel) { · {{ t('imports.manual.grade') }} {{ record.gradeLevel }}}@if (record.homeroom) { · {{ record.homeroom }}}
-                    </span>
+                    @if (record.studentProfileId) {
+                      <a class="font-semibold text-[#32124f] hover:text-[#6d3a91] hover:underline" [routerLink]="['/students', record.studentProfileId]">{{ record.studentName }}</a>
+                    } @else {
+                      <span class="font-semibold text-[#32124f]">{{ record.studentName }}</span>
+                    }
+                    @if (!isHealthModule()) {
+                      <span class="mt-1 block text-xs text-[#8b8193]">
+                        {{ record.sisUserId }}@if (record.gradeLevel) { · {{ t('imports.manual.grade') }} {{ record.gradeLevel }}}@if (record.homeroom) { · {{ record.homeroom }}}
+                      </span>
+                    }
                   </td>
                   @for (field of fields(); track field.key) {
-                    <td class="max-w-72 px-5 py-4 text-[#5f5368]" [class.whitespace-nowrap]="field.type === 'date'">
+                    <td class="max-w-72 px-5 py-4 text-[#5f5368]" [class.whitespace-nowrap]="field.type === 'date' || field.type === 'datetime-local'">
                       @if (isBadgeField(field.key) && record.values[field.key]) {
                         <span class="rounded-full px-2.5 py-1 text-xs font-semibold" [class]="badgeClass(record.values[field.key])">
                           {{ displayValue(field.key, record.values[field.key]) }}
@@ -133,6 +146,9 @@ type RecordField = {
                         <span [class.line-clamp-3]="field.type === 'textarea'">{{ displayValue(field.key, record.values[field.key]) || '—' }}</span>
                       }
                     </td>
+                  }
+                  @if (isHealthModule()) {
+                    <td class="whitespace-nowrap px-5 py-4 text-[#6f6877]">{{ record.sisUserId || '—' }}</td>
                   }
                   <td class="px-5 py-4 text-[#6f6877]">
                     {{ record.enteredByName || '—' }}
@@ -147,9 +163,9 @@ type RecordField = {
                 </tr>
               }
               @if (loading()) {
-                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="fields().length + 3">{{ t('moduleRecords.loading') }}</td></tr>
+                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="fields().length + 3 + (isHealthModule() ? 2 : 0)">{{ t('moduleRecords.loading') }}</td></tr>
               } @else if (!records().length) {
-                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="fields().length + 3">{{ t('moduleRecords.empty') }}</td></tr>
+                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="fields().length + 3 + (isHealthModule() ? 2 : 0)">{{ t('moduleRecords.empty') }}</td></tr>
               }
             </tbody>
           </table>
@@ -311,11 +327,13 @@ export class ModuleRecordsComponent implements OnInit {
   changePageSize(event: Event): void { this.pageSize.set(Number((event.target as HTMLSelectElement).value)); this.load(1); }
   pageLabel(): string { return this.t('pagination.pageOf').replace('{page}', String(this.page())).replace('{pages}', String(this.totalPages())).replace('{total}', String(this.totalCount())); }
   fieldLabel(field: RecordField): string { return field.custom ? field.label! : this.t(`imports.templateFields.${field.key}`); }
+  isHealthModule(): boolean { return this.moduleId === 'student-health-visits'; }
   formatDateTime(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(value)); }
   isBadgeField(key: string): boolean { return ['behaviour_type', 'status', 'risk_level', 'violation_type'].includes(key); }
 
   displayValue(key: string, value: string | null | undefined): string {
     if (!value) return '';
+    if (key === 'visit_date') return this.formatDateTime(value);
     if (value === 'true' || value === 'false') return this.t(`moduleRecords.boolean.${value}`);
     const slug = value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const prefix = key === 'concern_type' ? 'imports.mentalHealthOptions.concern.'
@@ -385,7 +403,8 @@ export class ModuleRecordsComponent implements OnInit {
   }
 
   optionsFor(field: RecordField): string[] {
-    if (field.custom) return field.type === 'checkbox' ? ['true', 'false'] : field.options;
+    if (field.type === 'checkbox') return ['true', 'false'];
+    if (field.custom) return field.options;
     const options = this.options(); if (!options) return [];
     return field.key === 'behaviour_type' ? [...options.positiveBehaviourTypes, ...options.concerningBehaviourTypes]
       : field.key === 'subject' ? options.projectSubjects
@@ -399,8 +418,10 @@ export class ModuleRecordsComponent implements OnInit {
 
   t(key: string): string { return this.languageService.t(key); }
   private standardFieldType(key: string): RecordField['type'] {
+    if (key === 'visit_date') return 'datetime-local';
     if (key.endsWith('_date')) return 'date';
     if (['notes', 'teacher_notes', 'symptoms', 'diagnosis', 'treatment'].includes(key)) return 'textarea';
+    if (key === 'notification_sent') return 'checkbox';
     if (['behaviour_type', 'subject', 'status', 'academic_year', 'concern_type', 'risk_level', 'trip_direction', 'violation_type'].includes(key)) return 'select';
     return 'text';
   }

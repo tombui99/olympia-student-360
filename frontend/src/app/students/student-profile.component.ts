@@ -551,7 +551,7 @@ type ProfileSection =
             </span>
           </div>
           <div class="overflow-x-auto">
-            <table class="w-full min-w-[820px] text-left">
+            <table class="w-full min-w-[1100px] text-left">
               <thead class="sticky top-0 z-10 bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
                 <tr>
                   <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.examTime') }}</th>
@@ -560,6 +560,8 @@ type ProfileSection =
                   <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.classification') }}</th>
                   <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.treatment') }}</th>
                   <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.medication') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.notes') }}</th>
+                  <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.notificationSent') }}</th>
                   <th class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.healthVisits.examinedBy') }}</th>
                 </tr>
               </thead>
@@ -574,11 +576,13 @@ type ProfileSection =
                     </td>
                     <td class="px-4 py-3 text-[#6f6877]">{{ visit.treatment || '—' }}</td>
                     <td class="px-4 py-3 text-[#6f6877]">{{ visit.medication || '—' }}</td>
+                    <td class="px-4 py-3 text-[#6f6877]">{{ visit.notes || '—' }}</td>
+                    <td class="px-4 py-3 text-[#6f6877]">{{ languageService.t('moduleRecords.boolean.' + visit.notificationSent) }}</td>
                     <td class="whitespace-nowrap px-4 py-3 text-[#6f6877]">{{ visit.examinedBy || '—' }}</td>
                   </tr>
                 } @empty {
                   <tr>
-                    <td class="px-4 py-8 text-center text-sm text-[#7c7284]" colspan="7">{{ languageService.t('studentProfile.healthVisits.empty') }}</td>
+                    <td class="px-4 py-8 text-center text-sm text-[#7c7284]" colspan="9">{{ languageService.t('studentProfile.healthVisits.empty') }}</td>
                   </tr>
                 }
               </tbody>

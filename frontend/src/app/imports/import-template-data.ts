@@ -99,8 +99,8 @@ export const importModules: ImportModule[] = [
     titleKey: 'imports.modules.healthVisits.title',
     descriptionKey: 'imports.modules.healthVisits.description',
     headers: [
-      'student_id', 'student_name', 'visit_date', 'symptoms', 'diagnosis',
-      'classification', 'treatment', 'medication', 'examined_by',
+      'student_id', 'student_name', 'visit_date', 'classification', 'diagnosis',
+      'symptoms', 'treatment', 'medication', 'notes', 'notification_sent',
     ],
     requiredHeaders: ['student_id', 'student_name', 'visit_date', 'symptoms'],
   },

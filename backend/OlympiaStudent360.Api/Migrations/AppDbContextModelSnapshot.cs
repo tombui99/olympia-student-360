@@ -1811,6 +1811,13 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<bool>("NotificationSent")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<string>("SISUserId")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");

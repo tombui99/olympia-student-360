@@ -24,6 +24,8 @@ public sealed class HealthReportsController(AppDbContext context) : ControllerBa
         string? Symptoms,
         string? Treatment,
         string? Medication,
+        string? Notes,
+        bool NotificationSent,
         string? ExaminedBy,
         string? CustomFieldsJson);
 
@@ -118,7 +120,8 @@ public sealed class HealthReportsController(AppDbContext context) : ControllerBa
             .Select(item => new HealthVisitSource(
                 item.Id, item.StudentProfileId, item.SISUserId, item.FullName, item.ClassName,
                 item.ExamTime, item.Classification, item.Diagnosis, item.Symptoms,
-                item.Treatment, item.Medication, item.ExaminedBy, item.CustomFieldsJson))
+                item.Treatment, item.Medication, item.Notes, item.NotificationSent,
+                item.ExaminedBy, item.CustomFieldsJson))
             .ToListAsync();
 
     private static List<HealthReportRowDto> DiagnosisRows(List<HealthVisitSource> source, string groupBy) =>
@@ -213,6 +216,8 @@ public sealed class HealthReportsController(AppDbContext context) : ControllerBa
         Symptoms = item.Symptoms,
         Treatment = item.Treatment,
         Medication = item.Medication,
+        Notes = item.Notes,
+        NotificationSent = item.NotificationSent,
         ExaminedBy = item.ExaminedBy,
         CustomFields = ImportCustomFieldService.Parse(item.CustomFieldsJson)
     };
@@ -246,7 +251,8 @@ public sealed class HealthReportsController(AppDbContext context) : ControllerBa
 
     private static bool Matches(HealthVisitSource item, string term) =>
         Contains(item.StudentName, term) || Contains(item.SISUserId, term) || Contains(item.ClassName, term) ||
-        Contains(item.Diagnosis, term) || Contains(item.Classification, term) || Contains(item.Symptoms, term);
+        Contains(item.Diagnosis, term) || Contains(item.Classification, term) || Contains(item.Symptoms, term) ||
+        Contains(item.Notes, term);
 
     private static bool Contains(string? value, string term) =>
         value?.Contains(term, StringComparison.OrdinalIgnoreCase) == true;

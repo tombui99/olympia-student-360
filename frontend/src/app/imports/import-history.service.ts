@@ -126,7 +126,8 @@ export class ImportHistoryService {
           classification: row['classification'] || null,
           treatment: row['treatment'] || null,
           medication: row['medication'] || null,
-          examinedBy: row['examined_by'] || null,
+          notes: row['notes'] || null,
+          notificationSent: this.booleanValue(row['notification_sent']),
           customFields: customFieldsFor(row),
         }));
 
@@ -145,5 +146,9 @@ export class ImportHistoryService {
       ...record,
       moduleTitleKey: module?.titleKey ?? record.moduleId,
     };
+  }
+
+  private booleanValue(value: string | undefined): boolean {
+    return ['true', '1', 'yes', 'y', 'on', 'có'].includes(value?.trim().toLocaleLowerCase() ?? '');
   }
 }

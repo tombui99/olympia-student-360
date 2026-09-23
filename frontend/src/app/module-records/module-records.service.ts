@@ -5,7 +5,7 @@ import { BASE_PATH } from '../api/variables';
 export interface ModuleRecord {
   id: number;
   moduleId: string;
-  studentProfileId: number;
+  studentProfileId?: number | null;
   sisUserId: string;
   studentName: string;
   gradeLevel?: string | null;

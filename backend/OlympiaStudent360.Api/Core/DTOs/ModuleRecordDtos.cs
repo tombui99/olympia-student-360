@@ -6,7 +6,7 @@ public sealed class ModuleRecordDto
 {
     public int Id { get; set; }
     public string ModuleId { get; set; } = default!;
-    public int StudentProfileId { get; set; }
+    public int? StudentProfileId { get; set; }
     public string SISUserId { get; set; } = default!;
     public string StudentName { get; set; } = default!;
     public string? GradeLevel { get; set; }

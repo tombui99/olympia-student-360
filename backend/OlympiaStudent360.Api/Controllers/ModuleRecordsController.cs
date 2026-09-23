@@ -226,30 +226,37 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
         int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
     {
         var query = context.StudentHealthVisits.AsNoTracking()
-            .Where(item => item.StudentProfileId != null && item.Student != null)
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
         if (period.HasValue)
             query = query.Where(item => item.ExamTime >= period.Value.Start && item.ExamTime < period.Value.End);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
-            query = query.Where(item => EF.Functions.Like(item.Student!.FullName, pattern, "!") ||
-                EF.Functions.Like(item.Student.SISUserId, pattern, "!") ||
+            query = query.Where(item => EF.Functions.Like(item.FullName, pattern, "!") ||
+                item.SISUserId != null && EF.Functions.Like(item.SISUserId, pattern, "!") ||
+                item.ClassName != null && EF.Functions.Like(item.ClassName, pattern, "!") ||
                 item.Symptoms != null && EF.Functions.Like(item.Symptoms, pattern, "!") ||
                 item.Diagnosis != null && EF.Functions.Like(item.Diagnosis, pattern, "!") ||
                 item.Classification != null && EF.Functions.Like(item.Classification, pattern, "!") ||
+                item.Notes != null && EF.Functions.Like(item.Notes, pattern, "!") ||
                 item.ExaminedBy != null && EF.Functions.Like(item.ExaminedBy, pattern, "!"));
         }
         var total = await query.CountAsync();
         page = NormalizedPage(page, pageSize, total);
         var items = await query.OrderByDescending(item => item.ExamTime).ThenByDescending(item => item.Id)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
-        return Page(items.Select(item => Record("student-health-visits", item, item.Student!,
-            item.ImportHistory?.ImportedByName,
-            ("visit_date", Date(item.ExamTime)), ("symptoms", item.Symptoms),
-            ("diagnosis", item.Diagnosis), ("classification", item.Classification),
-            ("treatment", item.Treatment), ("medication", item.Medication),
-            ("examined_by", item.ExaminedBy))).ToList(), page, pageSize, total);
+        var records = items.Select(item =>
+        {
+            var record = Record("student-health-visits", item, item.Student, item.ImportHistory?.ImportedByName,
+                ("visit_date", item.ExamTime.ToString("yyyy-MM-ddTHH:mm")), ("symptoms", item.Symptoms),
+                ("diagnosis", item.Diagnosis), ("classification", item.Classification),
+                ("treatment", item.Treatment), ("medication", item.Medication),
+                ("notes", item.Notes), ("notification_sent", item.NotificationSent ? "true" : "false"),
+                ("examined_by", item.ExaminedBy));
+            record.Homeroom = item.ClassName ?? record.Homeroom;
+            return record;
+        }).ToList();
+        return Page(records, page, pageSize, total);
     }
 
     private async Task<string?> UpdateBehaviour(int id, IDictionary<string, string?> values)
@@ -321,7 +328,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     {
         var item = await context.StudentHealthVisits.FindAsync(id);
         if (item == null) return "not-found";
-        if (!TryDate(values, "visit_date", out var date)) return "visit_date is invalid.";
+        if (!TryDateTime(values, "visit_date", out var date)) return "visit_date is invalid.";
         var symptoms = Required(values, "symptoms");
         if (symptoms == null) return "symptoms is required.";
         var custom = await CustomFields("student-health-visits", values);
@@ -331,7 +338,9 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
         item.Classification = Clean(Value(values, "classification"));
         item.Treatment = Clean(Value(values, "treatment"));
         item.Medication = Clean(Value(values, "medication"));
-        item.ExaminedBy = Clean(Value(values, "examined_by"));
+        item.Notes = Clean(Value(values, "notes"));
+        item.NotificationSent = Checkbox(Value(values, "notification_sent"));
+        if (values.ContainsKey("examined_by")) item.ExaminedBy = Clean(Value(values, "examined_by"));
         item.CustomFieldsJson = custom.Json; item.UpdatedAt = DateTime.UtcNow;
         return null;
     }
@@ -347,7 +356,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     }
 
     private static ModuleRecordDto Record(
-        string moduleId, BaseEntity entity, StudentProfile student, string? enteredByName,
+        string moduleId, BaseEntity entity, StudentProfile? student, string? enteredByName,
         params (string Key, string? Value)[] standardValues)
     {
         var values = standardValues.ToDictionary(item => item.Key, item => item.Value);
@@ -361,12 +370,15 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
             _ => null
         };
         foreach (var field in ImportCustomFieldService.Parse(customJson)) values[field.Key] = field.Value;
+        var healthVisit = entity as StudentHealthVisit;
         return new ModuleRecordDto
         {
-            Id = entity.Id, ModuleId = moduleId, StudentProfileId = student.Id,
-            SISUserId = student.SISUserId, StudentName = student.FullName,
-            GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel, Homeroom = student.Homeroom,
-            CanvasGradeLevel = student.CanvasGradeLevel,
+            Id = entity.Id, ModuleId = moduleId, StudentProfileId = student?.Id ?? healthVisit?.StudentProfileId,
+            SISUserId = student?.SISUserId ?? healthVisit?.SISUserId ?? string.Empty,
+            StudentName = student?.FullName ?? healthVisit?.FullName ?? string.Empty,
+            GradeLevel = student?.GradeLevel ?? student?.CanvasGradeLevel,
+            Homeroom = healthVisit?.ClassName ?? student?.Homeroom,
+            CanvasGradeLevel = student?.CanvasGradeLevel,
             EnteredByName = enteredByName, CreatedAt = entity.CreatedAt, Values = values
         };
     }
@@ -400,6 +412,16 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
         }
         return false;
     }
+    private static bool TryDateTime(IDictionary<string, string?> values, string key, out DateTime date)
+    {
+        if (DateTime.TryParse(Value(values, key), out date))
+        {
+            date = DateTime.SpecifyKind(date, DateTimeKind.Utc);
+            return true;
+        }
+        return false;
+    }
+    private static bool Checkbox(string? value) => value?.Trim().ToLowerInvariant() is "true" or "1" or "yes" or "y" or "on" or "có";
     private static string EscapeLikePattern(string value) =>
         value.Replace("!", "!!", StringComparison.Ordinal)
             .Replace("%", "!%", StringComparison.Ordinal)

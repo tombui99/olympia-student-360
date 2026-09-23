@@ -115,6 +115,10 @@ public class StudentHealthVisit : BaseEntity
     public string? Treatment { get; set; }
     /// <summary>Thuốc sử dụng.</summary>
     public string? Medication { get; set; }
+    /// <summary>Ghi chú bổ sung của phòng y tế.</summary>
+    public string? Notes { get; set; }
+    /// <summary>Đã gửi thông báo cho người liên quan.</summary>
+    public bool NotificationSent { get; set; }
     /// <summary>Y, BS khám bệnh.</summary>
     public string? ExaminedBy { get; set; }
     /// <summary>Values for admin-defined custom fields, keyed by field key. JSON object.</summary>
