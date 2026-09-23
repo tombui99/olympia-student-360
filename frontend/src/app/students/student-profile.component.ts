@@ -275,6 +275,84 @@ type ProfileSection =
           </div>
         }
 
+        <article class="overflow-hidden rounded-lg border border-[#ded3e6] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+          <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#ebe6ef] bg-gradient-to-r from-[#f7f2fa] to-[#fffaf0] px-5 py-4">
+            <div class="flex items-center gap-3">
+              <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#32124f] text-[#f3c246]">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" />
+                </svg>
+              </span>
+              <div>
+                <h3 class="font-semibold text-[#32124f]">{{ languageService.t('studentProfile.canvas.title') }}</h3>
+                <p class="text-xs text-[#6f6877]">{{ languageService.t('studentProfile.canvas.hint') }}</p>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              @if (profile.canvas.academicYear) {
+                <span class="rounded-full border border-[#d9cce2] bg-white px-3 py-1 text-xs font-semibold text-[#5b287d]">
+                  {{ profile.canvas.academicYear }}
+                </span>
+              }
+              @if (profile.canvas.term) {
+                <span class="rounded-full border border-[#eadcb5] bg-white px-3 py-1 text-xs font-semibold text-[#7a5b12]">
+                  {{ canvasTermLabel(profile.canvas.term) }}
+                </span>
+              }
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-md border border-[#6d3a91] bg-white px-3.5 py-2 text-sm font-semibold text-[#4a1b73] transition hover:bg-[#f7f1fb] focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
+                (click)="selectSection('learning')"
+              >
+                {{ languageService.t('studentProfile.canvas.viewDetails') }}
+                <span aria-hidden="true">→</span>
+              </button>
+            </div>
+          </div>
+
+          @if (profile.canvas.hasData) {
+            <div class="grid gap-0 sm:grid-cols-2 lg:grid-cols-4">
+              <div class="border-b border-[#ebe6ef] p-5 sm:border-r lg:border-b-0">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgCourseGrade') }}</p>
+                @if (profile.canvas.averageCourseGrade != null) {
+                  <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.canvas.averageCourseGrade }}%</p>
+                } @else {
+                  <p class="mt-2 text-base font-semibold text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noGradeData') }}</p>
+                }
+              </div>
+              <div class="border-b border-[#ebe6ef] p-5 lg:border-b-0 lg:border-r">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgAssignmentScore') }}</p>
+                @if (profile.canvas.averageAssignmentScore != null) {
+                  <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.canvas.averageAssignmentScore }}%</p>
+                } @else {
+                  <p class="mt-2 text-base font-semibold text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noGradeData') }}</p>
+                }
+              </div>
+              <div class="border-b border-[#ebe6ef] p-5 sm:border-r sm:border-b-0">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.coursesEnrolled') }}</p>
+                <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.canvas.coursesEnrolled }}</p>
+              </div>
+              <div class="p-5">
+                <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.assignmentsGraded') }}</p>
+                <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.canvas.assignmentsGraded }}</p>
+              </div>
+            </div>
+            @if (profile.canvas.journey.length > 1) {
+              <div class="border-t border-[#ebe6ef] p-6">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#32124f]">
+                    {{ languageService.t('studentProfile.canvas.journeyTitle') }}
+                  </h4>
+                  <p class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.journeyHint') }}</p>
+                </div>
+                <div echarts class="mt-4 h-64 w-full" [options]="canvasJourneyOptions()" role="img"></div>
+              </div>
+            }
+          } @else {
+            <p class="p-6 text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.empty') }}</p>
+          }
+        </article>
+
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <article class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <p class="text-sm text-[#7c7284]">{{ languageService.t('studentProfile.stats.behaviours') }}</p>
