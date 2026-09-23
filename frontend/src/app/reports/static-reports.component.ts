@@ -24,6 +24,7 @@ import {
   SupplementalReportComponent,
   SupplementalReportDefinition,
 } from './supplemental-report.component';
+import { HealthReportComponent } from './health-report.component';
 
 type StaticReportId =
   | 'learning-diligence'
@@ -36,6 +37,9 @@ type StaticReportId =
   | 'cafeteria-culture'
   | 'behaviour-audit'
   | 'mental-wellbeing'
+  | 'health-diagnoses'
+  | 'health-frequent-students'
+  | 'health-student-visits'
   | 'learning-projects'
   | 'student-activities'
   | 'bus-safety';
@@ -96,7 +100,7 @@ interface ClassDrilldownPage {
 
 @Component({
   selector: 'app-static-reports',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent],
   template: `
     <section class="print-region space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -305,6 +309,15 @@ interface ClassDrilldownPage {
               }
               @case ('support-students') {
                 <ng-container [ngTemplateOutlet]="supportStudents"></ng-container>
+              }
+              @case ('health-diagnoses') {
+                <app-health-report report="diagnoses" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
+              }
+              @case ('health-frequent-students') {
+                <app-health-report report="frequent-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
+              }
+              @case ('health-student-visits') {
+                <app-health-report report="student-visits" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
               }
               @default {
                 @if (activeSupplementalReport(); as report) {
@@ -849,6 +862,13 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
           moduleId: 'student-mental-health', dimension: 'field', dimensionField: 'risk_level',
           primaryField: 'concern_type', secondaryField: 'risk_level', dateField: 'record_date', attentionMode: 'mental-health',
         }),
+      ],
+    },
+    {
+      id: 'health', titleKey: 'reports.group.health', shortLabel: 'YT', items: [
+        { id: 'health-diagnoses', titleKey: 'reports.health.diagnoses.title', descriptionKey: 'reports.health.diagnoses.menuDescription' },
+        { id: 'health-frequent-students', titleKey: 'reports.health.frequent-students.title', descriptionKey: 'reports.health.frequent-students.menuDescription' },
+        { id: 'health-student-visits', titleKey: 'reports.health.student-visits.title', descriptionKey: 'reports.health.student-visits.menuDescription' },
       ],
     },
     {
