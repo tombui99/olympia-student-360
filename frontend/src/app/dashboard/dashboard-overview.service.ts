@@ -16,6 +16,14 @@ export interface DashboardGrade {
   averageCanvasScorePercentage?: number | null;
 }
 
+export interface DashboardClass {
+  homeroom: string;
+  grade: string;
+  students: number;
+  atRisk: number;
+  averageCanvasScorePercentage?: number | null;
+}
+
 export interface DashboardAttentionStudent {
   id: number;
   sisUserId: string;
@@ -41,6 +49,7 @@ export interface DashboardOverview {
   activeProjects: number;
   behaviourTrend: DashboardTrendPoint[];
   gradeDistribution: DashboardGrade[];
+  classDistribution: DashboardClass[];
   topAtRisk: DashboardAttentionStudent[];
 }
 

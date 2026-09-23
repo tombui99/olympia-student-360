@@ -29,6 +29,7 @@ public class DashboardOverviewDto
     public int ActiveProjects { get; set; }
     public List<DashboardTrendPointDto> BehaviourTrend { get; set; } = [];
     public List<DashboardGradeDto> GradeDistribution { get; set; } = [];
+    public List<DashboardClassDto> ClassDistribution { get; set; } = [];
     public List<DashboardAttentionStudentDto> TopAtRisk { get; set; } = [];
 }
 
@@ -51,6 +52,15 @@ public class DashboardTrendPointDto
 
 public class DashboardGradeDto
 {
+    public string Grade { get; set; } = default!;
+    public int Students { get; set; }
+    public int AtRisk { get; set; }
+    public decimal? AverageCanvasScorePercentage { get; set; }
+}
+
+public class DashboardClassDto
+{
+    public string Homeroom { get; set; } = default!;
     public string Grade { get; set; } = default!;
     public int Students { get; set; }
     public int AtRisk { get; set; }

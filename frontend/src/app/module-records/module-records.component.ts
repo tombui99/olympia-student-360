@@ -3,6 +3,9 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize, forkJoin } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
+import { AuthenticationService } from '../core/auth/auth.service';
+import { ExcelImportSheetComponent } from '../imports/excel-import-sheet.component';
+import { FieldDesignerSheetComponent } from '../imports/field-designer-sheet.component';
 import { ImportModule, importModules } from '../imports/import-template-data';
 import { ImportModuleField, ImportModuleFieldsService } from '../imports/import-module-fields.service';
 import { ManualEntryOptions, ManualEntryService } from '../imports/manual-entry.service';
@@ -20,7 +23,13 @@ type RecordField = {
 
 @Component({
   selector: 'app-module-records',
-  imports: [FormsModule, RouterLink, ManualEntrySheetComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    ManualEntrySheetComponent,
+    ExcelImportSheetComponent,
+    FieldDesignerSheetComponent,
+  ],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -29,11 +38,31 @@ type RecordField = {
           <h2 class="mt-2 text-3xl font-semibold text-[#32124f]">{{ t(module().titleKey) }}</h2>
           <p class="mt-2 max-w-3xl text-[#6f6877]">{{ t(module().descriptionKey) }}</p>
         </div>
-        <button
-          class="rounded-md bg-[#32124f] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4b2070]"
-          type="button"
-          (click)="creating.set(true)"
-        >{{ t('moduleRecords.addRecord') }}</button>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          @if (canDesignFields() && module().supportsCustomFields !== false) {
+            <button
+              class="inline-flex items-center gap-2 rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+              type="button"
+              (click)="designerOpen.set(true)"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              {{ t('imports.designer.customize') }}
+            </button>
+          }
+          <button
+            class="inline-flex items-center gap-2 rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
+            type="button"
+            (click)="excelImportOpen.set(true)"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            {{ t('imports.manual.importExcel') }}
+          </button>
+          <button
+            class="rounded-md bg-[#32124f] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4b2070]"
+            type="button"
+            (click)="creating.set(true)"
+          >{{ t('moduleRecords.addRecord') }}</button>
+        </div>
       </div>
 
       <section class="rounded-lg border border-[#e6dfeb] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.06)]">
@@ -149,6 +178,23 @@ type RecordField = {
         <app-manual-entry-sheet [moduleId]="moduleId" (close)="creating.set(false)" (saved)="created()" />
       }
 
+      @if (excelImportOpen()) {
+        <app-excel-import-sheet
+          [moduleId]="moduleId"
+          (close)="excelImportOpen.set(false)"
+          (imported)="excelImported()"
+        />
+      }
+
+      @if (designerOpen()) {
+        <app-field-designer-sheet
+          [moduleId]="moduleId"
+          [moduleTitleKey]="module().titleKey"
+          (close)="designerClosed()"
+          (changed)="reloadCustomFields()"
+        />
+      }
+
       @if (editing()) {
         <div class="fixed inset-0 z-[70]">
           <button class="absolute inset-0 h-full w-full bg-[#1d1025]/35" type="button" [attr.aria-label]="t('moduleRecords.close')" (click)="closeEdit()"></button>
@@ -196,6 +242,7 @@ export class ModuleRecordsComponent implements OnInit {
   private readonly service = inject(ModuleRecordsService);
   private readonly fieldsService = inject(ImportModuleFieldsService);
   private readonly manualService = inject(ManualEntryService);
+  private readonly authService = inject(AuthenticationService);
   readonly languageService = inject(LanguageService);
 
   readonly moduleId = String(this.route.snapshot.data['moduleId']);
@@ -210,6 +257,8 @@ export class ModuleRecordsComponent implements OnInit {
   readonly totalCount = signal(0);
   readonly totalPages = signal(0);
   readonly creating = signal(false);
+  readonly excelImportOpen = signal(false);
+  readonly designerOpen = signal(false);
   readonly editing = signal<ModuleRecord | null>(null);
   readonly saving = signal(false);
   readonly editError = signal<string | null>(null);
@@ -310,6 +359,31 @@ export class ModuleRecordsComponent implements OnInit {
   }
 
   created(): void { this.creating.set(false); this.message.set(this.t('moduleRecords.created')); this.load(1); }
+  excelImported(): void {
+    this.excelImportOpen.set(false);
+    this.message.set(
+      this.t('imports.excel.saved').replace('{module}', this.t(this.module().titleKey)),
+    );
+    this.load(1);
+  }
+
+  designerClosed(): void {
+    this.designerOpen.set(false);
+    this.reloadCustomFields();
+  }
+
+  reloadCustomFields(): void {
+    this.fieldsService.list(this.moduleId).subscribe({
+      next: (fields) => this.customFields.set(fields),
+      error: () => this.error.set(this.t('moduleRecords.optionsError')),
+    });
+  }
+
+  canDesignFields(): boolean {
+    const role = this.authService.getUserRole();
+    return role === 'Admin' || role === 'SchoolAdministration' || role === 'Principal';
+  }
+
   optionsFor(field: RecordField): string[] {
     if (field.custom) return field.type === 'checkbox' ? ['true', 'false'] : field.options;
     const options = this.options(); if (!options) return [];

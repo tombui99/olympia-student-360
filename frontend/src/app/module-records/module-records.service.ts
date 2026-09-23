@@ -9,6 +9,7 @@ export interface ModuleRecord {
   sisUserId: string;
   studentName: string;
   gradeLevel?: string | null;
+  canvasGradeLevel?: string | null;
   homeroom?: string | null;
   enteredByName?: string | null;
   createdAt: string;
@@ -28,9 +29,20 @@ export class ModuleRecordsService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  list(moduleId: string, page: number, pageSize: number, search: string) {
+  list(
+    moduleId: string,
+    page: number,
+    pageSize: number,
+    search: string,
+    academicYear?: string,
+    reportingTerm?: string,
+  ) {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) params = params.set('search', search.trim());
+    if (academicYear?.trim()) params = params.set('academicYear', academicYear.trim());
+    if (reportingTerm?.trim() && reportingTerm !== 'all') {
+      params = params.set('term', reportingTerm.trim());
+    }
     return this.http.get<ModuleRecordsPage>(`${this.basePath}/api/module-records/${moduleId}`, { params });
   }
 

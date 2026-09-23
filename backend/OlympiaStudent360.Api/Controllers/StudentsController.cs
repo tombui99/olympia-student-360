@@ -185,6 +185,7 @@ public class StudentsController : ControllerBase
         [FromQuery] int pageSize = 10,
         [FromQuery] string? search = null,
         [FromQuery] string? grade = null,
+        [FromQuery] string? homeroom = null,
         [FromQuery] string? academicYear = null,
         [FromQuery] string? term = null)
     {
@@ -197,7 +198,7 @@ public class StudentsController : ControllerBase
         }
         var normalizedGrade = grade?.Trim();
         var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(academicYear, term);
-        var candidates = (await LoadVisibleSignals(settings, canvasPeriod, searchTerm, normalizedGrade))
+        var candidates = (await LoadVisibleSignals(settings, canvasPeriod, searchTerm, normalizedGrade, homeroom?.Trim()))
             .Select(entry => new
             {
                 entry.Student,
@@ -1526,7 +1527,7 @@ public class StudentsController : ControllerBase
     };
 
     private async Task<List<StudentProfile>> LoadVisibleWithActivity(
-        string? search = null, string? grade = null)
+        string? search = null, string? grade = null, string? homeroom = null)
     {
         var query = VisibleStudents();
         if (!string.IsNullOrWhiteSpace(search))
@@ -1546,6 +1547,12 @@ public class StudentsController : ControllerBase
                     (student.GradeLevel ?? student.CanvasGradeLevel) == "")
                 : query.Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) == grade);
         }
+        if (!string.IsNullOrWhiteSpace(homeroom))
+        {
+            query = homeroom == "—"
+                ? query.Where(student => student.Homeroom == null || student.Homeroom == "")
+                : query.Where(student => student.Homeroom == homeroom);
+        }
 
         return await query
             .AsSplitQuery()
@@ -1560,9 +1567,10 @@ public class StudentsController : ControllerBase
         StudentClassificationSettingsDto settings,
         CanvasReportingPeriod canvasPeriod,
         string? search = null,
-        string? grade = null)
+        string? grade = null,
+        string? homeroom = null)
     {
-        var students = await LoadVisibleWithActivity(search, grade);
+        var students = await LoadVisibleWithActivity(search, grade, homeroom);
         var now = DateTime.UtcNow;
         var riskSince = now.AddDays(-settings.RiskWindowDays);
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);

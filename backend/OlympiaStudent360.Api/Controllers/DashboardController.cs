@@ -2186,6 +2186,8 @@ public class DashboardController : ControllerBase
         var since = now.AddDays(-30);
         var gradeBuckets = new Dictionary<string, DashboardGradeDto>();
         var gradeCanvasScores = new Dictionary<string, List<decimal>>();
+        var classBuckets = new Dictionary<string, DashboardClassDto>();
+        var classCanvasScores = new Dictionary<string, List<decimal>>();
         var riskSince = now.AddDays(-settings.RiskWindowDays);
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);
         var attentionCandidates = new List<(StudentProfile Student, string RiskLevel, int SignalCount)>();
@@ -2246,6 +2248,14 @@ public class DashboardController : ControllerBase
             }
 
             bucket.Students++;
+            var homeroomKey = string.IsNullOrWhiteSpace(student.Homeroom) ? "—" : student.Homeroom.Trim();
+            var classKey = $"{gradeKey}\u001f{homeroomKey}";
+            if (!classBuckets.TryGetValue(classKey, out var classBucket))
+            {
+                classBucket = new DashboardClassDto { Grade = gradeKey, Homeroom = homeroomKey };
+                classBuckets[classKey] = classBucket;
+            }
+            classBucket.Students++;
             if (canvasAverages.TryGetValue(student.Id, out var canvasAverage))
             {
                 if (!gradeCanvasScores.TryGetValue(gradeKey, out var scores))
@@ -2254,10 +2264,17 @@ public class DashboardController : ControllerBase
                     gradeCanvasScores[gradeKey] = scores;
                 }
                 scores.Add(canvasAverage);
+                if (!classCanvasScores.TryGetValue(classKey, out var classScores))
+                {
+                    classScores = [];
+                    classCanvasScores[classKey] = classScores;
+                }
+                classScores.Add(canvasAverage);
             }
             if (risk.Level != "None")
             {
                 bucket.AtRisk++;
+                classBucket.AtRisk++;
             }
         }
 
@@ -2269,9 +2286,21 @@ public class DashboardController : ControllerBase
                 bucket.Value.AverageCanvasScorePercentage = Math.Round(scores.Average(), 1);
             }
         }
+        foreach (var bucket in classBuckets)
+        {
+            if (classCanvasScores.TryGetValue(bucket.Key, out var scores) && scores.Count > 0)
+            {
+                bucket.Value.AverageCanvasScorePercentage = Math.Round(scores.Average(), 1);
+            }
+        }
         overview.BehaviourTrend = BuildTrend(students, period.Start, period.End, now);
         overview.GradeDistribution = gradeBuckets.Values
             .OrderBy(grade => grade.Grade, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        overview.ClassDistribution = classBuckets.Values
+            .OrderBy(item => int.TryParse(item.Grade, out var number) ? number : int.MaxValue)
+            .ThenBy(item => item.Grade, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Homeroom, StringComparer.OrdinalIgnoreCase)
             .ToList();
         overview.IncludedGradeLevels = gradeBuckets.Keys
             .Where(grade => int.TryParse(grade, out _))

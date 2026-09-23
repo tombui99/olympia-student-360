@@ -18,21 +18,26 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
         string moduleId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] string? academicYear = null,
+        [FromQuery(Name = "term")] string? reportingTerm = null)
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId)) return NotFound();
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var term = Clean(search);
-        if (term?.Length > 100) term = term[..100];
+        var searchTerm = Clean(search);
+        if (searchTerm?.Length > 100) searchTerm = searchTerm[..100];
+        (DateTime Start, DateTime End)? period = string.IsNullOrWhiteSpace(academicYear)
+            ? null
+            : DashboardPeriodNormalizer.PeriodRange(academicYear, reportingTerm);
 
         return moduleId switch
         {
-            "student-behaviours" => Ok(await ListBehaviours(page, pageSize, term)),
-            "student-projects" => Ok(await ListProjects(page, pageSize, term)),
-            "student-mental-health" => Ok(await ListMentalHealth(page, pageSize, term)),
-            "student-bus-attendance" => Ok(await ListBusAttendance(page, pageSize, term)),
-            "student-health-visits" => Ok(await ListHealthVisits(page, pageSize, term)),
+            "student-behaviours" => Ok(await ListBehaviours(page, pageSize, searchTerm, period)),
+            "student-projects" => Ok(await ListProjects(page, pageSize, searchTerm, period)),
+            "student-mental-health" => Ok(await ListMentalHealth(page, pageSize, searchTerm, period)),
+            "student-bus-attendance" => Ok(await ListBusAttendance(page, pageSize, searchTerm, period)),
+            "student-health-visits" => Ok(await ListHealthVisits(page, pageSize, searchTerm, period)),
             _ => NotFound()
         };
     }
@@ -109,10 +114,13 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
         return NoContent();
     }
 
-    private async Task<ModuleRecordsPageDto> ListBehaviours(int page, int pageSize, string? term)
+    private async Task<ModuleRecordsPageDto> ListBehaviours(
+        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
     {
         var query = context.StudentBehaviours.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        if (period.HasValue)
+            query = query.Where(item => item.IncidentDate >= period.Value.Start && item.IncidentDate < period.Value.End);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -132,10 +140,14 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
             ("notes", item.Notes))).ToList(), page, pageSize, total);
     }
 
-    private async Task<ModuleRecordsPageDto> ListProjects(int page, int pageSize, string? term)
+    private async Task<ModuleRecordsPageDto> ListProjects(
+        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
     {
         var query = context.StudentProjects.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        if (period.HasValue)
+            query = query.Where(item => (item.ActivityDate ?? item.CreatedAt) >= period.Value.Start &&
+                (item.ActivityDate ?? item.CreatedAt) < period.Value.End);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -151,14 +163,18 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
         return Page(items.Select(item => Record("student-projects", item, item.Student,
             item.ImportHistory?.ImportedByName,
+            ("activity_date", Date(item.ActivityDate ?? item.CreatedAt)),
             ("project_name", item.ProjectName), ("subject", item.Subject),
             ("status", item.Status), ("teacher_notes", item.TeacherNotes))).ToList(), page, pageSize, total);
     }
 
-    private async Task<ModuleRecordsPageDto> ListMentalHealth(int page, int pageSize, string? term)
+    private async Task<ModuleRecordsPageDto> ListMentalHealth(
+        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
     {
         var query = context.StudentMentalHealthRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        if (period.HasValue)
+            query = query.Where(item => item.RecordDate >= period.Value.Start && item.RecordDate < period.Value.End);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -179,10 +195,13 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
             ("notes", item.Notes))).ToList(), page, pageSize, total);
     }
 
-    private async Task<ModuleRecordsPageDto> ListBusAttendance(int page, int pageSize, string? term)
+    private async Task<ModuleRecordsPageDto> ListBusAttendance(
+        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
     {
         var query = context.StudentBusAttendanceRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        if (period.HasValue)
+            query = query.Where(item => item.AttendanceDate >= period.Value.Start && item.AttendanceDate < period.Value.End);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -203,11 +222,14 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
             ("route_name", item.RouteName), ("notes", item.Notes))).ToList(), page, pageSize, total);
     }
 
-    private async Task<ModuleRecordsPageDto> ListHealthVisits(int page, int pageSize, string? term)
+    private async Task<ModuleRecordsPageDto> ListHealthVisits(
+        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
     {
         var query = context.StudentHealthVisits.AsNoTracking()
             .Where(item => item.StudentProfileId != null && item.Student != null)
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        if (period.HasValue)
+            query = query.Where(item => item.ExamTime >= period.Value.Start && item.ExamTime < period.Value.End);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -344,6 +366,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
             Id = entity.Id, ModuleId = moduleId, StudentProfileId = student.Id,
             SISUserId = student.SISUserId, StudentName = student.FullName,
             GradeLevel = student.GradeLevel ?? student.CanvasGradeLevel, Homeroom = student.Homeroom,
+            CanvasGradeLevel = student.CanvasGradeLevel,
             EnteredByName = enteredByName, CreatedAt = entity.CreatedAt, Values = values
         };
     }

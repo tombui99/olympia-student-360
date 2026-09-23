@@ -333,12 +333,14 @@ export class StudentsService {
     grade = '',
     academicYear = '',
     term = '',
+    homeroom = '',
   ): Observable<AtRiskStudentsPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) params = params.set('search', search.trim());
     if (grade) params = params.set('grade', grade);
     if (academicYear) params = params.set('academicYear', academicYear);
     if (term && term !== 'all') params = params.set('term', term);
+    if (homeroom) params = params.set('homeroom', homeroom);
     return this.http.get<AtRiskStudentsPage>(`${this.basePath}/api/students/at-risk`, { params });
   }
 

@@ -10,6 +10,7 @@ public sealed class ModuleRecordDto
     public string SISUserId { get; set; } = default!;
     public string StudentName { get; set; } = default!;
     public string? GradeLevel { get; set; }
+    public string? CanvasGradeLevel { get; set; }
     public string? Homeroom { get; set; }
     public string? EnteredByName { get; set; }
     public DateTime CreatedAt { get; set; }
