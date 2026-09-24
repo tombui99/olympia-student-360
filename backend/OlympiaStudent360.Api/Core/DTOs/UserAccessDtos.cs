@@ -15,6 +15,7 @@ public class UserAccessCapabilitiesDto
     public bool CanAccessWorkspace { get; set; }
     public bool CanAccessAtRisk { get; set; }
     public bool CanAccessCommendations { get; set; }
+    public bool CanAccessSupport { get; set; }
 }
 
 public class TeacherAccessUserDto

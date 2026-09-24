@@ -16,6 +16,7 @@ import {
   faClipboardList,
   faChartColumn,
   faUserShield,
+  faHandHoldingHeart,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
@@ -28,7 +29,7 @@ interface NavItem {
   icon: IconDefinition;
   adminOnly?: boolean;
   accessManagerOnly?: boolean;
-  access?: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations';
+  access?: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations' | 'support';
 }
 
 interface NavSection {
@@ -396,6 +397,7 @@ export class MainLayoutComponent {
     {
       titleKey: 'navSection.data',
       items: [
+        { path: '/support-journey', labelKey: 'nav.supportJourney', icon: faHandHoldingHeart, access: 'support' },
         { path: '/behaviours', labelKey: 'nav.behaviours', icon: faAward, access: 'academic' },
         { path: '/projects', labelKey: 'nav.projects', icon: faClipboardList, access: 'academic' },
         { path: '/bus-attendance', labelKey: 'nav.busAttendance', icon: faTableColumns, access: 'bus' },

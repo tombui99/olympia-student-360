@@ -103,6 +103,12 @@ export const routes: Routes = [
         canActivate: [scopeGuard],
       },
       {
+        path: 'support-journey',
+        loadComponent: () => import('./support-actions/support-actions.component').then((m) => m.SupportActionsComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'support' },
+      },
+      {
         path: 'students/:studentId',
         loadComponent: () =>
           import('./students/student-profile.component').then((m) => m.StudentProfileComponent),

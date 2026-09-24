@@ -20,6 +20,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentMentalHealthRecord> StudentMentalHealthRecords { get; set; }
     public DbSet<StudentHealthVisit> StudentHealthVisits { get; set; }
     public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
+    public DbSet<StudentSupportAction> StudentSupportActions { get; set; }
     public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<ImportModuleField> ImportModuleFields { get; set; }
     public DbSet<StudentRecordFieldOption> StudentRecordFieldOptions { get; set; }
@@ -177,6 +178,32 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             setting.Property(item => item.HighRiskCanvasAverageBelow).HasPrecision(5, 2);
             setting.Property(item => item.CommendationCanvasAverageAtLeast).HasPrecision(5, 2);
             setting.Property(item => item.UpdatedByUserId).HasMaxLength(450);
+        });
+
+        modelBuilder.Entity<StudentSupportAction>(action =>
+        {
+            action.Property(item => item.AcademicYear).HasMaxLength(20);
+            action.Property(item => item.Term).HasMaxLength(50);
+            action.Property(item => item.Category).HasMaxLength(30);
+            action.Property(item => item.Title).HasMaxLength(255);
+            action.Property(item => item.Goal).HasMaxLength(2000);
+            action.Property(item => item.ActionTaken).HasMaxLength(4000);
+            action.Property(item => item.Result).HasMaxLength(4000);
+            action.Property(item => item.NextStep).HasMaxLength(2000);
+            action.Property(item => item.Status).HasMaxLength(30);
+            action.Property(item => item.Progress).HasMaxLength(30);
+            action.Property(item => item.Subject).HasMaxLength(100);
+            action.Property(item => item.CreatedByUserId).HasMaxLength(450);
+            action.Property(item => item.CreatedByName).HasMaxLength(255);
+            action.Property(item => item.UpdatedByUserId).HasMaxLength(450);
+            action.Property(item => item.UpdatedByName).HasMaxLength(255);
+            action.HasIndex(item => item.StudentProfileId);
+            action.HasIndex(item => item.ActionDate);
+            action.HasIndex(item => new { item.AcademicYear, item.Category, item.Status });
+            action.HasOne(item => item.Student)
+                .WithMany(student => student.SupportActions)
+                .HasForeignKey(item => item.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StudentBehaviour>(behaviour =>

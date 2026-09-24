@@ -12,10 +12,12 @@ import {
   CanvasSubmissionSheetKind,
   StudentCanvasSubmissionSheetComponent,
 } from './student-canvas-submission-sheet.component';
+import { StudentSupportJourneyComponent } from '../support-actions/student-support-journey.component';
 
 type ProfileSection =
   | 'overview'
   | 'parents'
+  | 'support'
   | 'behaviours'
   | 'projects'
   | 'transport'
@@ -24,7 +26,7 @@ type ProfileSection =
 
 @Component({
   selector: 'app-student-profile',
-  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent],
+  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent, StudentSupportJourneyComponent],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -141,12 +143,6 @@ type ProfileSection =
                 (click)="selectSection(item.id)"
               >
                 <span class="whitespace-nowrap">{{ item.label }}</span>
-                @if (item.count !== null) {
-                  <span
-                    class="min-w-6 rounded-full px-2 py-0.5 text-center text-[11px]"
-                    [ngClass]="activeSection() === item.id ? 'bg-white/15 text-white' : 'bg-[#f1edf4] text-[#6f6877]'"
-                  >{{ item.count }}</span>
-                }
               </button>
             }
           </nav>
@@ -248,6 +244,17 @@ type ProfileSection =
             }
           </div>
         </section>
+        }
+
+        @if (activeSection() === 'support') {
+          <app-student-support-journey
+            [studentId]="profile.id"
+            [studentName]="profile.fullName"
+            [sisUserId]="profile.sisUserId"
+            [gradeLevel]="profile.gradeLevel ?? null"
+            [homeroom]="profile.homeroom ?? null"
+            [academicYear]="selectedYear()"
+          />
         }
 
         @if (activeSection() === 'overview') {
@@ -1068,49 +1075,46 @@ export class StudentProfileComponent implements OnInit {
       : this.student()?.parents.find((parent) => parent.id === parentId) ?? null;
   });
 
-  readonly profileSections = computed<{ id: ProfileSection; label: string; count: number | null }[]>(
+  readonly profileSections = computed<{ id: ProfileSection; label: string }[]>(
     () => {
-      const profile = this.student();
-      const sections: { id: ProfileSection; label: string; count: number | null }[] = [
+      const sections: { id: ProfileSection; label: string }[] = [
         {
           id: 'overview',
           label: this.languageService.t('studentProfile.navigation.overview'),
-          count: null,
         },
         {
           id: 'parents',
           label: this.languageService.t('studentProfile.navigation.parents'),
-          count: profile?.parents.length ?? 0,
+        },
+        {
+          id: 'support',
+          label: this.languageService.t('studentProfile.navigation.support'),
         },
         {
           id: 'behaviours',
           label: this.languageService.t('studentProfile.navigation.behaviours'),
-          count: profile?.behaviours.length ?? 0,
         },
         {
           id: 'projects',
           label: this.languageService.t('studentProfile.navigation.projects'),
-          count: profile?.projects.length ?? 0,
         },
         {
           id: 'transport',
           label: this.languageService.t('studentProfile.navigation.transport'),
-          count: profile?.busAttendanceRecords.length ?? 0,
         },
         {
           id: 'wellbeing',
           label: this.languageService.t('studentProfile.navigation.wellbeing'),
-          count: (profile?.mentalHealthRecords.length ?? 0) + (profile?.healthVisits.length ?? 0),
         },
         {
           id: 'learning',
           label: this.languageService.t('studentProfile.navigation.learning'),
-          count: profile?.canvas.hasData ? profile.canvas.courses.length : 0,
         },
       ];
       return sections.filter((item) => {
         if (item.id === 'transport') return this.authService.canAccess('bus');
         if (item.id === 'wellbeing') return this.authService.canAccess('health');
+        if (item.id === 'support') return this.authService.canAccess('support');
         if (['parents', 'behaviours', 'projects', 'learning'].includes(item.id)) {
           return this.authService.canAccess('academic');
         }
@@ -1443,6 +1447,7 @@ export class StudentProfileComponent implements OnInit {
     return (
       value === 'overview' ||
       value === 'parents' ||
+      value === 'support' ||
       value === 'behaviours' ||
       value === 'projects' ||
       value === 'transport' ||

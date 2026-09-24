@@ -84,7 +84,7 @@ export class AuthenticationService {
     return localStorage.getItem(this.usernameKey);
   }
 
-  canAccess(capability: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations'): boolean {
+  canAccess(capability: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations' | 'support'): boolean {
     if (this.getUserRole() !== 'Teacher') return true;
     const access = this.accessSignal();
     return {
@@ -94,6 +94,7 @@ export class AuthenticationService {
       workspace: access.canAccessWorkspace,
       atRisk: access.canAccessAtRisk,
       commendations: access.canAccessCommendations,
+      support: access.canAccessSupport ?? (access.canAccessAcademic || access.canAccessHealth),
     }[capability];
   }
 
@@ -106,6 +107,7 @@ export class AuthenticationService {
       isTeacher: false, hasAll: true, canAccessAcademic: true, canAccessHealth: true,
       canAccessBus: true, canAccessWorkspace: true, canAccessAtRisk: true,
       canAccessCommendations: true, restrictsClasses: false, scopes: ['All'], homerooms: [],
+      canAccessSupport: true,
     };
   }
 

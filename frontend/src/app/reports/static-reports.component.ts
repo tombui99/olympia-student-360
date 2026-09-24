@@ -26,17 +26,13 @@ import {
   SupplementalReportDefinition,
 } from './supplemental-report.component';
 import { HealthReportComponent } from './health-report.component';
+import { BehaviourReportComponent } from './behaviour-report.component';
 
 type StaticReportId =
   | 'learning-diligence'
   | 'support-classes'
   | 'support-students'
-  | 'culture-evaluation'
-  | 'discipline-compliance'
-  | 'school-culture'
-  | 'facility-culture'
-  | 'cafeteria-culture'
-  | 'behaviour-audit'
+  | 'behaviour-analysis'
   | 'mental-wellbeing'
   | 'health-diagnoses'
   | 'health-frequent-students'
@@ -101,7 +97,7 @@ interface ClassDrilldownPage {
 
 @Component({
   selector: 'app-static-reports',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent],
   template: `
     <section class="print-region space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -310,6 +306,9 @@ interface ClassDrilldownPage {
               }
               @case ('support-students') {
                 <ng-container [ngTemplateOutlet]="supportStudents"></ng-container>
+              }
+              @case ('behaviour-analysis') {
+                <app-behaviour-report [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
               }
               @case ('health-diagnoses') {
                 <app-health-report report="diagnoses" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
@@ -832,30 +831,11 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     },
     {
       id: 'behaviour', titleKey: 'reports.group.behaviour', shortLabel: 'NN', items: [
-        this.supplementalMenuItem('culture-evaluation', 'cultureEvaluation', {
-          moduleId: 'student-behaviours', dimension: 'cohort', primaryField: 'behaviour_type',
-          secondaryField: 'notes', dateField: 'incident_date', attentionMode: 'behaviour',
-        }),
-        this.supplementalMenuItem('discipline-compliance', 'discipline', {
-          moduleId: 'student-behaviours', dimension: 'field', dimensionField: 'behaviour_type',
-          primaryField: 'behaviour_type', secondaryField: 'notes', dateField: 'incident_date', attentionMode: 'behaviour',
-        }),
-        this.supplementalMenuItem('school-culture', 'schoolCulture', {
-          moduleId: 'student-behaviours', dimension: 'cohort', primaryField: 'behaviour_type',
-          secondaryField: 'notes', dateField: 'incident_date', attentionMode: 'behaviour',
-        }),
-        this.supplementalMenuItem('facility-culture', 'facilityCulture', {
-          moduleId: 'student-behaviours', dimension: 'enteredBy', primaryField: 'behaviour_type',
-          secondaryField: 'notes', dateField: 'incident_date', attentionMode: 'behaviour',
-        }),
-        this.supplementalMenuItem('cafeteria-culture', 'cafeteriaCulture', {
-          moduleId: 'student-behaviours', dimension: 'enteredBy', primaryField: 'behaviour_type',
-          secondaryField: 'notes', dateField: 'incident_date', attentionMode: 'behaviour',
-        }),
-        this.supplementalMenuItem('behaviour-audit', 'behaviourAudit', {
-          moduleId: 'student-behaviours', dimension: 'category', primaryField: 'behaviour_type',
-          secondaryField: 'notes', dateField: 'incident_date', attentionMode: 'behaviour',
-        }),
+        {
+          id: 'behaviour-analysis',
+          titleKey: 'reports.behaviour.title',
+          descriptionKey: 'reports.behaviour.menuDescription',
+        },
       ],
     },
     {
@@ -1402,7 +1382,14 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     const params = this.route.snapshot.queryParamMap;
     const groups = this.visibleReportGroups();
     const availableReports = groups.flatMap((group) => group.items.map((item) => item.id));
-    const requestedReport = params.get('report') as StaticReportId | null;
+    const legacyBehaviourReports = new Set([
+      'culture-evaluation', 'discipline-compliance', 'school-culture',
+      'facility-culture', 'cafeteria-culture', 'behaviour-audit',
+    ]);
+    const requestedValue = params.get('report');
+    const requestedReport = (requestedValue && legacyBehaviourReports.has(requestedValue)
+      ? 'behaviour-analysis'
+      : requestedValue) as StaticReportId | null;
     const activeReport = requestedReport && availableReports.includes(requestedReport)
       ? requestedReport
       : availableReports.includes(this.activeReport()) ? this.activeReport() : availableReports[0];

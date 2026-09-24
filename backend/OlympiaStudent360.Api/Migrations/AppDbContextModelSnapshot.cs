@@ -2225,6 +2225,110 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("StudentRecordFieldOptions");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentSupportAction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("AcademicYear")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<DateTime>("ActionDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ActionTaken")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar(4000)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.Property<DateTime?>("FollowUpDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Goal")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<string>("NextStep")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<string>("Progress")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<string>("Result")
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar(4000)");
+
+                    b.Property<bool>("ShareWithFamily")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("Term")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedByName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActionDate");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("AcademicYear", "Category", "Status");
+
+                    b.ToTable("StudentSupportActions");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherAccessGrant", b =>
                 {
                     b.Property<int>("Id")
@@ -2662,6 +2766,17 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentSupportAction", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany("SupportActions")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherAccessGrant", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "User")
@@ -2769,6 +2884,8 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Parents");
 
                     b.Navigation("Projects");
+
+                    b.Navigation("SupportActions");
                 });
 #pragma warning restore 612, 618
         }

@@ -108,7 +108,7 @@ interface RiskRow {
           {{ languageService.t('dashboard.loadError') }}
         </div>
       } @else {
-      <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+      <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.students') }}</p>
@@ -128,30 +128,6 @@ interface RiskRow {
           <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalBehaviours ?? '—' }}</p>
           <p class="mt-4 text-sm text-[#8a6811]">{{ behavioursSub() }}</p>
         </article>
-        <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-          <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.projects') }}</p>
-          <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.activeProjects ?? '—' }}</p>
-          <p class="mt-4 text-sm text-[#8a6811]">{{ projectsSub() }}</p>
-        </article>
-        }
-        @if (overview()?.canAccessHealth) {
-          <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-            <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.healthVisits') }}</p>
-            <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalHealthVisits ?? '—' }}</p>
-            <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.selectedPeriod') }}</p>
-          </article>
-          <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-            <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.mentalHealth') }}</p>
-            <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalMentalHealthRecords ?? '—' }}</p>
-            <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.selectedPeriod') }}</p>
-          </article>
-        }
-        @if (overview()?.canAccessBus) {
-          <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
-            <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.busRecords') }}</p>
-            <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalBusRecords ?? '—' }}</p>
-            <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.selectedPeriod') }}</p>
-          </article>
         }
       </div>
 

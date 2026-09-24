@@ -64,6 +64,36 @@ public class StudentProfile : BaseEntity
     public ICollection<StudentMentalHealthRecord> MentalHealthRecords { get; set; } = [];
     public ICollection<StudentHealthVisit> HealthVisits { get; set; } = [];
     public ICollection<StudentBusAttendanceRecord> BusAttendanceRecords { get; set; } = [];
+    public ICollection<StudentSupportAction> SupportActions { get; set; } = [];
+}
+
+/// <summary>
+/// A staff-authored intervention or enrichment action in a student's support and development
+/// journey. The record captures what the school tried, why it was tried, and the observed result
+/// without exposing the underlying behaviour, grade, or wellbeing source record.
+/// </summary>
+public class StudentSupportAction : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public DateTime ActionDate { get; set; }
+    public DateTime? FollowUpDate { get; set; }
+    public string AcademicYear { get; set; } = default!;
+    public string? Term { get; set; }
+    public string Category { get; set; } = default!;
+    public string Title { get; set; } = default!;
+    public string Goal { get; set; } = default!;
+    public string ActionTaken { get; set; } = default!;
+    public string? Result { get; set; }
+    public string? NextStep { get; set; }
+    public string Status { get; set; } = default!;
+    public string Progress { get; set; } = default!;
+    public string? Subject { get; set; }
+    public bool ShareWithFamily { get; set; } = true;
+    public string CreatedByUserId { get; set; } = default!;
+    public string CreatedByName { get; set; } = default!;
+    public string? UpdatedByUserId { get; set; }
+    public string? UpdatedByName { get; set; }
 }
 
 /// <summary>

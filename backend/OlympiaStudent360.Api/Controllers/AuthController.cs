@@ -180,6 +180,7 @@ public class AuthController : ControllerBase
         CanAccessAcademic = access.CanAccessAcademic,
         CanAccessWorkspace = access.CanAccessWorkspace,
         CanAccessAtRisk = access.CanAccessAtRisk,
-        CanAccessCommendations = access.CanAccessCommendations
+        CanAccessCommendations = access.CanAccessCommendations,
+        CanAccessSupport = access.CanAccessSupport
     };
 }

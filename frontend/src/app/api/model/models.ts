@@ -29,6 +29,7 @@ export interface UserAccessCapabilitiesDto {
   canAccessWorkspace: boolean;
   canAccessAtRisk: boolean;
   canAccessCommendations: boolean;
+  canAccessSupport: boolean;
   restrictsClasses: boolean;
   scopes: string[];
   homerooms: string[];
