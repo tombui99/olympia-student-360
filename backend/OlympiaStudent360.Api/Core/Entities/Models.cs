@@ -7,6 +7,24 @@ public class ApplicationUser : IdentityUser
     public string FullName { get; set; } = default!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
+    public ICollection<TeacherAccessGrant> AccessGrants { get; set; } = [];
+    public ICollection<TeacherClassAccess> ClassAccesses { get; set; } = [];
+}
+
+/// <summary>A data-domain permission assigned to a teacher account.</summary>
+public class TeacherAccessGrant : BaseEntity
+{
+    public string UserId { get; set; } = default!;
+    public ApplicationUser User { get; set; } = default!;
+    public string Scope { get; set; } = default!;
+}
+
+/// <summary>A homeroom a class-scoped teacher is allowed to access.</summary>
+public class TeacherClassAccess : BaseEntity
+{
+    public string UserId { get; set; } = default!;
+    public ApplicationUser User { get; set; } = default!;
+    public string Homeroom { get; set; } = default!;
 }
 
 public abstract class BaseEntity

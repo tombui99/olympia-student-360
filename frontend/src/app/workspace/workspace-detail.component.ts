@@ -446,6 +446,15 @@ type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
               class="mt-5 min-h-72 rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-4"
               [ngClass]="{ 'min-h-[29rem]': isWideChart(chart) }"
             >
+              <ng-container *ngIf="chartAccessUnavailable(chart); else permittedChart">
+                <div class="grid min-h-56 place-items-center text-center">
+                  <div class="max-w-md">
+                    <p class="font-semibold text-[#7a3d51]">{{ languageService.t('workspace.chartAccessUnavailable') }}</p>
+                    <p class="mt-2 text-sm text-[#746a7c]">{{ languageService.t('workspace.chartAccessUnavailableHint') }}</p>
+                  </div>
+                </div>
+              </ng-container>
+              <ng-template #permittedChart>
               <ng-container *ngIf="chartLoadFailed(chart); else chartData">
                 <div class="grid min-h-56 place-items-center text-center">
                   <div>
@@ -545,6 +554,7 @@ type LazyFilterLabels = Record<LazyWorkspaceFilterField, string>;
                 </div>
               </ng-template>
               </ng-container>
+              </ng-template>
               </ng-template>
             </div>
           </article>
@@ -1832,6 +1842,11 @@ export class WorkspaceDetailComponent implements OnInit {
 
   chartLoadFailed(chart: CustomChart): boolean {
     return this.chartLoadErrors().has(chart.id);
+  }
+
+  chartAccessUnavailable(chart: CustomChart): boolean {
+    return !chart.explorer && chart.metrics.some((metricId) =>
+      this.metricVariables().some((metric) => metric.id === metricId && metric.unavailableReason === 'access_scope_updated'));
   }
 
   retryChartData(): void {

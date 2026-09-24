@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from './core/auth/auth.guard';
 import { adminGuard } from './core/auth/auth.guard';
 import { formManagerGuard } from './core/auth/auth.guard';
+import { accessManagerGuard, scopeGuard } from './core/auth/auth.guard';
 
 export const routes: Routes = [
   {
@@ -32,16 +33,22 @@ export const routes: Routes = [
         path: 'at-risk',
         loadComponent: () =>
           import('./students/at-risk.component').then((m) => m.AtRiskComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'atRisk' },
       },
       {
         path: 'commendations',
         loadComponent: () =>
           import('./students/commendations.component').then((m) => m.CommendationsComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'commendations' },
       },
       {
         path: 'transcripts',
         loadComponent: () =>
           import('./transcripts/transcripts-layout.component').then((m) => m.TranscriptsLayoutComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'academic' },
         children: [
           {
             path: '',
@@ -68,27 +75,32 @@ export const routes: Routes = [
       {
         path: 'health-visits',
         loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
-        data: { moduleId: 'student-health-visits' },
+        canActivate: [scopeGuard],
+        data: { moduleId: 'student-health-visits', access: 'health' },
       },
       {
         path: 'behaviours',
         loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
-        data: { moduleId: 'student-behaviours' },
+        data: { moduleId: 'student-behaviours', access: 'academic' },
+        canActivate: [scopeGuard],
       },
       {
         path: 'projects',
         loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
-        data: { moduleId: 'student-projects' },
+        data: { moduleId: 'student-projects', access: 'academic' },
+        canActivate: [scopeGuard],
       },
       {
         path: 'bus-attendance',
         loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
-        data: { moduleId: 'student-bus-attendance' },
+        data: { moduleId: 'student-bus-attendance', access: 'bus' },
+        canActivate: [scopeGuard],
       },
       {
         path: 'mental-health',
         loadComponent: () => import('./module-records/module-records.component').then((m) => m.ModuleRecordsComponent),
-        data: { moduleId: 'student-mental-health' },
+        data: { moduleId: 'student-mental-health', access: 'health' },
+        canActivate: [scopeGuard],
       },
       {
         path: 'students/:studentId',
@@ -99,16 +111,22 @@ export const routes: Routes = [
         path: 'students/:studentId/digest',
         loadComponent: () =>
           import('./students/student-digest.component').then((m) => m.StudentDigestComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'academic' },
       },
       {
         path: 'workspace',
         loadComponent: () =>
           import('./workspace/workspace.component').then((m) => m.WorkspaceComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'workspace' },
       },
       {
         path: 'workspace/:workspaceId',
         loadComponent: () =>
           import('./workspace/workspace-detail.component').then((m) => m.WorkspaceDetailComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'workspace' },
       },
       {
         path: 'reports',
@@ -140,6 +158,8 @@ export const routes: Routes = [
       {
         path: 'forms',
         loadComponent: () => import('./custom-forms/custom-forms.component').then((m) => m.CustomFormsComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'academic' },
       },
       {
         path: 'admin/accounts',
@@ -152,6 +172,12 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./admin/sync-history.component').then((m) => m.SyncHistoryComponent),
         canActivate: [adminGuard],
+      },
+      {
+        path: 'admin/user-access',
+        loadComponent: () => import('./admin/user-access-management.component')
+          .then((m) => m.UserAccessManagementComponent),
+        canActivate: [accessManagerGuard],
       },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
     ],

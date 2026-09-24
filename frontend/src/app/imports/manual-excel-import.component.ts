@@ -242,6 +242,15 @@ export class ManualExcelImportComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
+    this.modules = importModules.filter((module) => {
+      if (module.id === 'student-bus-attendance') return this.authService.canAccess('bus');
+      if (module.id === 'student-health-visits' || module.id === 'student-mental-health') {
+        return this.authService.canAccess('health');
+      }
+      return this.authService.canAccess('academic');
+    });
+    this.categories = importModuleCategories.filter((category) =>
+      this.modules.some((module) => module.category === category.id));
     this.loadHistory(1);
   }
 

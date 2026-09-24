@@ -19,13 +19,16 @@ public class CustomReportsController : ControllerBase
     private const int MaxChartsPerWorkspace = 6;
     private readonly AppDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly UserAccessService _userAccess;
 
     public CustomReportsController(
         AppDbContext context,
-        UserManager<ApplicationUser> userManager)
+        UserManager<ApplicationUser> userManager,
+        UserAccessService userAccess)
     {
         _context = context;
         _userManager = userManager;
+        _userAccess = userAccess;
     }
 
     [HttpGet]
@@ -62,6 +65,7 @@ public class CustomReportsController : ControllerBase
         {
             return ChartLimitExceeded();
         }
+        if (await ContainsDisallowedMetrics(model.Definition)) return AccessScopeViolation();
 
         var sharedWith = await ValidRecipients(model.SharedWith, userId);
         var report = new CustomReport
@@ -110,6 +114,7 @@ public class CustomReportsController : ControllerBase
         {
             return ChartLimitExceeded();
         }
+        if (await ContainsDisallowedMetrics(model.Definition)) return AccessScopeViolation();
 
         report.Title = model.Title;
         report.Description = model.Description;
@@ -285,6 +290,40 @@ public class CustomReportsController : ControllerBase
     {
         code = "workspace_chart_limit_exceeded",
         message = $"A workspace can contain at most {MaxChartsPerWorkspace} charts."
+    });
+
+    private async Task<bool> ContainsDisallowedMetrics(JsonElement definition)
+    {
+        if (!_userAccess.Current.IsTeacher || definition.ValueKind != JsonValueKind.Object ||
+            !definition.TryGetProperty("charts", out var charts) || charts.ValueKind != JsonValueKind.Array)
+            return false;
+
+        var metricIds = charts.EnumerateArray()
+            .Where(chart => chart.ValueKind == JsonValueKind.Object &&
+                chart.TryGetProperty("metrics", out var metrics) && metrics.ValueKind == JsonValueKind.Array)
+            .SelectMany(chart => chart.GetProperty("metrics").EnumerateArray())
+            .Where(metric => metric.ValueKind == JsonValueKind.String)
+            .Select(metric => metric.GetString()!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var storedDefinitions = await _context.DashboardMetrics.AsNoTracking()
+            .Select(metric => new { metric.Key, metric.Source, metric.Domain })
+            .ToListAsync();
+        var definitions = storedDefinitions
+            .Where(metric => metricIds.Contains(metric.Key, StringComparer.Ordinal))
+            .ToDictionary(metric => metric.Key, StringComparer.Ordinal);
+        return metricIds.Any(metricId =>
+        {
+            definitions.TryGetValue(metricId, out var metricDefinition);
+            return !_userAccess.Current.CanAccessMetric(
+                metricId, metricDefinition?.Source, metricDefinition?.Domain);
+        });
+    }
+
+    private static BadRequestObjectResult AccessScopeViolation() => new(new
+    {
+        code = "access_scope_updated",
+        message = "One or more charts use data outside your current access scope."
     });
 
     private static WorkspacePreferenceDto ToPreferenceDto(WorkspacePreference preference) => new()

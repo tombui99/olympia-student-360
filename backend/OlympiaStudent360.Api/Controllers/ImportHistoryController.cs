@@ -15,10 +15,12 @@ namespace OlympiaStudent360.Api.Controllers;
 public class ImportHistoryController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly UserAccessService _userAccess;
 
-    public ImportHistoryController(AppDbContext context)
+    public ImportHistoryController(AppDbContext context, UserAccessService userAccess)
     {
         _context = context;
+        _userAccess = userAccess;
     }
 
     [HttpGet]
@@ -28,9 +30,9 @@ public class ImportHistoryController : ControllerBase
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var query = _context.ImportHistories
+        var query = ApplyModuleAccess(_context.ImportHistories
             .AsNoTracking()
-            .Where(item => item.Status == "Valid" && ImportCustomFieldService.Modules.Contains(item.ModuleId));
+            .Where(item => item.Status == "Valid"));
         if (!User.IsInRole("Admin") &&
             !User.IsInRole("SchoolAdministration") &&
             !User.IsInRole("Principal"))
@@ -99,6 +101,7 @@ public class ImportHistoryController : ControllerBase
     {
         var history = await ManageableHistories().FirstOrDefaultAsync(item => item.Id == id);
         if (history == null) return NotFound();
+        if (!await CanAccessRecord(history.ModuleId, recordId)) return NotFound();
 
         var error = history.ModuleId switch
         {
@@ -119,6 +122,7 @@ public class ImportHistoryController : ControllerBase
     {
         var history = await ManageableHistories().FirstOrDefaultAsync(item => item.Id == id);
         if (history == null) return NotFound();
+        if (!await CanAccessRecord(history.ModuleId, recordId)) return NotFound();
 
         var deleted = history.ModuleId switch
         {
@@ -141,6 +145,7 @@ public class ImportHistoryController : ControllerBase
     {
         var history = await ManageableHistories().FirstOrDefaultAsync(item => item.Id == id);
         if (history == null) return NotFound();
+        if (!await CanAccessEntireHistory(history)) return Forbid();
         _context.ImportHistories.Remove(history);
         await _context.SaveChangesAsync();
         return NoContent();
@@ -148,8 +153,8 @@ public class ImportHistoryController : ControllerBase
 
     private IQueryable<ImportHistory> ManageableHistories()
     {
-        var query = _context.ImportHistories
-            .Where(item => item.Status == "Valid" && ImportCustomFieldService.Modules.Contains(item.ModuleId));
+        var query = ApplyModuleAccess(_context.ImportHistories
+            .Where(item => item.Status == "Valid"));
         if (User.IsInRole("Admin") ||
             User.IsInRole("SchoolAdministration") ||
             User.IsInRole("Principal")) return query;
@@ -172,8 +177,10 @@ public class ImportHistoryController : ControllerBase
 
     private async Task<List<ImportHistoryRecordDto>> LoadBehaviours(int historyId)
     {
-        var items = await _context.StudentBehaviours.AsNoTracking().Include(item => item.Student)
-            .Where(item => item.ImportHistoryId == historyId).OrderByDescending(item => item.IncidentDate).ToListAsync();
+        var query = _userAccess.ApplyStudentScope(
+            _context.StudentBehaviours.AsNoTracking().Include(item => item.Student), item => item.Student);
+        var items = await query.Where(item => item.ImportHistoryId == historyId)
+            .OrderByDescending(item => item.IncidentDate).ToListAsync();
         return items.Select(item => Record(item.Id, item.Student, item.CustomFieldsJson,
             ("incident_date", item.IncidentDate.ToString("yyyy-MM-dd")),
             ("behaviour_type", StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType)), ("notes", item.Notes))).ToList();
@@ -181,8 +188,10 @@ public class ImportHistoryController : ControllerBase
 
     private async Task<List<ImportHistoryRecordDto>> LoadProjects(int historyId)
     {
-        var items = await _context.StudentProjects.AsNoTracking().Include(item => item.Student)
-            .Where(item => item.ImportHistoryId == historyId).OrderByDescending(item => item.CreatedAt).ToListAsync();
+        var query = _userAccess.ApplyStudentScope(
+            _context.StudentProjects.AsNoTracking().Include(item => item.Student), item => item.Student);
+        var items = await query.Where(item => item.ImportHistoryId == historyId)
+            .OrderByDescending(item => item.CreatedAt).ToListAsync();
         return items.Select(item => Record(item.Id, item.Student, item.CustomFieldsJson,
             ("project_name", item.ProjectName), ("subject", item.Subject),
             ("status", item.Status), ("teacher_notes", item.TeacherNotes))).ToList();
@@ -190,8 +199,10 @@ public class ImportHistoryController : ControllerBase
 
     private async Task<List<ImportHistoryRecordDto>> LoadMentalHealth(int historyId)
     {
-        var items = await _context.StudentMentalHealthRecords.AsNoTracking().Include(item => item.Student)
-            .Where(item => item.ImportHistoryId == historyId).OrderByDescending(item => item.RecordDate).ToListAsync();
+        var query = _userAccess.ApplyStudentScope(
+            _context.StudentMentalHealthRecords.AsNoTracking().Include(item => item.Student), item => item.Student);
+        var items = await query.Where(item => item.ImportHistoryId == historyId)
+            .OrderByDescending(item => item.RecordDate).ToListAsync();
         return items.Select(item => Record(item.Id, item.Student, item.CustomFieldsJson,
             ("record_date", item.RecordDate.ToString("yyyy-MM-dd")), ("academic_year", item.AcademicYear),
             ("concern_type", item.ConcernType), ("risk_level", item.RiskLevel), ("notes", item.Notes))).ToList();
@@ -199,8 +210,10 @@ public class ImportHistoryController : ControllerBase
 
     private async Task<List<ImportHistoryRecordDto>> LoadBusAttendance(int historyId)
     {
-        var items = await _context.StudentBusAttendanceRecords.AsNoTracking().Include(item => item.Student)
-            .Where(item => item.ImportHistoryId == historyId).OrderByDescending(item => item.AttendanceDate).ToListAsync();
+        var query = _userAccess.ApplyStudentScope(
+            _context.StudentBusAttendanceRecords.AsNoTracking().Include(item => item.Student), item => item.Student);
+        var items = await query.Where(item => item.ImportHistoryId == historyId)
+            .OrderByDescending(item => item.AttendanceDate).ToListAsync();
         return items.Select(item => Record(item.Id, item.Student, item.CustomFieldsJson,
             ("attendance_date", item.AttendanceDate.ToString("yyyy-MM-dd")), ("trip_direction", item.TripDirection),
             ("violation_type", item.ViolationType), ("bus_code", item.BusCode),
@@ -209,7 +222,9 @@ public class ImportHistoryController : ControllerBase
 
     private async Task<List<ImportHistoryRecordDto>> LoadHealthVisits(int historyId)
     {
-        var items = await _context.StudentHealthVisits.AsNoTracking().Include(item => item.Student)
+        var query = _userAccess.ApplyStudentScope(
+            _context.StudentHealthVisits.AsNoTracking().Include(item => item.Student), item => item.Student);
+        var items = await query
             .Where(item => item.ImportHistoryId == historyId && item.Student != null)
             .OrderByDescending(item => item.ExamTime).ToListAsync();
         return items.Select(item => Record(item.Id, item.Student!, item.CustomFieldsJson,
@@ -233,6 +248,65 @@ public class ImportHistoryController : ControllerBase
             StudentName = student.FullName,
             Values = result
         };
+    }
+
+    private async Task<bool> CanAccessRecord(string moduleId, int id)
+    {
+        if (!_userAccess.Current.RestrictsClasses) return true;
+        var homeroom = moduleId switch
+        {
+            "student-behaviours" => await _context.StudentBehaviours.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-projects" => await _context.StudentProjects.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-mental-health" => await _context.StudentMentalHealthRecords.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-bus-attendance" => await _context.StudentBusAttendanceRecords.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-health-visits" => await _context.StudentHealthVisits.Where(item => item.Id == id)
+                .Select(item => item.Student != null ? item.Student.Homeroom : item.ClassName).FirstOrDefaultAsync(),
+            _ => null
+        };
+        return homeroom != null && _userAccess.Current.Homerooms.Contains(
+            homeroom, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool> CanAccessEntireHistory(ImportHistory history)
+    {
+        if (!_userAccess.Current.RestrictsClasses) return true;
+        var homerooms = history.ModuleId switch
+        {
+            "student-behaviours" => await _context.StudentBehaviours
+                .Where(item => item.ImportHistoryId == history.Id)
+                .Select(item => item.Student.Homeroom).Distinct().ToListAsync(),
+            "student-projects" => await _context.StudentProjects
+                .Where(item => item.ImportHistoryId == history.Id)
+                .Select(item => item.Student.Homeroom).Distinct().ToListAsync(),
+            "student-mental-health" => await _context.StudentMentalHealthRecords
+                .Where(item => item.ImportHistoryId == history.Id)
+                .Select(item => item.Student.Homeroom).Distinct().ToListAsync(),
+            "student-bus-attendance" => await _context.StudentBusAttendanceRecords
+                .Where(item => item.ImportHistoryId == history.Id)
+                .Select(item => item.Student.Homeroom).Distinct().ToListAsync(),
+            "student-health-visits" => await _context.StudentHealthVisits
+                .Where(item => item.ImportHistoryId == history.Id)
+                .Select(item => item.Student != null ? item.Student.Homeroom : item.ClassName)
+                .Distinct().ToListAsync(),
+            _ => []
+        };
+        return homerooms.All(homeroom => homeroom != null && _userAccess.Current.Homerooms.Contains(
+            homeroom, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private IQueryable<ImportHistory> ApplyModuleAccess(IQueryable<ImportHistory> query)
+    {
+        var access = _userAccess.Current;
+        return query.Where(item =>
+            access.CanAccessAcademic &&
+                (item.ModuleId == "student-behaviours" || item.ModuleId == "student-projects") ||
+            access.CanAccessHealth &&
+                (item.ModuleId == "student-mental-health" || item.ModuleId == "student-health-visits") ||
+            access.CanAccessBus && item.ModuleId == "student-bus-attendance");
     }
 
     private async Task<string?> UpdateBehaviour(int historyId, int id, IDictionary<string, string?> values)

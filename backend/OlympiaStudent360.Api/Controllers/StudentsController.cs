@@ -21,11 +21,16 @@ public class StudentsController : ControllerBase
 
     private readonly AppDbContext _context;
     private readonly CanvasReportingPeriodService _canvasReportingPeriods;
+    private readonly UserAccessService _userAccess;
 
-    public StudentsController(AppDbContext context, CanvasReportingPeriodService canvasReportingPeriods)
+    public StudentsController(
+        AppDbContext context,
+        CanvasReportingPeriodService canvasReportingPeriods,
+        UserAccessService userAccess)
     {
         _context = context;
         _canvasReportingPeriods = canvasReportingPeriods;
+        _userAccess = userAccess;
     }
 
     [HttpGet]
@@ -92,6 +97,9 @@ public class StudentsController : ControllerBase
             query = query.Where(student => student.Homeroom == normalizedHomeroom);
         }
 
+        var canAccessAcademic = _userAccess.Current.CanAccessAcademic;
+        var canAccessBus = _userAccess.Current.CanAccessBus;
+        if (!canAccessAcademic) atRiskOnly = false;
         var settings = await ClassificationSettings();
         var canvasPeriod = await _canvasReportingPeriods.ResolveAsync();
         var riskSince = DateTime.UtcNow.AddDays(-settings.RiskWindowDays);
@@ -118,7 +126,8 @@ public class StudentsController : ControllerBase
             BehaviourCount = student.Behaviours.Count,
             ProjectCount = student.Projects.Count,
             MentalHealthCount = student.MentalHealthRecords.Count,
-            BusViolationCount = student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince)
+            BusViolationCount = canAccessBus
+                ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince) : 0
         });
         var totalCount = await rows.CountAsync();
         var totalPages = TotalPages(totalCount, pageSize);
@@ -130,11 +139,11 @@ public class StudentsController : ControllerBase
             .Take(pageSize)
             .ToListAsync();
         var pageStudentIds = pageRows.Select(student => student.Id).ToList();
-        var canvasAverages = await CanvasAverages(pageStudentIds, canvasPeriod);
-        var behaviourRows = await _context.StudentBehaviours.AsNoTracking()
+        var canvasAverages = canAccessAcademic ? await CanvasAverages(pageStudentIds, canvasPeriod) : [];
+        var behaviourRows = canAccessAcademic ? await _context.StudentBehaviours.AsNoTracking()
             .Where(behaviour => pageStudentIds.Contains(behaviour.StudentProfileId))
             .Select(behaviour => new { behaviour.StudentProfileId, behaviour.BehaviourType, behaviour.IncidentDate })
-            .ToListAsync();
+            .ToListAsync() : [];
         var behaviourCounts = behaviourRows.GroupBy(behaviour => behaviour.StudentProfileId)
             .ToDictionary(group => group.Key, group => new
             {
@@ -163,11 +172,13 @@ public class StudentsController : ControllerBase
                     SISUserId = student.SISUserId, FullName = student.FullName,
                     GradeLevel = student.GradeLevel, Homeroom = student.Homeroom,
                     Campus = student.Campus, EducationLevel = student.EducationLevel, Program = student.Program,
-                    BehaviourCount = student.BehaviourCount,
+                    BehaviourCount = canAccessAcademic ? student.BehaviourCount : 0,
                     PositiveBehaviourCount = counts?.Positive ?? 0,
                     ConcerningBehaviourCount = counts?.Concerning ?? 0,
-                    ProjectCount = student.ProjectCount, MentalHealthCount = student.MentalHealthCount,
-                    RiskLevel = risk.Level, RiskFlagCount = risk.Flags.Count
+                    ProjectCount = canAccessAcademic ? student.ProjectCount : 0,
+                    MentalHealthCount = _userAccess.Current.CanAccessHealth ? student.MentalHealthCount : 0,
+                    RiskLevel = canAccessAcademic ? risk.Level : "None",
+                    RiskFlagCount = canAccessAcademic ? risk.Flags.Count : 0
                 };
             }).ToList(),
             Page = page,
@@ -688,6 +699,7 @@ public class StudentsController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(int id, [FromQuery] string? academicYear)
     {
+        var access = _userAccess.Current;
         var hasYearFilter = !string.IsNullOrWhiteSpace(academicYear) && academicYear != "all";
         var student = await VisibleStudents()
             .AsSplitQuery()
@@ -714,7 +726,9 @@ public class StudentsController : ControllerBase
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);
         var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(
             hasYearFilter ? academicYear : null);
-        var canvasAverage = (await CanvasAverages([student.Id], canvasPeriod)).GetValueOrDefault(student.Id);
+        decimal? canvasAverage = access.CanAccessAcademic
+            ? (await CanvasAverages([student.Id], canvasPeriod)).GetValueOrDefault(student.Id)
+            : null;
         var risk = StudentClassificationService.ClassifyRisk(
             new StudentSignalSummary(
                 student.Behaviours.Count(behaviour => behaviour.IncidentDate >= riskSince
@@ -722,8 +736,10 @@ public class StudentsController : ControllerBase
                 student.Behaviours.Count(behaviour => behaviour.IncidentDate >= commendationSince
                     && StudentClassificationService.IsCommendationBehaviour(behaviour)),
                 canvasAverage,
-                student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince),
-                student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince)),
+                access.CanAccessBus
+                    ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince) : 0,
+                access.CanAccessBus
+                    ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince) : 0),
             settings);
 
         // Behaviours and projects re-scope to the selected school year (records carry an
@@ -754,20 +770,22 @@ public class StudentsController : ControllerBase
             Campus = student.Campus,
             EducationLevel = student.EducationLevel,
             Program = student.Program,
-            RiskLevel = risk.Level,
-            Flags = risk.Flags,
+            RiskLevel = access.CanAccessAcademic ? risk.Level : "None",
+            Flags = access.CanAccessAcademic ? risk.Flags : [],
             Summary = new StudentSummaryDto
             {
-                TotalBehaviours = behaviourItems.Count,
-                PositiveBehaviours = behaviourItems.Count(StudentClassificationService.IsCommendationBehaviour),
-                ConcerningBehaviours = behaviourItems.Count(StudentClassificationService.IsConcerningBehaviour),
-                BehavioursLast30Days = behaviourItems.Count(behaviour => behaviour.IncidentDate >= last30Days),
-                TotalProjects = projectItems.Count,
-                ActiveProjects = projectItems.Count(project =>
+                TotalBehaviours = access.CanAccessAcademic ? behaviourItems.Count : 0,
+                PositiveBehaviours = access.CanAccessAcademic ? behaviourItems.Count(StudentClassificationService.IsCommendationBehaviour) : 0,
+                ConcerningBehaviours = access.CanAccessAcademic ? behaviourItems.Count(StudentClassificationService.IsConcerningBehaviour) : 0,
+                BehavioursLast30Days = access.CanAccessAcademic ? behaviourItems.Count(behaviour => behaviour.IncidentDate >= last30Days) : 0,
+                TotalProjects = access.CanAccessAcademic ? projectItems.Count : 0,
+                ActiveProjects = access.CanAccessAcademic ? projectItems.Count(project =>
                     !StudentDataEntryOptions.IsCompletedProjectStatus(project.Status))
+                    : 0
             },
-            BehaviourTrend = BuildStudentBehaviourTrend(behaviourItems, hasYearFilter ? academicYear : null, now),
-            Behaviours = behaviourItems
+            BehaviourTrend = access.CanAccessAcademic
+                ? BuildStudentBehaviourTrend(behaviourItems, hasYearFilter ? academicYear : null, now) : [],
+            Behaviours = (access.CanAccessAcademic ? behaviourItems : [])
                 .OrderByDescending(behaviour => behaviour.IncidentDate)
                 .Select(behaviour => new StudentBehaviourDto
                 {
@@ -782,7 +800,7 @@ public class StudentsController : ControllerBase
                     CustomFields = ImportCustomFieldService.Parse(behaviour.CustomFieldsJson)
                 })
                 .ToList(),
-            Projects = projectItems
+            Projects = (access.CanAccessAcademic ? projectItems : [])
                 .OrderByDescending(project => project.CreatedAt)
                 .Select(project => new StudentProjectDto
                 {
@@ -797,7 +815,7 @@ public class StudentsController : ControllerBase
                     CustomFields = ImportCustomFieldService.Parse(project.CustomFieldsJson)
                 })
                 .ToList(),
-            Parents = student.Parents
+            Parents = (access.CanAccessAcademic ? student.Parents : [])
                 .OrderBy(parent => parent.Relationship)
                 .ThenBy(parent => parent.FullName)
                 .Select(parent => new StudentParentDto
@@ -817,23 +835,25 @@ public class StudentsController : ControllerBase
                     NotesUpdatedByName = parent.ContactNote == null ? null : parent.ContactNote.UpdatedByName
                 })
                 .ToList(),
-            MentalHealthRecords = student.MentalHealthRecords
+            MentalHealthRecords = (access.CanAccessHealth ? student.MentalHealthRecords : [])
                 .Where(record => !hasYearFilter || DashboardPeriodNormalizer.AcademicYear(record.AcademicYear)
                     == academicYear)
                 .OrderByDescending(record => record.RecordDate)
                 .Select(ToMentalHealthDto)
                 .ToList(),
-            BusAttendanceRecords = busAttendanceItems
+            BusAttendanceRecords = (access.CanAccessBus ? busAttendanceItems : [])
                 .OrderByDescending(record => record.AttendanceDate)
                 .Select(ToBusAttendanceDto)
                 .ToList(),
-            HealthVisits = FilterByAcademicYear(student.HealthVisits, hasYearFilter, academicYear,
+            HealthVisits = (access.CanAccessHealth ? FilterByAcademicYear(student.HealthVisits, hasYearFilter, academicYear,
                     _ => null, visit => visit.ExamTime)
+                : [])
                 .OrderByDescending(visit => visit.ExamTime)
                 .Select(ToHealthVisitDto)
                 .ToList(),
-            Canvas = await BuildCanvasSummary(student.Id,
-                hasYearFilter ? academicYear : null)
+            Canvas = access.CanAccessAcademic
+                ? await BuildCanvasSummary(student.Id, hasYearFilter ? academicYear : null)
+                : new StudentCanvasDto()
         };
 
         return Ok(detail);
@@ -1612,8 +1632,10 @@ public class StudentsController : ControllerBase
                     student.Behaviours.Count(behaviour => behaviour.IncidentDate >= commendationSince
                         && StudentClassificationService.IsCommendationBehaviour(behaviour)),
                     canvas?.Average,
-                    student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince),
-                    student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince)),
+                    _userAccess.Current.CanAccessBus
+                        ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince) : 0,
+                    _userAccess.Current.CanAccessBus
+                        ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince) : 0),
                 canvas?.Latest);
         }).ToList();
     }
@@ -1678,7 +1700,7 @@ public class StudentsController : ControllerBase
     }
 
     private IQueryable<StudentProfile> VisibleStudents()
-        => _context.StudentProfiles.AsNoTracking();
+        => _userAccess.ApplyStudentScope(_context.StudentProfiles.AsNoTracking());
 
     private async Task<string> CurrentUserDisplayName()
     {

@@ -27,6 +27,29 @@ export const adminGuard: CanActivateFn = () => {
   );
 };
 
+export const accessManagerGuard: CanActivateFn = () => {
+  const authService = inject(AuthenticationService);
+  const router = inject(Router);
+  return authService.ensureCurrentUser().pipe(
+    map((authenticated) => authenticated && ['Admin', 'SchoolAdministration', 'Principal']
+      .includes(authService.getUserRole() || '')
+      ? true : router.createUrlTree(authenticated ? ['/dashboard'] : ['/login'])),
+  );
+};
+
+export const scopeGuard: CanActivateFn = (route) => {
+  const authService = inject(AuthenticationService);
+  const router = inject(Router);
+  return authService.ensureCurrentUser().pipe(
+    map((authenticated) => {
+      if (!authenticated) return router.createUrlTree(['/login']);
+      const capability = route.data['access'] as Parameters<AuthenticationService['canAccess']>[0];
+      return !capability || authService.canAccess(capability)
+        ? true : router.createUrlTree(['/dashboard']);
+    }),
+  );
+};
+
 export const formManagerGuard: CanActivateFn = () => {
   const authService = inject(AuthenticationService);
   const router = inject(Router);

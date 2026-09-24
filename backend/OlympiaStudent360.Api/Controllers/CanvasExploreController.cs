@@ -23,11 +23,13 @@ public class CanvasExploreController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IMemoryCache _cache;
+    private readonly UserAccessService _userAccess;
 
-    public CanvasExploreController(AppDbContext context, IMemoryCache cache)
+    public CanvasExploreController(AppDbContext context, IMemoryCache cache, UserAccessService userAccess)
     {
         _context = context;
         _cache = cache;
+        _userAccess = userAccess;
     }
 
     [HttpGet("options")]
@@ -58,7 +60,7 @@ public class CanvasExploreController : ControllerBase
         }
 
         var cacheKey = ExploreCacheKey(dataset, dimension, measure, year, term, campus, level,
-            grade, homeroom, studentId?.ToString(), program, subject);
+            grade, homeroom, studentId?.ToString(), program, subject, _userAccess.Current.CacheKey);
         if (_cache.TryGetValue<CanvasExploreResultDto>(cacheKey, out var cached) && cached is not null)
         {
             return Ok(cached);
@@ -157,6 +159,7 @@ public class CanvasExploreController : ControllerBase
         Filters f, string dimension, string measure, string groupKey)
     {
         var query = _context.CanvasSubmissions.AsNoTracking().Where(item => item.StudentProfileId != null);
+        query = _userAccess.ApplyStudentScope(query, item => item.Student);
         if (f.Has(f.Campus)) query = query.Where(item => item.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(item => item.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(item =>
@@ -216,6 +219,7 @@ public class CanvasExploreController : ControllerBase
         Filters f, string dimension, string measure, string groupKey)
     {
         var query = _context.CanvasCourseScores.AsNoTracking().Where(item => item.StudentProfileId != null);
+        query = _userAccess.ApplyStudentScope(query, item => item.Student);
         if (f.Has(f.Campus)) query = query.Where(item => item.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(item => item.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(item =>
@@ -324,6 +328,7 @@ public class CanvasExploreController : ControllerBase
         Filters f, string dimension, string groupKey)
     {
         var query = _context.SISStudentParents.AsNoTracking().Include(item => item.Student).AsQueryable();
+        query = _userAccess.ApplyStudentScope(query, item => item.Student);
         if (f.Has(f.Campus)) query = query.Where(item => item.Student.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(item => item.Student.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(item => item.Student.GradeLevel == f.Grade);
@@ -369,6 +374,7 @@ public class CanvasExploreController : ControllerBase
     private async Task<List<(string Key, double? Value)>> SubmissionRows(Filters f, string dimension, string measure)
     {
         var query = _context.CanvasSubmissions.AsNoTracking().Where(s => s.StudentProfileId != null);
+        query = _userAccess.ApplyStudentScope(query, item => item.Student);
         if (f.Has(f.Campus)) query = query.Where(s => s.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(s => s.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(s =>
@@ -424,6 +430,7 @@ public class CanvasExploreController : ControllerBase
     {
         var query = _context.CanvasCourseScores.AsNoTracking()
             .Where(s => s.StudentProfileId != null);
+        query = _userAccess.ApplyStudentScope(query, item => item.Student);
         if (f.Has(f.Campus)) query = query.Where(s => s.Student!.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(s => s.Student!.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(s =>
@@ -534,6 +541,7 @@ public class CanvasExploreController : ControllerBase
         // Parent/guardian demographics. Only the student-level filters apply (parents have no
         // year/term/subject dimension).
         var query = _context.SISStudentParents.AsNoTracking().AsQueryable();
+        query = _userAccess.ApplyStudentScope(query, item => item.Student);
         if (f.Has(f.Campus)) query = query.Where(p => p.Student.Campus == f.Campus);
         if (f.Has(f.Level)) query = query.Where(p => p.Student.EducationLevel == f.Level);
         if (f.Has(f.Grade)) query = query.Where(p => p.Student.GradeLevel == f.Grade);
@@ -669,9 +677,17 @@ public class CanvasExploreController : ControllerBase
     private static CanvasExploreFieldDto Field(string key, string label, string unit = "") =>
         new() { Key = key, Label = label, Unit = unit };
 
-    private static IQueryable<CanvasCourse> ApplyStudentScope(
+    private IQueryable<CanvasCourse> ApplyStudentScope(
         IQueryable<CanvasCourse> query, Filters filters)
     {
+        if (_userAccess.Current.RestrictsClasses)
+        {
+            var userId = _userAccess.Current.UserId!;
+            query = query.Where(course => course.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Homeroom != null &&
+                _context.TeacherClassAccesses.Any(access =>
+                    access.UserId == userId && access.Homeroom == item.Student.Homeroom)));
+        }
         if (filters.Has(filters.Campus))
             query = query.Where(course => course.Enrollments.Any(item =>
                 item.StudentProfileId != null && item.Student!.Campus == filters.Campus));
@@ -694,9 +710,17 @@ public class CanvasExploreController : ControllerBase
         return query;
     }
 
-    private static IQueryable<CanvasAssignment> ApplyStudentScope(
+    private IQueryable<CanvasAssignment> ApplyStudentScope(
         IQueryable<CanvasAssignment> query, Filters filters)
     {
+        if (_userAccess.Current.RestrictsClasses)
+        {
+            var userId = _userAccess.Current.UserId!;
+            query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
+                item.StudentProfileId != null && item.Student!.Homeroom != null &&
+                _context.TeacherClassAccesses.Any(access =>
+                    access.UserId == userId && access.Homeroom == item.Student.Homeroom)));
+        }
         if (filters.Has(filters.Campus))
             query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
                 item.StudentProfileId != null && item.Student!.Campus == filters.Campus));

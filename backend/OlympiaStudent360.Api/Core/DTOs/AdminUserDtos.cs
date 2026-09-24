@@ -9,6 +9,8 @@ public class AdminUserDto
     public string? Email { get; set; }
     public string FullName { get; set; } = default!;
     public string Role { get; set; } = default!;
+    public List<string> AccessScopes { get; set; } = [];
+    public List<string> Homerooms { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 }
@@ -24,6 +26,8 @@ public class CreateAdminUserDto
     public string? Email { get; set; }
     [Required]
     public string Role { get; set; } = "Teacher";
+    public List<string> AccessScopes { get; set; } = [];
+    public List<string> Homerooms { get; set; } = [];
 }
 
 public class UpdateAdminUserDto
@@ -34,4 +38,6 @@ public class UpdateAdminUserDto
     [Required]
     public string Role { get; set; } = "Teacher";
     public string? NewPassword { get; set; }
+    public List<string> AccessScopes { get; set; } = [];
+    public List<string> Homerooms { get; set; } = [];
 }

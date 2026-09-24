@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
@@ -68,6 +69,9 @@ public class AdminUsersController : ControllerBase
             return Conflict(new { Message = "User already exists." });
         }
 
+        var accessError = await ValidateAccess(model.Role, model.AccessScopes, model.Homerooms);
+        if (accessError != null) return BadRequest(new { Message = accessError });
+
         var user = new ApplicationUser
         {
             UserName = model.Username,
@@ -83,6 +87,7 @@ public class AdminUsersController : ControllerBase
         }
 
         await _userManager.AddToRoleAsync(user, model.Role);
+        await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms);
 
         return CreatedAtAction(nameof(GetUsers), new { id = user.Id }, await ToDto(user));
     }
@@ -100,6 +105,9 @@ public class AdminUsersController : ControllerBase
         {
             return NotFound();
         }
+
+        var accessError = await ValidateAccess(model.Role, model.AccessScopes, model.Homerooms);
+        if (accessError != null) return BadRequest(new { Message = accessError });
 
         var currentRoles = await _userManager.GetRolesAsync(user);
         if (currentRoles.Contains("Admin") && model.Role != "Admin" && await IsLastAdmin(user.Id))
@@ -123,6 +131,7 @@ public class AdminUsersController : ControllerBase
             await _userManager.RemoveFromRolesAsync(user, currentRoles);
         }
         await _userManager.AddToRoleAsync(user, model.Role);
+        await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms);
 
         if (!string.IsNullOrWhiteSpace(model.NewPassword))
         {
@@ -181,16 +190,66 @@ public class AdminUsersController : ControllerBase
     private async Task<AdminUserDto> ToDto(ApplicationUser user)
     {
         var roles = await _userManager.GetRolesAsync(user);
+        var role = roles.FirstOrDefault() ?? "Teacher";
+        var scopes = role == "Teacher"
+            ? await _context.TeacherAccessGrants.AsNoTracking().Where(item => item.UserId == user.Id)
+                .Select(item => item.Scope).ToListAsync()
+            : [];
+        if (role == "Teacher" && scopes.Count == 0) scopes.Add(TeacherAccessScopes.All);
         return new AdminUserDto
         {
             Id = user.Id,
             Username = user.UserName!,
             Email = user.Email,
             FullName = user.FullName,
-            Role = roles.FirstOrDefault() ?? "Teacher",
+            Role = role,
+            AccessScopes = scopes,
+            Homerooms = role == "Teacher"
+                ? await _context.TeacherClassAccesses.AsNoTracking().Where(item => item.UserId == user.Id)
+                    .Select(item => item.Homeroom).OrderBy(item => item).ToListAsync()
+                : [],
             CreatedAt = AsUtc(user.CreatedAt),
             LastLoginAt = user.LastLoginAt.HasValue ? AsUtc(user.LastLoginAt.Value) : null
         };
+    }
+
+    private async Task<string?> ValidateAccess(string role, List<string>? requestedScopes, List<string>? requestedHomerooms)
+    {
+        if (role != "Teacher") return null;
+        var scopes = UserAccessService.NormalizeScopes(requestedScopes);
+        if (scopes.Count == 0) scopes.Add(TeacherAccessScopes.All);
+        var homerooms = UserAccessService.NormalizeHomerooms(requestedHomerooms);
+        if (!scopes.Contains(TeacherAccessScopes.Class)) return null;
+        if (homerooms.Count == 0)
+            return "Select at least one class for class access.";
+        var availableHomerooms = await _context.StudentProfiles.AsNoTracking()
+            .Where(item => item.Homeroom != null && item.Homeroom != "")
+            .Select(item => item.Homeroom!).Distinct().ToListAsync();
+        return homerooms.Except(availableHomerooms, StringComparer.OrdinalIgnoreCase).Any()
+            ? "One or more selected classes are invalid."
+            : null;
+    }
+
+    private async Task SaveAccess(string userId, string role, List<string>? requestedScopes, List<string>? requestedHomerooms)
+    {
+        var oldGrants = await _context.TeacherAccessGrants.Where(item => item.UserId == userId).ToListAsync();
+        var oldClasses = await _context.TeacherClassAccesses.Where(item => item.UserId == userId).ToListAsync();
+        _context.TeacherAccessGrants.RemoveRange(oldGrants);
+        _context.TeacherClassAccesses.RemoveRange(oldClasses);
+        if (role == "Teacher")
+        {
+            var scopes = UserAccessService.NormalizeScopes(requestedScopes);
+            if (scopes.Count == 0) scopes.Add(TeacherAccessScopes.All);
+            _context.TeacherAccessGrants.AddRange(scopes.Select(scope =>
+                new TeacherAccessGrant { UserId = userId, Scope = scope }));
+            if (scopes.Contains(TeacherAccessScopes.Class))
+            {
+                _context.TeacherClassAccesses.AddRange(
+                    UserAccessService.NormalizeHomerooms(requestedHomerooms).Select(homeroom =>
+                        new TeacherClassAccess { UserId = userId, Homeroom = homeroom }));
+            }
+        }
+        await _context.SaveChangesAsync();
     }
 
     private static DateTime AsUtc(DateTime value)

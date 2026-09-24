@@ -10,7 +10,7 @@ namespace OlympiaStudent360.Api.Controllers;
 [Route("api/reports/health-visits")]
 [ApiController]
 [Authorize]
-public sealed class HealthReportsController(AppDbContext context) : ControllerBase
+public sealed class HealthReportsController(AppDbContext context, UserAccessService userAccess) : ControllerBase
 {
     private sealed record HealthVisitSource(
         int Id,
@@ -114,15 +114,20 @@ public sealed class HealthReportsController(AppDbContext context) : ControllerBa
         });
     }
 
-    private async Task<List<HealthVisitSource>> HealthVisits(DateTime start, DateTime end) =>
-        await context.StudentHealthVisits.AsNoTracking()
-            .Where(item => item.ExamTime >= start && item.ExamTime < end)
+    private async Task<List<HealthVisitSource>> HealthVisits(DateTime start, DateTime end)
+    {
+        var query = context.StudentHealthVisits.AsNoTracking()
+            .Where(item => item.ExamTime >= start && item.ExamTime < end);
+        query = userAccess.ApplyHomeroomScope(query,
+            item => item.Student != null ? item.Student.Homeroom : item.ClassName);
+        return await query
             .Select(item => new HealthVisitSource(
                 item.Id, item.StudentProfileId, item.SISUserId, item.FullName, item.ClassName,
                 item.ExamTime, item.Classification, item.Diagnosis, item.Symptoms,
                 item.Treatment, item.Medication, item.Notes, item.NotificationSent,
                 item.ExaminedBy, item.CustomFieldsJson))
             .ToListAsync();
+    }
 
     private static List<HealthReportRowDto> DiagnosisRows(List<HealthVisitSource> source, string groupBy) =>
         source.GroupBy(item => new

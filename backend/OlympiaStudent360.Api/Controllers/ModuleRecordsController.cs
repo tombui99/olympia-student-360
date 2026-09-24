@@ -11,7 +11,7 @@ namespace OlympiaStudent360.Api.Controllers;
 [Route("api/module-records")]
 [ApiController]
 [Authorize]
-public sealed class ModuleRecordsController(AppDbContext context) : ControllerBase
+public sealed class ModuleRecordsController(AppDbContext context, UserAccessService userAccess) : ControllerBase
 {
     [HttpGet("{moduleId}")]
     public async Task<ActionResult<ModuleRecordsPageDto>> List(
@@ -46,6 +46,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     public async Task<IActionResult> Update(string moduleId, int id, UpdateModuleRecordDto model)
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId)) return NotFound();
+        if (!await CanAccessRecord(moduleId, id)) return NotFound();
         var error = moduleId switch
         {
             "student-behaviours" => await UpdateBehaviour(id, model.Values),
@@ -65,6 +66,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     public async Task<IActionResult> Delete(string moduleId, int id)
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId)) return NotFound();
+        if (!await CanAccessRecord(moduleId, id)) return NotFound();
         int? historyId = null;
         var deleted = false;
         switch (moduleId)
@@ -119,6 +121,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     {
         var query = context.StudentBehaviours.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        query = ApplyClassScope(query, item => item.Student);
         if (period.HasValue)
             query = query.Where(item => item.IncidentDate >= period.Value.Start && item.IncidentDate < period.Value.End);
         if (term != null)
@@ -145,6 +148,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     {
         var query = context.StudentProjects.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        query = ApplyClassScope(query, item => item.Student);
         if (period.HasValue)
             query = query.Where(item => (item.ActivityDate ?? item.CreatedAt) >= period.Value.Start &&
                 (item.ActivityDate ?? item.CreatedAt) < period.Value.End);
@@ -173,6 +177,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     {
         var query = context.StudentMentalHealthRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        query = ApplyClassScope(query, item => item.Student);
         if (period.HasValue)
             query = query.Where(item => item.RecordDate >= period.Value.Start && item.RecordDate < period.Value.End);
         if (term != null)
@@ -200,6 +205,7 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     {
         var query = context.StudentBusAttendanceRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        query = ApplyClassScope(query, item => item.Student);
         if (period.HasValue)
             query = query.Where(item => item.AttendanceDate >= period.Value.Start && item.AttendanceDate < period.Value.End);
         if (term != null)
@@ -227,6 +233,8 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
     {
         var query = context.StudentHealthVisits.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
+        query = userAccess.ApplyHomeroomScope(query,
+            item => item.Student != null ? item.Student.Homeroom : item.ClassName);
         if (period.HasValue)
             query = query.Where(item => item.ExamTime >= period.Value.Start && item.ExamTime < period.Value.End);
         if (term != null)
@@ -353,6 +361,32 @@ public sealed class ModuleRecordsController(AppDbContext context) : ControllerBa
             .OrderBy(field => field.SortOrder).ThenBy(field => field.Id).ToListAsync();
         var result = ImportCustomFieldService.Build(fields, values);
         return result.Errors.Count == 0 ? (null, result.Json) : (string.Join(" ", result.Errors), null);
+    }
+
+    private IQueryable<T> ApplyClassScope<T>(
+        IQueryable<T> query,
+        System.Linq.Expressions.Expression<Func<T, StudentProfile?>> studentSelector) =>
+        userAccess.ApplyStudentScope(query, studentSelector);
+
+    private async Task<bool> CanAccessRecord(string moduleId, int id)
+    {
+        if (!userAccess.Current.RestrictsClasses) return true;
+        var homeroom = moduleId switch
+        {
+            "student-behaviours" => await context.StudentBehaviours.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-projects" => await context.StudentProjects.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-mental-health" => await context.StudentMentalHealthRecords.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-bus-attendance" => await context.StudentBusAttendanceRecords.Where(item => item.Id == id)
+                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+            "student-health-visits" => await context.StudentHealthVisits.Where(item => item.Id == id)
+                .Select(item => item.Student != null ? item.Student.Homeroom : item.ClassName).FirstOrDefaultAsync(),
+            _ => null
+        };
+        return homeroom != null && userAccess.Current.Homerooms.Contains(
+            homeroom, StringComparer.OrdinalIgnoreCase);
     }
 
     private static ModuleRecordDto Record(

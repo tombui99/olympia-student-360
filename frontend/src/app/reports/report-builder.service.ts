@@ -22,6 +22,7 @@ export interface MetricVariable {
   baselineValue: number | null;
   kpiTarget: number | null;
   supportsDrilldown?: boolean;
+  unavailableReason?: string | null;
   series: { periodStart: string; value: number }[];
 }
 

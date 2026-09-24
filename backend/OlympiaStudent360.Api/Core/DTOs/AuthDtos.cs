@@ -29,6 +29,7 @@ public class AuthResponseDto
     public string Username { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string UserId { get; set; } = default!;
+    public UserAccessCapabilitiesDto Access { get; set; } = new();
 }
 
 public class CurrentUserDto
@@ -37,4 +38,5 @@ public class CurrentUserDto
     public string Username { get; set; } = default!;
     public string FullName { get; set; } = default!;
     public string UserId { get; set; } = default!;
+    public UserAccessCapabilitiesDto Access { get; set; } = new();
 }

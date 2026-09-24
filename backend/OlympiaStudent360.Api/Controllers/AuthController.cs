@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 
 namespace OlympiaStudent360.Api.Controllers;
 
@@ -17,15 +18,18 @@ public class AuthController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
     private readonly IConfiguration _configuration;
+    private readonly UserAccessService _userAccess;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
         RoleManager<IdentityRole> roleManager,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        UserAccessService userAccess)
     {
         _userManager = userManager;
         _roleManager = roleManager;
         _configuration = configuration;
+        _userAccess = userAccess;
     }
 
     [HttpPost("login")]
@@ -51,13 +55,15 @@ public class AuthController : ControllerBase
             SameSite = SameSiteMode.Lax
         });
 
+        var role = roles.FirstOrDefault() ?? "Teacher";
         return Ok(new AuthResponseDto
         {
             Token = serializedToken,
-            Role = roles.FirstOrDefault() ?? "Teacher",
+            Role = role,
             Username = user.UserName!,
             FullName = user.FullName,
-            UserId = user.Id
+            UserId = user.Id,
+            Access = ToAccessDto(await _userAccess.LoadAsync(user.Id, role))
         });
     }
 
@@ -112,12 +118,14 @@ public class AuthController : ControllerBase
         }
 
         var roles = await _userManager.GetRolesAsync(user);
+        var role = roles.FirstOrDefault() ?? "Teacher";
         return Ok(new CurrentUserDto
         {
-            Role = roles.FirstOrDefault() ?? "Teacher",
+            Role = role,
             Username = user.UserName!,
             FullName = user.FullName,
-            UserId = user.Id
+            UserId = user.Id,
+            Access = ToAccessDto(await _userAccess.LoadAsync(user.Id, role))
         });
     }
 
@@ -159,4 +167,19 @@ public class AuthController : ControllerBase
             claims: claims,
             signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
     }
+
+    private static UserAccessCapabilitiesDto ToAccessDto(UserAccessSnapshot access) => new()
+    {
+        IsTeacher = access.IsTeacher,
+        HasAll = access.HasAll,
+        RestrictsClasses = access.RestrictsClasses,
+        Scopes = access.Scopes.OrderBy(item => item).ToList(),
+        Homerooms = access.Homerooms.ToList(),
+        CanAccessHealth = access.CanAccessHealth,
+        CanAccessBus = access.CanAccessBus,
+        CanAccessAcademic = access.CanAccessAcademic,
+        CanAccessWorkspace = access.CanAccessWorkspace,
+        CanAccessAtRisk = access.CanAccessAtRisk,
+        CanAccessCommendations = access.CanAccessCommendations
+    };
 }

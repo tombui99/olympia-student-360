@@ -27,6 +27,12 @@ public class DashboardOverviewDto
     public int BehavioursLast30Days { get; set; }
     public int TotalProjects { get; set; }
     public int ActiveProjects { get; set; }
+    public int TotalHealthVisits { get; set; }
+    public int TotalMentalHealthRecords { get; set; }
+    public int TotalBusRecords { get; set; }
+    public bool CanAccessAcademic { get; set; }
+    public bool CanAccessHealth { get; set; }
+    public bool CanAccessBus { get; set; }
     public List<DashboardTrendPointDto> BehaviourTrend { get; set; } = [];
     public List<DashboardGradeDto> GradeDistribution { get; set; } = [];
     public List<DashboardClassDto> ClassDistribution { get; set; } = [];
@@ -145,6 +151,7 @@ public class DashboardMetricDto
     public decimal? BaselineValue { get; set; }
     public decimal? KpiTarget { get; set; }
     public bool SupportsDrilldown { get; set; } = true;
+    public string? UnavailableReason { get; set; }
     public List<DashboardMetricPointDto> Series { get; set; } = [];
 }
 

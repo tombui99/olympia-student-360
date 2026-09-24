@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, forkJoin, Observable, of } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
+import { AuthenticationService } from '../core/auth/auth.service';
 import {
   DashboardOverview,
   DashboardOverviewService,
@@ -175,7 +176,7 @@ interface ClassDrilldownPage {
             </button>
           </div>
           <nav class="space-y-1 p-2" [attr.aria-label]="languageService.t('reports.library')">
-            @for (group of reportGroups; track group.id) {
+            @for (group of visibleReportGroups(); track group.id) {
               <section class="overflow-hidden rounded-lg border border-transparent" [class.border-[#e7e0eb]]="isReportGroupExpanded(group.id) && !reportMenuCollapsed()">
                 <button
                   class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-[#f7f3f9] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#6d3a91]"
@@ -815,6 +816,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly languageService = inject(LanguageService);
+  private readonly authService = inject(AuthenticationService);
 
   readonly reportGroups: ReportMenuGroup[] = [
     {
@@ -892,6 +894,12 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       ],
     },
   ];
+
+  readonly visibleReportGroups = computed(() => this.reportGroups.filter((group) => {
+    if (group.id === 'mental' || group.id === 'health') return this.authService.canAccess('health');
+    if (group.id === 'bus') return this.authService.canAccess('bus');
+    return this.authService.canAccess('academic');
+  }));
 
   readonly activeReport = signal<StaticReportId>('learning-diligence');
   readonly reportMenuCollapsed = signal(false);
@@ -1012,7 +1020,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   );
 
   readonly activeSupplementalReport = computed(() =>
-    this.reportGroups.flatMap((group) => group.items)
+    this.visibleReportGroups().flatMap((group) => group.items)
       .find((report) => report.id === this.activeReport())?.supplemental ?? null,
   );
 
@@ -1045,12 +1053,14 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   }
 
   selectReport(report: StaticReportId): void {
+    const changed = report !== this.activeReport();
     this.activeReport.set(report);
-    const group = this.reportGroups.find((candidate) => candidate.items.some((item) => item.id === report));
+    const group = this.visibleReportGroups().find((candidate) => candidate.items.some((item) => item.id === report));
     if (group && !this.expandedReportGroups().has(group.id)) {
       this.expandedReportGroups.update((expanded) => new Set(expanded).add(group.id));
     }
     this.syncReportStateToQuery();
+    if (changed) this.loadReportData();
   }
 
   toggleReportMenu(): void {
@@ -1328,6 +1338,18 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     const requestId = ++this.requestId;
     this.loading.set(true);
     this.loadFailed.set(false);
+    const report = this.activeReport();
+    const needsMetrics = report === 'learning-diligence';
+    const needsOverview = report === 'support-classes';
+    const needsStudents = report === 'support-students';
+
+    // Health and supplemental reports own their data requests. Let them render immediately
+    // instead of blocking on unrelated Canvas, overview, and at-risk queries.
+    if (!needsMetrics && !needsOverview && !needsStudents) {
+      this.loading.set(false);
+      return;
+    }
+
     const params: Record<string, string> = {
       metricIds: [
         'canvas-assignments-submitted',
@@ -1341,26 +1363,31 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     };
 
     forkJoin({
-      metrics: this.reportBuilder.loadMetricVariables(params),
-      overview: this.overviewService.overview(this.selectedYear || undefined, this.selectedTerm),
-      students: this.studentsService.atRisk(
+      metrics: needsMetrics && this.authService.canAccess('academic')
+        ? this.reportBuilder.loadMetricVariables(params) : of(null as MetricVariable[] | null),
+      overview: needsOverview
+        ? this.overviewService.overview(this.selectedYear || undefined, this.selectedTerm)
+        : of(null as DashboardOverview | null),
+      students: needsStudents && this.authService.canAccess('academic') ? this.studentsService.atRisk(
         1,
         this.studentPageSize(),
         this.studentSearch(),
         '',
         this.selectedYear,
         this.selectedTerm,
-      ),
+      ) : of(null as AtRiskStudentsPage | null),
     }).subscribe({
       next: ({ metrics, overview, students }) => {
         if (requestId !== this.requestId) return;
-        this.metrics.set(metrics);
-        this.overview.set(overview);
-        this.applyStudentPage(students);
-        this.classPage.set(1);
-        if (!this.years().includes(overview.periodYear)) this.years.update((years) => [overview.periodYear, ...years]);
-        this.selectedYear = overview.periodYear;
-        this.selectedTerm = overview.periodTerm;
+        if (metrics) this.metrics.set(metrics);
+        if (overview) {
+          this.overview.set(overview);
+          this.classPage.set(1);
+          if (!this.years().includes(overview.periodYear)) this.years.update((years) => [overview.periodYear, ...years]);
+          this.selectedYear = overview.periodYear;
+          this.selectedTerm = overview.periodTerm;
+        }
+        if (students) this.applyStudentPage(students);
         this.loading.set(false);
       },
       error: () => {
@@ -1373,11 +1400,13 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
 
   private restoreReportStateFromQuery(): void {
     const params = this.route.snapshot.queryParamMap;
-    const availableReports = this.reportGroups.flatMap((group) => group.items.map((item) => item.id));
+    const groups = this.visibleReportGroups();
+    const availableReports = groups.flatMap((group) => group.items.map((item) => item.id));
     const requestedReport = params.get('report') as StaticReportId | null;
     const activeReport = requestedReport && availableReports.includes(requestedReport)
       ? requestedReport
-      : this.activeReport();
+      : availableReports.includes(this.activeReport()) ? this.activeReport() : availableReports[0];
+    if (!activeReport) return;
     this.activeReport.set(activeReport);
 
     const requestedCohort = params.get('cohort');
@@ -1392,7 +1421,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const availableGroups = new Set(this.reportGroups.map((group) => group.id));
+    const availableGroups = new Set(groups.map((group) => group.id));
     if (requestedGroups) {
       this.expandedReportGroups.set(new Set(
         requestedGroups.split(',').filter((groupId) => availableGroups.has(groupId)),
@@ -1401,7 +1430,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     }
 
     if (requestedReport && availableReports.includes(requestedReport)) {
-      const activeGroup = this.reportGroups.find((group) => group.items.some((item) => item.id === activeReport));
+      const activeGroup = groups.find((group) => group.items.some((item) => item.id === activeReport));
       if (activeGroup) this.expandedReportGroups.set(new Set([activeGroup.id]));
     }
   }

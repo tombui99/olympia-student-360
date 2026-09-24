@@ -2117,6 +2117,66 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("StudentProjects");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherAccessGrant", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Scope")
+                        .IsUnique();
+
+                    b.ToTable("TeacherAccessGrants");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherClassAccess", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Homeroom")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Homeroom")
+                        .IsUnique();
+
+                    b.ToTable("TeacherClassAccesses");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.WorkspacePreference", b =>
                 {
                     b.Property<int>("Id")
@@ -2495,6 +2555,28 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherAccessGrant", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "User")
+                        .WithMany("AccessGrants")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherClassAccess", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "User")
+                        .WithMany("ClassAccesses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.WorkspacePreference", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.CustomReport", "CustomReport")
@@ -2504,6 +2586,13 @@ namespace OlympiaStudent360.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("CustomReport");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("AccessGrants");
+
+                    b.Navigation("ClassAccesses");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasAssignment", b =>

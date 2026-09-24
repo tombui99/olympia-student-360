@@ -4,6 +4,7 @@ import { NgFor, NgIf } from '@angular/common';
 import { AdminUsersService } from '../api/api/admin-users.service';
 import { AdminUserDto, CreateAdminUserDto, UpdateAdminUserDto } from '../api/model/models';
 import { LanguageService } from '../core/language/language.service';
+import { UserAccessService } from './user-access.service';
 
 type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | null };
 
@@ -136,6 +137,34 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                 />
               </label>
 
+              @if (form.role === 'Teacher') {
+                <section class="rounded-lg border border-[#ded7e4] bg-[#faf9fc] p-4">
+                  <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('accounts.dataAccess') }}</span>
+                  <p class="mt-1 text-xs text-[#756a7d]">{{ languageService.t('accounts.dataAccessHint') }}</p>
+                  <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                    @for (scope of accessScopes(); track scope) {
+                      <label class="flex cursor-pointer items-center gap-3 rounded-md border border-[#ded7e4] bg-white px-3 py-2.5 text-sm">
+                        <input type="checkbox" class="h-4 w-4 accent-[#4b2070]" [checked]="form.accessScopes.includes(scope)"
+                          (change)="toggleAccessScope(scope)" />
+                        <span>{{ languageService.t('access.scope.' + scope + '.title') }}</span>
+                      </label>
+                    }
+                  </div>
+                  @if (form.accessScopes.includes('Class') && !form.accessScopes.includes('All')) {
+                    <p class="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#817389]">{{ languageService.t('access.classes') }}</p>
+                    <div class="mt-2 grid max-h-44 gap-2 overflow-y-auto sm:grid-cols-2">
+                      @for (homeroom of homerooms(); track homeroom) {
+                        <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#e2dce7] bg-white px-3 py-2 text-sm">
+                          <input type="checkbox" class="h-4 w-4 accent-[#4b2070]" [checked]="form.homerooms.includes(homeroom)"
+                            (change)="toggleHomeroom(homeroom)" />
+                          <span>{{ homeroom }}</span>
+                        </label>
+                      }
+                    </div>
+                  }
+                </section>
+              }
+
               <label class="block">
                 <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('accounts.email') }}</span>
                 <input
@@ -207,6 +236,8 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
 export class AccountManagementComponent implements OnInit {
   users = signal<AdminUserDto[]>([]);
   roles = signal<string[]>([]);
+  accessScopes = signal<string[]>(['All', 'Health', 'Bus', 'Academic', 'Class']);
+  homerooms = signal<string[]>([]);
   saving = signal(false);
   error = signal<string | null>(null);
   success = signal<string | null>(null);
@@ -219,6 +250,7 @@ export class AccountManagementComponent implements OnInit {
 
   constructor(
     private readonly adminUsersService: AdminUsersService,
+    private readonly userAccessService: UserAccessService,
     readonly languageService: LanguageService,
   ) {}
 
@@ -227,6 +259,13 @@ export class AccountManagementComponent implements OnInit {
   }
 
   load() {
+    this.userAccessService.load().subscribe({
+      next: (data) => {
+        this.accessScopes.set(data.availableScopes);
+        this.homerooms.set(data.availableHomerooms);
+      },
+      error: () => undefined,
+    });
     this.adminUsersService.apiAdminUsersRolesGet().subscribe({
       next: (roles) => this.roles.set(roles),
       error: () => this.error.set(this.languageService.t('accounts.loadError')),
@@ -257,6 +296,10 @@ export class AccountManagementComponent implements OnInit {
       email: user.email,
       role: user.role,
       newPassword: null,
+      accessScopes: user.accessScopes?.includes('All')
+        ? [...this.accessScopes()]
+        : user.accessScopes?.length ? user.accessScopes : [...this.accessScopes()],
+      homerooms: user.homerooms || [],
     };
     this.clearMessages();
     this.openSheet();
@@ -288,6 +331,8 @@ export class AccountManagementComponent implements OnInit {
         email: this.form.email,
         role: this.form.role,
         newPassword: this.passwordValue || null,
+        accessScopes: this.form.role === 'Teacher' ? this.normalizedAccessScopes() : [],
+        homerooms: this.form.role === 'Teacher' ? this.form.homerooms : [],
       };
 
       this.adminUsersService.apiAdminUsersIdPut(editingId, payload).subscribe({
@@ -303,6 +348,8 @@ export class AccountManagementComponent implements OnInit {
       fullName: this.form.fullName,
       email: this.form.email,
       role: this.form.role,
+      accessScopes: this.form.role === 'Teacher' ? this.normalizedAccessScopes() : [],
+      homerooms: this.form.role === 'Teacher' ? this.form.homerooms : [],
     };
 
     this.adminUsersService.apiAdminUsersPost(payload).subscribe({
@@ -342,6 +389,30 @@ export class AccountManagementComponent implements OnInit {
   roleLabel(role: string): string {
     const key = role === 'Principal' ? 'SchoolAdministration' : role;
     return this.languageService.t(`accounts.roles.${key}`);
+  }
+
+  toggleAccessScope(scope: string): void {
+    const selected = new Set(this.form.accessScopes);
+    if (scope === 'All') {
+      if (selected.has('All')) selected.clear(); else this.accessScopes().forEach((item) => selected.add(item));
+    } else if (selected.has(scope)) {
+      selected.delete(scope);
+      selected.delete('All');
+    } else {
+      selected.add(scope);
+      if (this.accessScopes().filter((item) => item !== 'All').every((item) => selected.has(item))) selected.add('All');
+    }
+    this.form.accessScopes = [...selected];
+  }
+
+  toggleHomeroom(homeroom: string): void {
+    const selected = new Set(this.form.homerooms);
+    selected.has(homeroom) ? selected.delete(homeroom) : selected.add(homeroom);
+    this.form.homerooms = [...selected];
+  }
+
+  private normalizedAccessScopes(): string[] {
+    return this.form.accessScopes.includes('All') ? ['All'] : this.form.accessScopes;
   }
 
   private afterSave(message: string) {
@@ -387,6 +458,11 @@ export class AccountManagementComponent implements OnInit {
       return false;
     }
 
+    if (this.form.role === 'Teacher' && (!this.form.accessScopes.length ||
+      (this.form.accessScopes.includes('Class') && !this.form.accessScopes.includes('All') && !this.form.homerooms.length))) {
+      return false;
+    }
+
     return Boolean(this.editingUserId() || this.passwordValue.trim());
   }
 
@@ -403,6 +479,8 @@ export class AccountManagementComponent implements OnInit {
       email: '',
       role: 'Teacher',
       newPassword: null,
+      accessScopes: [...this.accessScopes()],
+      homerooms: [],
     };
   }
 }

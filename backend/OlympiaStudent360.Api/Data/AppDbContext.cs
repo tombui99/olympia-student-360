@@ -11,6 +11,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     }
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
+    public DbSet<TeacherAccessGrant> TeacherAccessGrants { get; set; }
+    public DbSet<TeacherClassAccess> TeacherClassAccesses { get; set; }
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<SISStudentParent> SISStudentParents { get; set; }
@@ -48,6 +50,24 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<ApplicationUser>()
             .Property(u => u.FullName)
             .HasMaxLength(255);
+
+        modelBuilder.Entity<TeacherAccessGrant>(grant =>
+        {
+            grant.Property(item => item.UserId).HasMaxLength(450);
+            grant.Property(item => item.Scope).HasMaxLength(50);
+            grant.HasIndex(item => new { item.UserId, item.Scope }).IsUnique();
+            grant.HasOne(item => item.User).WithMany(item => item.AccessGrants)
+                .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeacherClassAccess>(access =>
+        {
+            access.Property(item => item.UserId).HasMaxLength(450);
+            access.Property(item => item.Homeroom).HasMaxLength(100);
+            access.HasIndex(item => new { item.UserId, item.Homeroom }).IsUnique();
+            access.HasOne(item => item.User).WithMany(item => item.ClassAccesses)
+                .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<CustomForm>(form =>
         {

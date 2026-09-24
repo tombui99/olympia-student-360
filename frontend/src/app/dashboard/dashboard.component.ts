@@ -81,11 +81,13 @@ interface RiskRow {
 
       <div class="-mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#8a8190]">
         <p>{{ languageService.t('dashboard.period.rosterNote') }}</p>
+        @if (overview()?.canAccessAcademic) {
         <p class="inline-flex items-center gap-2 rounded-full border border-[#e6dfea] bg-white px-3 py-1.5">
           <span class="h-2 w-2 rounded-full" [ngClass]="overview()?.lastSuccessfulCanvasSyncAtUtc ? 'bg-emerald-500' : 'bg-slate-300'"></span>
           <span class="font-semibold text-[#5f5368]">{{ languageService.t('dashboard.canvasSync.label') }}</span>
           <span>{{ overview()?.lastSuccessfulCanvasSyncAtUtc ? formatSyncDate(overview()!.lastSuccessfulCanvasSyncAtUtc!) : languageService.t('dashboard.canvasSync.none') }}</span>
         </p>
+        }
       </div>
 
       @if (periodLoading()) {
@@ -115,6 +117,7 @@ interface RiskRow {
           <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalStudents ?? '—' }}</p>
           <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.studentsSub') }}</p>
         </article>
+        @if (overview()?.canAccessAcademic) {
         <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.atRisk') }}</p>
           <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.atRiskTotal ?? '—' }}</p>
@@ -130,8 +133,29 @@ interface RiskRow {
           <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.activeProjects ?? '—' }}</p>
           <p class="mt-4 text-sm text-[#8a6811]">{{ projectsSub() }}</p>
         </article>
+        }
+        @if (overview()?.canAccessHealth) {
+          <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+            <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.healthVisits') }}</p>
+            <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalHealthVisits ?? '—' }}</p>
+            <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.selectedPeriod') }}</p>
+          </article>
+          <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+            <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.mentalHealth') }}</p>
+            <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalMentalHealthRecords ?? '—' }}</p>
+            <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.selectedPeriod') }}</p>
+          </article>
+        }
+        @if (overview()?.canAccessBus) {
+          <article class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+            <p class="text-sm font-medium text-[#6f6877]">{{ languageService.t('dashboard.cards.busRecords') }}</p>
+            <p class="mt-4 text-4xl font-semibold text-[#32124f]">{{ overview()?.totalBusRecords ?? '—' }}</p>
+            <p class="mt-4 text-sm text-[#8a6811]">{{ languageService.t('dashboard.cards.selectedPeriod') }}</p>
+          </article>
+        }
       </div>
 
+      @if (overview()?.canAccessAcademic) {
       <section class="rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -242,6 +266,7 @@ interface RiskRow {
           </div>
         </section>
       </div>
+      }
       }
     </section>
   `,

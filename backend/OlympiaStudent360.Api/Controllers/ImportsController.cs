@@ -15,10 +15,12 @@ namespace OlympiaStudent360.Api.Controllers;
 public class ImportsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly UserAccessService _userAccess;
 
-    public ImportsController(AppDbContext context)
+    public ImportsController(AppDbContext context, UserAccessService userAccess)
     {
         _context = context;
+        _userAccess = userAccess;
     }
 
     [HttpPost("student-behaviours")]
@@ -348,7 +350,7 @@ public class ImportsController : ControllerBase
     }
 
     private IQueryable<StudentProfile> VisibleStudents()
-        => _context.StudentProfiles.AsNoTracking();
+        => _userAccess.ApplyStudentScope(_context.StudentProfiles.AsNoTracking());
 
     private async Task<string> CurrentUserDisplayName()
     {

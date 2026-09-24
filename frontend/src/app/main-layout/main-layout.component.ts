@@ -16,6 +16,7 @@ import {
   faKitMedical,
   faClipboardList,
   faChartColumn,
+  faUserShield,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
@@ -27,6 +28,8 @@ interface NavItem {
   labelKey: string;
   icon: IconDefinition;
   adminOnly?: boolean;
+  accessManagerOnly?: boolean;
+  access?: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations';
 }
 
 interface NavSection {
@@ -378,34 +381,35 @@ export class MainLayoutComponent {
       titleKey: 'navSection.students',
       items: [
         { path: '/students', labelKey: 'nav.students', icon: faUserGraduate },
-        { path: '/transcripts', labelKey: 'nav.transcripts', icon: faFileLines },
-        { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation },
-        { path: '/commendations', labelKey: 'nav.commendations', icon: faAward },
+        { path: '/transcripts', labelKey: 'nav.transcripts', icon: faFileLines, access: 'academic' },
+        { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation, access: 'atRisk' },
+        { path: '/commendations', labelKey: 'nav.commendations', icon: faAward, access: 'commendations' },
       ],
     },
     {
       titleKey: 'navSection.tools',
       items: [
         { path: '/reports', labelKey: 'nav.reports', icon: faChartColumn },
-        { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns },
+        { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns, access: 'workspace' },
         { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
-        { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList },
+        { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList, access: 'academic' },
       ],
     },
     {
       titleKey: 'navSection.data',
       items: [
-        { path: '/behaviours', labelKey: 'nav.behaviours', icon: faAward },
-        { path: '/projects', labelKey: 'nav.projects', icon: faClipboardList },
-        { path: '/bus-attendance', labelKey: 'nav.busAttendance', icon: faTableColumns },
-        { path: '/mental-health', labelKey: 'nav.mentalHealth', icon: faKitMedical },
-        { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical },
+        { path: '/behaviours', labelKey: 'nav.behaviours', icon: faAward, access: 'academic' },
+        { path: '/projects', labelKey: 'nav.projects', icon: faClipboardList, access: 'academic' },
+        { path: '/bus-attendance', labelKey: 'nav.busAttendance', icon: faTableColumns, access: 'bus' },
+        { path: '/mental-health', labelKey: 'nav.mentalHealth', icon: faKitMedical, access: 'health' },
+        { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical, access: 'health' },
       ],
     },
     {
       titleKey: 'navSection.administration',
       items: [
         { path: '/admin/accounts', labelKey: 'nav.accounts', icon: faUsersGear, adminOnly: true },
+        { path: '/admin/user-access', labelKey: 'nav.userAccess', icon: faUserShield, accessManagerOnly: true },
         {
           path: '/admin/sync-history',
           labelKey: 'nav.syncHistory',
@@ -424,7 +428,12 @@ export class MainLayoutComponent {
 
   visibleItems(section: NavSection): NavItem[] {
     const isAdmin = this.authService.getUserRole() === 'Admin';
-    return section.items.filter((item) => !item.adminOnly || isAdmin);
+    const canManageAccess = ['Admin', 'SchoolAdministration', 'Principal']
+      .includes(this.authService.getUserRole() || '');
+    return section.items.filter((item) =>
+      (!item.adminOnly || isAdmin) &&
+      (!item.accessManagerOnly || canManageAccess) &&
+      (!item.access || this.authService.canAccess(item.access)));
   }
 
   roleLabel(role: string | null): string {

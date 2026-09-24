@@ -47,6 +47,12 @@ export interface DashboardOverview {
   behavioursLast30Days: number;
   totalProjects: number;
   activeProjects: number;
+  totalHealthVisits: number;
+  totalMentalHealthRecords: number;
+  totalBusRecords: number;
+  canAccessAcademic: boolean;
+  canAccessHealth: boolean;
+  canAccessBus: boolean;
   behaviourTrend: DashboardTrendPoint[];
   gradeDistribution: DashboardGrade[];
   classDistribution: DashboardClass[];

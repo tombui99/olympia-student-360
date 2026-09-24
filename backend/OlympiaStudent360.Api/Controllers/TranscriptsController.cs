@@ -11,7 +11,7 @@ namespace OlympiaStudent360.Api.Controllers;
 [Route("api/transcripts")]
 [ApiController]
 [Authorize]
-public class TranscriptsController(AppDbContext context) : ControllerBase
+public class TranscriptsController(AppDbContext context, UserAccessService userAccess) : ControllerBase
 {
     private sealed record AggregateRow(
         string AcademicYear,
@@ -515,7 +515,7 @@ public class TranscriptsController(AppDbContext context) : ControllerBase
     }
 
     private IQueryable<StudentProfile> VisibleStudents()
-        => context.StudentProfiles.AsNoTracking();
+        => userAccess.ApplyStudentScope(context.StudentProfiles.AsNoTracking());
 
     private static string? NormalizeGrade(string gradeLevel)
     {

@@ -93,8 +93,10 @@ builder.Services.AddRateLimiter(options =>
 
 builder.Services.AddHttpClient<GeminiService>();
 builder.Services.AddHttpClient();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
 builder.Services.AddScoped<CanvasReportingPeriodService>();
+builder.Services.AddScoped<UserAccessService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -143,6 +145,7 @@ app.UseCors("AllowAngular");
 app.UseHttpsRedirection();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<UserAccessMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

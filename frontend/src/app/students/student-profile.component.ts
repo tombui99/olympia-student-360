@@ -5,6 +5,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { EChartsCoreOption } from 'echarts/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
 import { LanguageService } from '../core/language/language.service';
+import { AuthenticationService } from '../core/auth/auth.service';
 import { RiskFlag, StudentParent, StudentProfileDetail, StudentsService } from './students.service';
 import { riskBadgeClass } from './risk.util';
 import {
@@ -38,6 +39,7 @@ type ProfileSection =
           {{ languageService.t('studentProfile.backToStudents') }}
         </a>
         @if (student(); as profile) {
+          @if (authService.canAccess('academic')) {
           <a
             class="inline-flex items-center gap-2 rounded-md bg-[#32124f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4b2070]"
             [routerLink]="['/students', profile.id, 'digest']"
@@ -48,6 +50,7 @@ type ProfileSection =
             </svg>
             {{ languageService.t('studentProfile.generateDigest') }}
           </a>
+          }
         }
       </div>
 
@@ -248,6 +251,7 @@ type ProfileSection =
         }
 
         @if (activeSection() === 'overview') {
+        @if (authService.canAccess('academic')) {
         @if (profile.riskLevel !== 'None') {
           <div
             class="rounded-lg border p-5"
@@ -389,6 +393,25 @@ type ProfileSection =
             <p class="mt-2 text-xs text-[#9a91a3]">{{ languageService.t('studentProfile.trendSource') }}</p>
           </article>
         </div>
+        }
+        @if (authService.canAccess('health')) {
+          <div class="grid gap-4 sm:grid-cols-2">
+            <article class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+              <p class="text-sm text-[#7c7284]">{{ languageService.t('dashboard.cards.healthVisits') }}</p>
+              <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.healthVisits.length }}</p>
+            </article>
+            <article class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+              <p class="text-sm text-[#7c7284]">{{ languageService.t('dashboard.cards.mentalHealth') }}</p>
+              <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.mentalHealthRecords.length }}</p>
+            </article>
+          </div>
+        }
+        @if (authService.canAccess('bus')) {
+          <article class="rounded-lg border border-[#ebe6ef] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
+            <p class="text-sm text-[#7c7284]">{{ languageService.t('dashboard.cards.busRecords') }}</p>
+            <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.busAttendanceRecords.length }}</p>
+          </article>
+        }
         }
 
         @if (activeSection() === 'behaviours') {
@@ -1025,6 +1048,7 @@ export class StudentProfileComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly languageService = inject(LanguageService);
+  readonly authService = inject(AuthenticationService);
 
   readonly student = signal<StudentProfileDetail | null>(null);
   readonly loading = signal(true);
@@ -1047,7 +1071,7 @@ export class StudentProfileComponent implements OnInit {
   readonly profileSections = computed<{ id: ProfileSection; label: string; count: number | null }[]>(
     () => {
       const profile = this.student();
-      return [
+      const sections: { id: ProfileSection; label: string; count: number | null }[] = [
         {
           id: 'overview',
           label: this.languageService.t('studentProfile.navigation.overview'),
@@ -1084,6 +1108,14 @@ export class StudentProfileComponent implements OnInit {
           count: profile?.canvas.hasData ? profile.canvas.courses.length : 0,
         },
       ];
+      return sections.filter((item) => {
+        if (item.id === 'transport') return this.authService.canAccess('bus');
+        if (item.id === 'wellbeing') return this.authService.canAccess('health');
+        if (['parents', 'behaviours', 'projects', 'learning'].includes(item.id)) {
+          return this.authService.canAccess('academic');
+        }
+        return true;
+      });
     },
   );
 
