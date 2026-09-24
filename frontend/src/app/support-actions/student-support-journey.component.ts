@@ -28,15 +28,15 @@ import {
 
         <div class="grid border-t border-[#e9e2ed] sm:grid-cols-3">
           <div class="border-b border-[#e9e2ed] px-4 py-3 sm:border-b-0 sm:border-r">
-            <p class="text-[10px] font-semibold uppercase tracking-[0.1em] text-blue-700">{{ t('support.category.Learning') }}</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.1em] text-blue-700">{{ t('support.category.Learning') }}</p>
             <p class="mt-0.5 text-xl font-semibold text-[#32124f]">{{ categoryCount('Learning') }}</p>
           </div>
           <div class="border-b border-[#e9e2ed] px-4 py-3 sm:border-b-0 sm:border-r">
-            <p class="text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-700">{{ t('support.category.Behaviour') }}</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.1em] text-amber-700">{{ t('support.category.Behaviour') }}</p>
             <p class="mt-0.5 text-xl font-semibold text-[#32124f]">{{ categoryCount('Behaviour') }}</p>
           </div>
           <div class="px-4 py-3">
-            <p class="text-[10px] font-semibold uppercase tracking-[0.1em] text-teal-700">{{ t('support.category.MentalHealth') }}</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.1em] text-teal-700">{{ t('support.category.MentalHealth') }}</p>
             <p class="mt-0.5 text-xl font-semibold text-[#32124f]">{{ categoryCount('MentalHealth') }}</p>
           </div>
         </div>
@@ -71,15 +71,15 @@ import {
                   <div class="flex flex-wrap items-start justify-between gap-2">
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-1.5">
-                        <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" [ngClass]="categoryClass(action.category)">{{ t('support.category.' + action.category) }}</span>
+                        <span class="rounded-full px-3 py-1 text-sm font-semibold" [ngClass]="categoryClass(action.category)">{{ t('support.category.' + action.category) }}</span>
                         <span class="text-[11px] text-[#8a8190]">{{ formatDate(action.actionDate) }} · {{ action.academicYear.replace('-', '–') }}</span>
                         @if (action.subject) { <span class="rounded-full bg-[#f1edf4] px-2 py-0.5 text-[11px] text-[#5b287d]">{{ action.subject }}</span> }
                       </div>
                       <h5 class="mt-1.5 text-base font-semibold text-[#32124f]">{{ action.title }}</h5>
                     </div>
                     <div class="flex flex-wrap gap-1.5">
-                      <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" [ngClass]="statusClass(action.status)">{{ t('support.status.' + action.status) }}</span>
-                      <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" [ngClass]="progressClass(action.progress)">{{ t('support.progress.' + action.progress) }}</span>
+                      <span class="rounded-full px-3 py-1 text-sm font-semibold" [ngClass]="statusClass(action.status)">{{ t('support.status.' + action.status) }}</span>
+                      <span class="rounded-full px-3 py-1 text-sm font-semibold" [ngClass]="progressClass(action.progress)">{{ t('support.progress.' + action.progress) }}</span>
                     </div>
                   </div>
 
@@ -110,7 +110,7 @@ import {
                   <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-[#eee8f1] pt-2.5 text-[11px] text-[#7c7284]">
                     <span>{{ t('support.recordedBy') }} <strong class="font-semibold text-[#5f5666]">{{ action.updatedByName || action.createdByName }}</strong></span>
                     @if (action.followUpDate) { <span [ngClass]="isOverdue(action) ? 'font-semibold text-amber-700' : ''">{{ t('support.followUp') }}: {{ formatDate(action.followUpDate) }}</span> }
-                    @if (action.shareWithFamily) { <span class="inline-flex items-center gap-1 text-emerald-700"><span aria-hidden="true">●</span>{{ t('support.familyVisible') }}</span> }
+                    @if (action.shareWithFamily) { <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"><span aria-hidden="true">●</span>{{ t('support.familyVisible') }}</span> }
                     <span class="ml-auto flex gap-2">
                       <button type="button" class="font-semibold text-[#5b287d] hover:underline" (click)="edit(action)">{{ t('common.edit') }}</button>
                       <button type="button" class="font-semibold text-red-700 hover:underline" (click)="remove(action)">{{ t('common.delete') }}</button>

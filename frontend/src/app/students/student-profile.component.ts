@@ -135,7 +135,7 @@ type ProfileSection =
             @for (item of profileSections(); track item.id) {
               <button
                 type="button"
-                class="flex min-h-10 items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition"
+                class="flex min-h-11 items-center gap-2 rounded-md px-5 py-2.5 text-base font-semibold transition"
                 [ngClass]="activeSection() === item.id
                   ? 'bg-[#32124f] text-white shadow-sm'
                   : 'text-[#5f5666] hover:bg-[#f7f3f9] hover:text-[#32124f]'"

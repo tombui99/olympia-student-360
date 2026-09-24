@@ -103,7 +103,7 @@ import {
                   <p class="text-xs font-semibold uppercase tracking-[0.1em] text-[#8a8190]">{{ formatDate(action.actionDate) }}</p>
                   <a class="mt-2 block font-semibold text-[#32124f] hover:underline" [routerLink]="['/students', action.studentId]" [queryParams]="{ section: 'support' }">{{ action.studentName }}</a>
                   <p class="mt-0.5 text-xs text-[#7c7284]">{{ action.sisUserId }} · {{ t('support.grade') }} {{ action.gradeLevel || '—' }} · {{ action.homeroom || '—' }}</p>
-                  <span class="mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold" [ngClass]="categoryClass(action.category)">{{ categoryLabel(action.category) }}</span>
+                  <span class="mt-3 inline-flex rounded-full px-3 py-1.5 text-sm font-semibold" [ngClass]="categoryClass(action.category)">{{ categoryLabel(action.category) }}</span>
                 </div>
                 <div class="min-w-0 border-l-2 pl-4" [ngClass]="categoryBorderClass(action.category)">
                   <div class="flex flex-wrap items-center gap-2">
@@ -122,8 +122,8 @@ import {
                   }
                 </div>
                 <div class="flex flex-col items-start gap-2 lg:items-end">
-                  <span class="rounded-full px-2.5 py-1 text-xs font-semibold" [ngClass]="statusClass(action.status)">{{ statusLabel(action.status) }}</span>
-                  <span class="rounded-full px-2.5 py-1 text-xs font-semibold" [ngClass]="progressClass(action.progress)">{{ progressLabel(action.progress) }}</span>
+                  <span class="rounded-full px-3 py-1.5 text-sm font-semibold" [ngClass]="statusClass(action.status)">{{ statusLabel(action.status) }}</span>
+                  <span class="rounded-full px-3 py-1.5 text-sm font-semibold" [ngClass]="progressClass(action.progress)">{{ progressLabel(action.progress) }}</span>
                   @if (action.followUpDate) {
                     <p class="text-xs" [ngClass]="isOverdue(action) ? 'font-semibold text-amber-700' : 'text-[#7c7284]'">{{ t('support.followUp') }}: {{ formatDate(action.followUpDate) }}</p>
                   }
