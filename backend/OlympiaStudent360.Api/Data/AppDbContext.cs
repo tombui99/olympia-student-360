@@ -22,6 +22,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
     public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<ImportModuleField> ImportModuleFields { get; set; }
+    public DbSet<StudentRecordFieldOption> StudentRecordFieldOptions { get; set; }
     public DbSet<CustomForm> CustomForms { get; set; }
     public DbSet<CustomFormResponse> CustomFormResponses { get; set; }
     public DbSet<CustomFormAccessSession> CustomFormAccessSessions { get; set; }
@@ -180,21 +181,35 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<StudentBehaviour>(behaviour =>
         {
-            behaviour.Property(b => b.BehaviourType).HasMaxLength(100);
-            behaviour.Property(b => b.Notes).HasMaxLength(1000);
+            behaviour.Property(b => b.BehaviourType).HasMaxLength(255);
+            behaviour.Property(b => b.ClassificationCategory).HasMaxLength(50);
+            behaviour.Property(b => b.Notes).HasMaxLength(4000);
             behaviour.Property(b => b.RecordedByName).HasMaxLength(255);
+            behaviour.Property(b => b.RecordedByEmail).HasMaxLength(255);
+            behaviour.Property(b => b.RecordedByTitle).HasMaxLength(100);
             behaviour.Property(b => b.AcademicYear).HasMaxLength(20);
             behaviour.Property(b => b.Term).HasMaxLength(50);
             behaviour.Property(b => b.MeasurementCycle).HasMaxLength(50);
             behaviour.Property(b => b.Program).HasMaxLength(100);
             behaviour.Property(b => b.Subject).HasMaxLength(100);
+            behaviour.Property(b => b.IncidentTimeText).HasMaxLength(100);
+            behaviour.Property(b => b.Decision).HasMaxLength(255);
+            behaviour.Property(b => b.ConductDeductionLevel).HasMaxLength(50);
+            behaviour.Property(b => b.BehaviourPointsDeducted).HasMaxLength(50);
+            behaviour.Property(b => b.SourceFileName).HasMaxLength(255);
+            behaviour.Property(b => b.SourceStudentName).HasMaxLength(255);
+            behaviour.Property(b => b.SourceGradeLevel).HasMaxLength(50);
+            behaviour.Property(b => b.StudentMatchStatus).HasMaxLength(50);
+            behaviour.Property(b => b.StudentMatchNotes).HasMaxLength(1000);
+            behaviour.Property(b => b.SourceDataIssues).HasMaxLength(1000);
             behaviour.HasIndex(b => b.StudentProfileId);
             behaviour.HasIndex(b => b.IncidentDate);
             behaviour.HasIndex(b => b.ImportHistoryId);
+            behaviour.HasIndex(b => new { b.SourceFileName, b.SourceRecordId }).IsUnique();
             behaviour.HasOne(b => b.Student)
                 .WithMany(s => s.Behaviours)
                 .HasForeignKey(b => b.StudentProfileId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.SetNull);
             behaviour.HasOne(b => b.ImportHistory)
                 .WithMany(h => h.Behaviours)
                 .HasForeignKey(b => b.ImportHistoryId)
@@ -350,6 +365,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             field.Property(f => f.FieldType).HasMaxLength(20);
             field.HasIndex(f => new { f.ModuleId, f.FieldKey }).IsUnique();
             field.HasIndex(f => f.ModuleId);
+        });
+
+        modelBuilder.Entity<StudentRecordFieldOption>(option =>
+        {
+            option.Property(item => item.ModuleId).HasMaxLength(100);
+            option.Property(item => item.FieldKey).HasMaxLength(100);
+            option.Property(item => item.Value).HasMaxLength(255);
+            option.Property(item => item.OptionGroup).HasMaxLength(50);
+            option.HasIndex(item => new { item.ModuleId, item.FieldKey, item.Value }).IsUnique();
+            option.HasIndex(item => new { item.ModuleId, item.FieldKey, item.SortOrder });
         });
 
         modelBuilder.Entity<CustomReport>()

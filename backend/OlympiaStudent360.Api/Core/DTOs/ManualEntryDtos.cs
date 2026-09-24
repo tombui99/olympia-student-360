@@ -29,16 +29,23 @@ public class CreateStudentBehaviourDto
     [Required]
     public DateTime? IncidentDate { get; set; }
 
-    [Required, MaxLength(100)]
+    [Required, MaxLength(255)]
     public string BehaviourType { get; set; } = default!;
 
-    [MaxLength(1000)]
+    [MaxLength(4000)]
     public string? Notes { get; set; }
+    [MaxLength(100)] public string? IncidentTime { get; set; }
     [MaxLength(20)] public string? AcademicYear { get; set; }
     [MaxLength(50)] public string? Term { get; set; }
     [MaxLength(50)] public string? MeasurementCycle { get; set; }
     [MaxLength(100)] public string? Program { get; set; }
     [MaxLength(100)] public string? Subject { get; set; }
+    [MaxLength(255)] public string? RecordedByEmail { get; set; }
+    [MaxLength(100)] public string? RecordedByTitle { get; set; }
+    [MaxLength(255)] public string? Decision { get; set; }
+    [MaxLength(50)] public string? ConductDeductionLevel { get; set; }
+    [Range(1, int.MaxValue)] public int? OccurrenceCount { get; set; }
+    [MaxLength(50)] public string? BehaviourPointsDeducted { get; set; }
     public Dictionary<string, string?>? CustomFields { get; set; }
 }
 

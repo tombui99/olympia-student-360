@@ -16,17 +16,25 @@ public class ImportsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly UserAccessService _userAccess;
+    private readonly StudentRecordFieldOptionService _recordFieldOptions;
 
-    public ImportsController(AppDbContext context, UserAccessService userAccess)
+    public ImportsController(
+        AppDbContext context,
+        UserAccessService userAccess,
+        StudentRecordFieldOptionService recordFieldOptions)
     {
         _context = context;
         _userAccess = userAccess;
+        _recordFieldOptions = recordFieldOptions;
     }
 
     [HttpPost("student-behaviours")]
-    public async Task<ActionResult<ImportHistoryDto>> ImportBehaviours([FromBody] ExcelBehaviourImportDto model)
+    public async Task<ActionResult<ExcelImportResultDto>> ImportBehaviours([FromBody] ExcelBehaviourImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
+        var behaviourOptions = await _recordFieldOptions.ListAsync(
+            StudentRecordFieldOptionService.BehaviourModule,
+            StudentRecordFieldOptionService.BehaviourTypeField);
         var customFields = await ModuleFields("student-behaviours");
         var errors = new List<string>();
         var behaviours = new List<StudentBehaviour>();
@@ -41,7 +49,9 @@ public class ImportsController : ControllerBase
                 continue;
             }
 
-            if (!StudentClassificationService.TryCanonicalBehaviourType(row.BehaviourType, out var behaviourType))
+            var behaviourOption = behaviourOptions.FirstOrDefault(option =>
+                string.Equals(option.Value, row.BehaviourType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (behaviourOption == null)
             {
                 errors.Add($"Row {rowNumber}: behaviour_type is not supported.");
                 continue;
@@ -54,11 +64,21 @@ public class ImportsController : ControllerBase
             {
                 StudentProfileId = student!.Id,
                 IncidentDate = DateTime.SpecifyKind(row.IncidentDate!.Value, DateTimeKind.Utc),
-                BehaviourType = behaviourType,
+                BehaviourType = behaviourOption.Value,
+                ClassificationCategory = StudentRecordFieldOptionService.CategoryName(behaviourOption.OptionGroup),
                 Notes = string.IsNullOrWhiteSpace(row.Notes) ? null : row.Notes.Trim(),
                 RecordedByName = recordedByName,
+                RecordedByEmail = Clean(row.RecordedByEmail), RecordedByTitle = Clean(row.RecordedByTitle),
                 AcademicYear = Clean(row.AcademicYear), Term = Clean(row.Term),
                 MeasurementCycle = Clean(row.MeasurementCycle), Program = Clean(row.Program), Subject = Clean(row.Subject),
+                IncidentTimeText = Clean(row.IncidentTimeText), Decision = Clean(row.Decision),
+                ConductDeductionLevel = Clean(row.ConductDeductionLevel), OccurrenceCount = row.OccurrenceCount,
+                BehaviourPointsDeducted = Clean(row.BehaviourPointsDeducted),
+                SourceRecordId = row.SourceRecordId, SourceRowNumber = row.SourceRowNumber ?? rowNumber,
+                SourceFileName = Clean(row.SourceFileName) ?? model.FileName.Trim(),
+                SourceStudentName = Clean(row.SourceStudentName) ?? row.StudentName.Trim(),
+                SourceGradeLevel = Clean(row.SourceGradeLevel), StudentMatchStatus = Clean(row.StudentMatchStatus),
+                StudentMatchNotes = Clean(row.StudentMatchNotes), SourceDataIssues = Clean(row.SourceDataIssues),
                 CustomFieldsJson = customJson
             });
         }
@@ -73,13 +93,16 @@ public class ImportsController : ControllerBase
         _context.StudentBehaviours.AddRange(behaviours);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
-        return Created($"/api/import-history/{history.Id}", ToDto(history));
+        return Ok(ToResult(history));
     }
 
     [HttpPost("student-projects")]
-    public async Task<ActionResult<ImportHistoryDto>> ImportProjects([FromBody] ExcelProjectImportDto model)
+    public async Task<ActionResult<ExcelImportResultDto>> ImportProjects([FromBody] ExcelProjectImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
+        var projectOptions = await _recordFieldOptions.ListAsync(StudentRecordFieldOptionService.ProjectModule);
+        var subjectOptions = projectOptions.Where(item => item.FieldKey == StudentRecordFieldOptionService.ProjectSubjectField).ToList();
+        var statusOptions = projectOptions.Where(item => item.FieldKey == StudentRecordFieldOptionService.ProjectStatusField).ToList();
         var customFields = await ModuleFields("student-projects");
         var errors = new List<string>();
         var projects = new List<StudentProject>();
@@ -93,10 +116,8 @@ public class ImportsController : ControllerBase
                 continue;
             }
 
-            var subject = StudentDataEntryOptions.ProjectSubjects.FirstOrDefault(value =>
-                string.Equals(value, row.Subject, StringComparison.OrdinalIgnoreCase));
-            var status = StudentDataEntryOptions.ProjectStatuses.FirstOrDefault(value =>
-                string.Equals(value, row.Status, StringComparison.OrdinalIgnoreCase));
+            var subject = StudentRecordFieldOptionService.CanonicalValue(subjectOptions, row.Subject);
+            var status = StudentRecordFieldOptionService.CanonicalValue(statusOptions, row.Status);
             if (subject == null || status == null)
             {
                 errors.Add($"Row {rowNumber}: subject or status is not supported.");
@@ -130,12 +151,12 @@ public class ImportsController : ControllerBase
         _context.StudentProjects.AddRange(projects);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
-        return Created($"/api/import-history/{history.Id}", ToDto(history));
+        return Ok(ToResult(history));
     }
 
     [HttpPost("student-mental-health")]
     [Authorize(Roles = "Admin,SchoolAdministration,Principal,Teacher")]
-    public async Task<ActionResult<ImportHistoryDto>> ImportMentalHealth(
+    public async Task<ActionResult<ExcelImportResultDto>> ImportMentalHealth(
         [FromBody] ExcelMentalHealthImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(student => student.SISUserId, StringComparer.OrdinalIgnoreCase);
@@ -198,11 +219,11 @@ public class ImportsController : ControllerBase
         _context.StudentMentalHealthRecords.AddRange(records);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
-        return Created($"/api/import-history/{history.Id}", ToDto(history));
+        return Ok(ToResult(history));
     }
 
     [HttpPost("student-bus-attendance")]
-    public async Task<ActionResult<ImportHistoryDto>> ImportBusAttendance(
+    public async Task<ActionResult<ExcelImportResultDto>> ImportBusAttendance(
         [FromBody] ExcelBusAttendanceImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(
@@ -257,11 +278,11 @@ public class ImportsController : ControllerBase
         _context.StudentBusAttendanceRecords.AddRange(records);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
-        return Created($"/api/import-history/{history.Id}", ToDto(history));
+        return Ok(ToResult(history));
     }
 
     [HttpPost("student-health-visits")]
-    public async Task<ActionResult<ImportHistoryDto>> ImportHealthVisits(
+    public async Task<ActionResult<ExcelImportResultDto>> ImportHealthVisits(
         [FromBody] ExcelHealthVisitImportDto model)
     {
         var students = await VisibleStudents().ToDictionaryAsync(
@@ -313,7 +334,7 @@ public class ImportsController : ControllerBase
         _context.StudentHealthVisits.AddRange(records);
         _context.ImportHistories.Add(history);
         await _context.SaveChangesAsync();
-        return Created($"/api/import-history/{history.Id}", ToDto(history));
+        return Ok(ToResult(history));
     }
 
     private async Task<List<ImportModuleField>> ModuleFields(string moduleId) =>
@@ -379,16 +400,9 @@ public class ImportsController : ControllerBase
         };
     }
 
-    private static ImportHistoryDto ToDto(ImportHistory history) => new()
+    private static ExcelImportResultDto ToResult(ImportHistory history) => new()
     {
-        Id = history.Id,
         ModuleId = history.ModuleId,
-        FileName = history.FileName,
-        ImportedAt = history.CreatedAt,
-        ImportedBy = history.ImportedByUsername,
-        ImportedByName = history.ImportedByName,
-        Status = history.Status,
-        ValidRows = history.ValidRows,
-        InvalidRows = history.InvalidRows
+        ImportedRows = history.ValidRows
     };
 }

@@ -2,6 +2,12 @@ using System.ComponentModel.DataAnnotations;
 
 namespace OlympiaStudent360.Api.Core.DTOs;
 
+public class ExcelImportResultDto
+{
+    public string ModuleId { get; set; } = default!;
+    public int ImportedRows { get; set; }
+}
+
 public class ExcelBehaviourImportDto
 {
     [Required, MaxLength(255)]
@@ -25,16 +31,31 @@ public class ExcelBehaviourRowDto
     [Required]
     public DateTime? IncidentDate { get; set; }
 
-    [Required, MaxLength(100)]
+    [Required, MaxLength(255)]
     public string BehaviourType { get; set; } = default!;
 
-    [MaxLength(1000)]
+    [MaxLength(4000)]
     public string? Notes { get; set; }
     [MaxLength(20)] public string? AcademicYear { get; set; }
     [MaxLength(50)] public string? Term { get; set; }
     [MaxLength(50)] public string? MeasurementCycle { get; set; }
     [MaxLength(100)] public string? Program { get; set; }
     [MaxLength(100)] public string? Subject { get; set; }
+    [MaxLength(100)] public string? IncidentTimeText { get; set; }
+    [MaxLength(255)] public string? RecordedByEmail { get; set; }
+    [MaxLength(100)] public string? RecordedByTitle { get; set; }
+    [MaxLength(255)] public string? Decision { get; set; }
+    [MaxLength(50)] public string? ConductDeductionLevel { get; set; }
+    public int? OccurrenceCount { get; set; }
+    [MaxLength(50)] public string? BehaviourPointsDeducted { get; set; }
+    public int? SourceRecordId { get; set; }
+    public int? SourceRowNumber { get; set; }
+    [MaxLength(255)] public string? SourceFileName { get; set; }
+    [MaxLength(255)] public string? SourceStudentName { get; set; }
+    [MaxLength(50)] public string? SourceGradeLevel { get; set; }
+    [MaxLength(50)] public string? StudentMatchStatus { get; set; }
+    [MaxLength(1000)] public string? StudentMatchNotes { get; set; }
+    [MaxLength(1000)] public string? SourceDataIssues { get; set; }
     public Dictionary<string, string?>? CustomFields { get; set; }
 }
 

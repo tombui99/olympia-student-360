@@ -1,74 +1,16 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { map } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
-import { ImportRecord, importModules } from './import-template-data';
 
-type ImportHistoryResponse = {
-  id: number;
+type ExcelImportResult = {
   moduleId: string;
-  fileName: string;
-  importedAt: string;
-  importedBy: string;
-  importedByName: string;
-  status: 'Valid' | 'Rejected';
-  validRows: number;
-  invalidRows: number;
-};
-
-export type ImportHistoryRecordResponse = {
-  id: number;
-  sisUserId: string;
-  studentName: string;
-  values: Record<string, string | null>;
-};
-
-export type ImportHistoryDetailResponse = ImportHistoryResponse & {
-  records: ImportHistoryRecordResponse[];
-};
-
-type ImportHistoryPageResponse = {
-  items: ImportHistoryResponse[];
-  page: number;
-  pageSize: number;
-  totalCount: number;
-  totalPages: number;
+  importedRows: number;
 };
 
 @Injectable({ providedIn: 'root' })
-export class ImportHistoryService {
+export class ExcelImportService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
-
-  list(page = 1, pageSize = 20) {
-    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
-    return this.http
-      .get<ImportHistoryPageResponse>(`${this.basePath}/api/import-history`, { params })
-      .pipe(map((response) => ({
-        ...response,
-        items: response.items.map((record) => this.toRecord(record)),
-      })));
-  }
-
-  detail(id: number) {
-    return this.http.get<ImportHistoryDetailResponse>(`${this.basePath}/api/import-history/${id}`);
-  }
-
-  rename(id: number, fileName: string) {
-    return this.http.put<void>(`${this.basePath}/api/import-history/${id}`, { fileName });
-  }
-
-  updateRecord(id: number, recordId: number, values: Record<string, string | null>) {
-    return this.http.put<void>(`${this.basePath}/api/import-history/${id}/records/${recordId}`, { values });
-  }
-
-  deleteRecord(id: number, recordId: number) {
-    return this.http.delete<void>(`${this.basePath}/api/import-history/${id}/records/${recordId}`);
-  }
-
-  deleteHistory(id: number) {
-    return this.http.delete<void>(`${this.basePath}/api/import-history/${id}`);
-  }
 
   importExcel(
     moduleId: string,
@@ -88,6 +30,22 @@ export class ImportHistoryService {
           incidentDate: row['incident_date'],
           behaviourType: row['behaviour_type'],
           notes: row['notes'] || null,
+          incidentTimeText: row['incident_time'] || null,
+          subject: row['subject'] || null,
+          academicYear: row['academic_year'] || null,
+          term: row['term'] || null,
+          recordedByEmail: row['recorded_by_email'] || null,
+          recordedByTitle: row['recorded_by_title'] || null,
+          decision: row['decision'] || null,
+          conductDeductionLevel: row['conduct_deduction_level'] || null,
+          occurrenceCount: row['occurrence_count'] ? Number(row['occurrence_count']) : null,
+          behaviourPointsDeducted: row['behaviour_points_deducted'] || null,
+          sourceRecordId: row['source_record_id'] ? Number(row['source_record_id']) : null,
+          sourceStudentName: row['student_name'] || null,
+          sourceGradeLevel: row['source_grade_level'] || null,
+          studentMatchStatus: row['student_match_status'] || null,
+          studentMatchNotes: row['student_match_notes'] || null,
+          sourceDataIssues: row['source_data_issues'] || null,
           customFields: customFieldsFor(row),
         }))
       : moduleId === 'student-projects' ? rows.map((row) => ({
@@ -131,21 +89,11 @@ export class ImportHistoryService {
           customFields: customFieldsFor(row),
         }));
 
-    return this.http
-      .post<ImportHistoryResponse>(`${this.basePath}/api/imports/${endpoint}`, {
-        fileName,
-        dataStartRow,
-        rows: mappedRows,
-      })
-      .pipe(map((record) => this.toRecord(record)));
-  }
-
-  private toRecord(record: ImportHistoryResponse): ImportRecord {
-    const module = importModules.find((candidate) => candidate.id === record.moduleId);
-    return {
-      ...record,
-      moduleTitleKey: module?.titleKey ?? record.moduleId,
-    };
+    return this.http.post<ExcelImportResult>(`${this.basePath}/api/imports/${endpoint}`, {
+      fileName,
+      dataStartRow,
+      rows: mappedRows,
+    });
   }
 
   private booleanValue(value: string | undefined): boolean {

@@ -205,7 +205,8 @@ public class DashboardController : ControllerBase
         var dataStudentIds = canvasMemberships.Select(item => item.StudentId).Distinct().ToList();
         if (!canvasOnly)
         {
-            var importedStudentIds = await scopedBehaviours.Select(item => item.StudentProfileId)
+            var importedStudentIds = await scopedBehaviours.Where(item => item.StudentProfileId.HasValue)
+                .Select(item => item.StudentProfileId!.Value)
                 .Concat(scopedProjects.Select(item => item.StudentProfileId))
                 .Concat(_userAccess.ApplyStudentScope(_context.StudentMentalHealthRecords.AsNoTracking(), item => item.Student)
                     .Select(item => item.StudentProfileId))
@@ -869,19 +870,20 @@ public class DashboardController : ControllerBase
             if (monthStart.HasValue)
                 query = query.Where(item => item.IncidentDate >= monthStart.Value && item.IncidentDate < monthEnd!.Value);
             var rows = await query
-                .Select(item => new { item.StudentProfileId, item.IncidentDate, item.BehaviourType,
+                .Select(item => new { item.StudentProfileId, item.IncidentDate, item.BehaviourType, item.ClassificationCategory,
                     item.Notes, item.RecordedByName, item.Subject })
                 .ToListAsync();
             samples.AddRange(rows
+                .Where(item => item.StudentProfileId.HasValue)
                 .Where(item => metricId switch
                 {
                     "concern-behaviour-records" =>
-                        StudentClassificationService.IsConcerningBehaviourType(item.BehaviourType),
+                        StudentClassificationService.IsConcerningBehaviourType(item.BehaviourType, item.ClassificationCategory),
                     "commendation-records" =>
-                        StudentClassificationService.IsCommendationBehaviourType(item.BehaviourType),
+                        StudentClassificationService.IsCommendationBehaviourType(item.BehaviourType, item.ClassificationCategory),
                     _ => true
                 })
-                .Select(item => new MetricSample(item.StudentProfileId, item.IncidentDate, 1.0,
+                .Select(item => new MetricSample(item.StudentProfileId!.Value, item.IncidentDate, 1.0,
                     DetailFields(("Loại hành vi", StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType)), ("Ghi chú", item.Notes),
                         ("Môn học", item.Subject), ("Ghi nhận bởi", item.RecordedByName)))));
         }
@@ -1292,14 +1294,14 @@ public class DashboardController : ControllerBase
     {
         var query = _context.StudentBehaviours.AsNoTracking().AsQueryable();
         query = _userAccess.ApplyStudentScope(query, item => item.Student);
-        if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
-        if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
+        if (HasFilter(campus)) query = query.Where(item => item.Student != null && item.Student.Campus == campus);
+        if (HasFilter(level)) query = query.Where(item => item.Student != null && item.Student.EducationLevel == level);
         if (HasFilter(grade)) query = query.Where(item =>
-            (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
-        if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
+            item.Student != null && (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
+        if (HasFilter(homeroom)) query = query.Where(item => item.Student != null && item.Student.Homeroom == homeroom);
         if (HasFilter(program))
             query = query.Where(item => item.Program == program ||
-                (item.Program == null && item.Student.Program == program));
+                (item.Program == null && item.Student != null && item.Student.Program == program));
         if (HasFilter(subject)) query = query.Where(item => item.Subject != null &&
             item.Subject.Trim() == subject!.Trim());
         if (yearAliases.Count > 0)
@@ -1505,7 +1507,7 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(campus))
         {
-            behaviours = behaviours.Where(item => item.Student.Campus == campus);
+            behaviours = behaviours.Where(item => item.Student != null && item.Student.Campus == campus);
             projects = projects.Where(item => item.Student.Campus == campus);
             mentalHealth = mentalHealth.Where(item => item.Student.Campus == campus);
             healthVisits = healthVisits.Where(item => item.Student!.Campus == campus);
@@ -1513,7 +1515,7 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(level))
         {
-            behaviours = behaviours.Where(item => item.Student.EducationLevel == level);
+            behaviours = behaviours.Where(item => item.Student != null && item.Student.EducationLevel == level);
             projects = projects.Where(item => item.Student.EducationLevel == level);
             mentalHealth = mentalHealth.Where(item => item.Student.EducationLevel == level);
             healthVisits = healthVisits.Where(item => item.Student!.EducationLevel == level);
@@ -1522,7 +1524,7 @@ public class DashboardController : ControllerBase
         if (HasFilter(grade))
         {
             behaviours = behaviours.Where(item =>
-                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
+                item.Student != null && (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
             projects = projects.Where(item =>
                 (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
             mentalHealth = mentalHealth.Where(item =>
@@ -1534,7 +1536,7 @@ public class DashboardController : ControllerBase
         }
         if (HasFilter(homeroom))
         {
-            behaviours = behaviours.Where(item => item.Student.Homeroom == homeroom);
+            behaviours = behaviours.Where(item => item.Student != null && item.Student.Homeroom == homeroom);
             projects = projects.Where(item => item.Student.Homeroom == homeroom);
             mentalHealth = mentalHealth.Where(item => item.Student.Homeroom == homeroom);
             healthVisits = healthVisits.Where(item => item.Student!.Homeroom == homeroom);
@@ -1543,7 +1545,7 @@ public class DashboardController : ControllerBase
         if (HasFilter(program))
         {
             behaviours = behaviours.Where(item => item.Program == program ||
-                (item.Program == null && item.Student.Program == program));
+                (item.Program == null && item.Student != null && item.Student.Program == program));
             projects = projects.Where(item => item.Program == program ||
                 (item.Program == null && item.Student.Program == program));
             mentalHealth = mentalHealth.Where(item => item.Student.Program == program);
@@ -1637,7 +1639,7 @@ public class DashboardController : ControllerBase
         }
 
         var behaviourRows = needsBehaviourMetrics
-            ? await behaviours.Select(item => new { Date = item.IncidentDate, Type = item.BehaviourType })
+            ? await behaviours.Select(item => new { Date = item.IncidentDate, Type = item.BehaviourType, item.ClassificationCategory })
                 .ToListAsync(cancellationToken)
             : [];
         var projectRows = needsProjectMetrics
@@ -1661,10 +1663,10 @@ public class DashboardController : ControllerBase
             CountMetric("behaviour-records", "Behaviour records", "Compliance", "StudentBehaviours",
                 behaviourRows.Select(item => item.Date)),
             CountMetric("concern-behaviour-records", "Concerning behaviour records", "Compliance", "StudentBehaviours",
-                behaviourRows.Where(item => StudentClassificationService.IsConcerningBehaviourType(item.Type))
+                behaviourRows.Where(item => StudentClassificationService.IsConcerningBehaviourType(item.Type, item.ClassificationCategory))
                     .Select(item => item.Date)),
             CountMetric("commendation-records", "Commendation records", "Achievement", "StudentBehaviours",
-                behaviourRows.Where(item => StudentClassificationService.IsCommendationBehaviourType(item.Type))
+                behaviourRows.Where(item => StudentClassificationService.IsCommendationBehaviourType(item.Type, item.ClassificationCategory))
                     .Select(item => item.Date)),
             CountMetric("project-records", "Student projects", "Achievement", "StudentProjects",
                 projectRows.Select(item => item.Date)),
@@ -2411,6 +2413,33 @@ public class DashboardController : ControllerBase
             _context.StudentMentalHealthRecords.AsNoTracking(), item => item.Student);
         var busAttendance = _userAccess.ApplyStudentScope(
             _context.StudentBusAttendanceRecords.AsNoTracking(), item => item.Student);
+        var behaviourDates = new List<DateTime>();
+        var behavioursLast30Days = 0;
+        if (access.CanAccessAcademic)
+        {
+            // Count from the behaviour table itself instead of the Student.Behaviours
+            // navigation collection. Imported rows may intentionally remain unmatched while
+            // staff audit them, and those rows still appear on the behaviour records page.
+            var yearAliases = await AcademicYearAliases(period.Year);
+            var scopedBehaviourQuery = _userAccess.ApplyStudentScope(
+                _context.StudentBehaviours.AsNoTracking(), item => item.Student);
+            var recentSince = now.AddDays(-30);
+            behavioursLast30Days = await scopedBehaviourQuery.CountAsync(
+                item => item.IncidentDate >= recentSince);
+            var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(period.Year);
+            var behaviourQuery = scopedBehaviourQuery
+                .WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                    item => item.AcademicYear == null && item.IncidentDate >= yearStart &&
+                        item.IncidentDate < yearEnd);
+            if (period.Term != "all")
+            {
+                var termAliases = await TermAliases(period.Term);
+                behaviourQuery = behaviourQuery.WhereMatchesAny(item => item.Term, termAliases,
+                    item => item.Term == null && item.IncidentDate >= period.Start &&
+                        item.IncidentDate < period.End);
+            }
+            behaviourDates = await behaviourQuery.Select(item => item.IncidentDate).ToListAsync();
+        }
 
         var overview = new DashboardOverviewDto
         {
@@ -2421,6 +2450,8 @@ public class DashboardController : ControllerBase
             CanAccessAcademic = access.CanAccessAcademic,
             CanAccessHealth = access.CanAccessHealth,
             CanAccessBus = access.CanAccessBus,
+            TotalBehaviours = behaviourDates.Count,
+            BehavioursLast30Days = behavioursLast30Days,
             TotalProjects = access.CanAccessAcademic
                 ? students.Sum(student => student.Projects.Count(project => InPeriod(project, period))) : 0,
             ActiveProjects = access.CanAccessAcademic
@@ -2434,7 +2465,6 @@ public class DashboardController : ControllerBase
                 ? await busAttendance.CountAsync(item => item.AttendanceDate >= period.Start && item.AttendanceDate < period.End) : 0
         };
 
-        var since = now.AddDays(-30);
         var gradeBuckets = new Dictionary<string, DashboardGradeDto>();
         var gradeCanvasScores = new Dictionary<string, List<decimal>>();
         var classBuckets = new Dictionary<string, DashboardClassDto>();
@@ -2479,20 +2509,6 @@ public class DashboardController : ControllerBase
             if (access.CanAccessAcademic && risk.Level != "None")
             {
                 attentionCandidates.Add((student, risk.Level, concernCount + riskBusViolationCount));
-            }
-
-            foreach (var behaviour in access.CanAccessAcademic ? student.Behaviours : [])
-            {
-                // Behaviour activity is scoped to the selected reporting period.
-                if (InPeriod(behaviour, period))
-                {
-                    overview.TotalBehaviours++;
-                }
-
-                if (behaviour.IncidentDate >= since)
-                {
-                    overview.BehavioursLast30Days++;
-                }
             }
 
             var resolvedGrade = student.GradeLevel ?? student.CanvasGradeLevel;
@@ -2549,7 +2565,8 @@ public class DashboardController : ControllerBase
                 bucket.Value.AverageCanvasScorePercentage = Math.Round(scores.Average(), 1);
             }
         }
-        overview.BehaviourTrend = access.CanAccessAcademic ? BuildTrend(students, period.Start, period.End, now) : [];
+        overview.BehaviourTrend = access.CanAccessAcademic
+            ? BuildTrend(behaviourDates, period.Start, period.End, now) : [];
         overview.GradeDistribution = gradeBuckets.Values
             .OrderBy(grade => grade.Grade, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -2701,7 +2718,7 @@ public class DashboardController : ControllerBase
     }
 
     private static List<DashboardTrendPointDto> BuildTrend(
-        List<StudentProfile> students, DateTime start, DateTime end, DateTime now)
+        IEnumerable<DateTime> behaviourDates, DateTime start, DateTime end, DateTime now)
     {
         var points = new List<DashboardTrendPointDto>();
         var index = new Dictionary<(int Year, int Month), DashboardTrendPointDto>();
@@ -2717,9 +2734,9 @@ public class DashboardController : ControllerBase
             cursor = cursor.AddMonths(1);
         }
 
-        foreach (var behaviour in students.SelectMany(student => student.Behaviours))
+        foreach (var incidentDate in behaviourDates)
         {
-            if (index.TryGetValue((behaviour.IncidentDate.Year, behaviour.IncidentDate.Month), out var point))
+            if (index.TryGetValue((incidentDate.Year, incidentDate.Month), out var point))
             {
                 point.Total++;
             }

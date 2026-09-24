@@ -26,6 +26,22 @@ export interface SaveImportModuleField {
   fieldKey?: string;
 }
 
+export interface StudentRecordFieldOption {
+  id: number;
+  moduleId: string;
+  fieldKey: string;
+  value: string;
+  optionGroup?: 'positive' | 'concerning' | null;
+  sortOrder: number;
+}
+
+export interface SaveStudentRecordFieldOption {
+  fieldKey: string;
+  value: string;
+  optionGroup?: 'positive' | 'concerning' | null;
+  sortOrder: number;
+}
+
 export const CUSTOM_FIELD_TYPES: CustomFieldType[] = [
   'text', 'textarea', 'number', 'date', 'select', 'checkbox',
 ];
@@ -56,5 +72,25 @@ export class ImportModuleFieldsService {
 
   remove(moduleId: string, id: number): Observable<void> {
     return this.http.delete<void>(`${this.url(moduleId)}/${id}`);
+  }
+
+  listStandardOptions(moduleId: string): Observable<StudentRecordFieldOption[]> {
+    return this.http.get<StudentRecordFieldOption[]>(`${this.basePath}/api/imports/modules/${moduleId}/field-options`);
+  }
+
+  createStandardOption(moduleId: string, option: SaveStudentRecordFieldOption): Observable<StudentRecordFieldOption> {
+    return this.http.post<StudentRecordFieldOption>(
+      `${this.basePath}/api/imports/modules/${moduleId}/field-options`, option,
+    );
+  }
+
+  updateStandardOption(moduleId: string, id: number, option: SaveStudentRecordFieldOption): Observable<StudentRecordFieldOption> {
+    return this.http.put<StudentRecordFieldOption>(
+      `${this.basePath}/api/imports/modules/${moduleId}/field-options/${id}`, option,
+    );
+  }
+
+  removeStandardOption(moduleId: string, id: number): Observable<void> {
+    return this.http.delete<void>(`${this.basePath}/api/imports/modules/${moduleId}/field-options/${id}`);
   }
 }

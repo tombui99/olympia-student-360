@@ -30,19 +30,6 @@ export const importModuleCategories: ImportModuleCategory[] = [
   },
 ];
 
-export type ImportRecord = {
-  id: number;
-  moduleId: string;
-  moduleTitleKey: string;
-  fileName: string;
-  importedAt: string;
-  importedBy: string;
-  importedByName: string;
-  status: 'Valid' | 'Rejected';
-  validRows: number;
-  invalidRows: number;
-};
-
 export type ValidationResult = {
   status: 'Valid' | 'Rejected';
   errors: string[];
@@ -56,7 +43,13 @@ export const importModules: ImportModule[] = [
     category: 'student-development',
     titleKey: 'imports.modules.behaviours.title',
     descriptionKey: 'imports.modules.behaviours.description',
-    headers: ['student_id', 'student_name', 'incident_date', 'behaviour_type', 'notes'],
+    headers: [
+      'student_id', 'student_name', 'incident_date', 'incident_time', 'behaviour_type', 'notes',
+      'subject', 'academic_year', 'term', 'recorded_by_email', 'recorded_by_title', 'decision',
+      'conduct_deduction_level', 'occurrence_count', 'behaviour_points_deducted',
+      'source_grade_level', 'student_match_status', 'student_match_notes', 'source_data_issues',
+      'source_record_id',
+    ],
     requiredHeaders: ['student_id', 'student_name', 'incident_date', 'behaviour_type'],
   },
   {

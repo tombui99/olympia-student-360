@@ -97,6 +97,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
 builder.Services.AddScoped<CanvasReportingPeriodService>();
 builder.Services.AddScoped<UserAccessService>();
+builder.Services.AddScoped<StudentRecordFieldOptionService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

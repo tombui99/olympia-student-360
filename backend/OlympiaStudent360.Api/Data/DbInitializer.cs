@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 
 namespace OlympiaStudent360.Api.Data;
 
@@ -15,6 +16,7 @@ public static class DbInitializer
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DbInitializer");
 
         await context.Database.MigrateAsync();
+        await SeedStudentRecordFieldOptions(context);
 
         await RenameRole("Principal", "SchoolAdministration", userManager, roleManager, logger);
 
@@ -61,6 +63,74 @@ public static class DbInitializer
 
         var errors = string.Join("; ", result.Errors.Select(error => error.Description));
         logger.LogWarning("Default admin user was not seeded: {Errors}", errors);
+    }
+
+    private static async Task SeedStudentRecordFieldOptions(AppDbContext context)
+    {
+        var additions = new List<StudentRecordFieldOption>();
+
+        if (!await context.StudentRecordFieldOptions.AnyAsync(item =>
+                item.ModuleId == StudentRecordFieldOptionService.BehaviourModule &&
+                item.FieldKey == StudentRecordFieldOptionService.BehaviourTypeField))
+        {
+            var sortOrder = 0;
+            additions.AddRange(StudentClassificationService.PositiveBehaviourTypes.Select(value =>
+                new StudentRecordFieldOption
+                {
+                    ModuleId = StudentRecordFieldOptionService.BehaviourModule,
+                    FieldKey = StudentRecordFieldOptionService.BehaviourTypeField,
+                    Value = value,
+                    OptionGroup = "positive",
+                    SortOrder = sortOrder++
+                }));
+            additions.AddRange(StudentClassificationService.ConcerningBehaviourTypes.Select(value =>
+                new StudentRecordFieldOption
+                {
+                    ModuleId = StudentRecordFieldOptionService.BehaviourModule,
+                    FieldKey = StudentRecordFieldOptionService.BehaviourTypeField,
+                    Value = value,
+                    OptionGroup = "concerning",
+                    SortOrder = sortOrder++
+                }));
+        }
+
+        AddProjectOptionsIfMissing(
+            await context.StudentRecordFieldOptions.AnyAsync(item =>
+                item.ModuleId == StudentRecordFieldOptionService.ProjectModule &&
+                item.FieldKey == StudentRecordFieldOptionService.ProjectSubjectField),
+            StudentRecordFieldOptionService.ProjectSubjectField,
+            StudentDataEntryOptions.ProjectSubjects,
+            additions);
+        AddProjectOptionsIfMissing(
+            await context.StudentRecordFieldOptions.AnyAsync(item =>
+                item.ModuleId == StudentRecordFieldOptionService.ProjectModule &&
+                item.FieldKey == StudentRecordFieldOptionService.ProjectStatusField),
+            StudentRecordFieldOptionService.ProjectStatusField,
+            StudentDataEntryOptions.ProjectStatuses,
+            additions);
+
+        if (additions.Count == 0) return;
+        context.StudentRecordFieldOptions.AddRange(additions);
+        await context.SaveChangesAsync();
+    }
+
+    private static void AddProjectOptionsIfMissing(
+        bool alreadyConfigured,
+        string fieldKey,
+        IReadOnlyList<string> values,
+        ICollection<StudentRecordFieldOption> additions)
+    {
+        if (alreadyConfigured) return;
+        for (var index = 0; index < values.Count; index++)
+        {
+            additions.Add(new StudentRecordFieldOption
+            {
+                ModuleId = StudentRecordFieldOptionService.ProjectModule,
+                FieldKey = fieldKey,
+                Value = values[index],
+                SortOrder = index
+            });
+        }
     }
 
     private static async Task RemoveUnsupportedRole(

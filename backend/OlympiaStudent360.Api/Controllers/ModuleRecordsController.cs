@@ -11,7 +11,10 @@ namespace OlympiaStudent360.Api.Controllers;
 [Route("api/module-records")]
 [ApiController]
 [Authorize]
-public sealed class ModuleRecordsController(AppDbContext context, UserAccessService userAccess) : ControllerBase
+public sealed class ModuleRecordsController(
+    AppDbContext context,
+    UserAccessService userAccess,
+    StudentRecordFieldOptionService recordFieldOptions) : ControllerBase
 {
     [HttpGet("{moduleId}")]
     public async Task<ActionResult<ModuleRecordsPageDto>> List(
@@ -27,9 +30,7 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
         pageSize = Math.Clamp(pageSize, 1, 100);
         var searchTerm = Clean(search);
         if (searchTerm?.Length > 100) searchTerm = searchTerm[..100];
-        (DateTime Start, DateTime End)? period = string.IsNullOrWhiteSpace(academicYear)
-            ? null
-            : DashboardPeriodNormalizer.PeriodRange(academicYear, reportingTerm);
+        var period = await ResolvePeriod(academicYear, reportingTerm);
 
         return moduleId switch
         {
@@ -117,18 +118,30 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
     }
 
     private async Task<ModuleRecordsPageDto> ListBehaviours(
-        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period)
     {
         var query = context.StudentBehaviours.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
         query = ApplyClassScope(query, item => item.Student);
-        if (period.HasValue)
-            query = query.Where(item => item.IncidentDate >= period.Value.Start && item.IncidentDate < period.Value.End);
+        if (period != null)
+        {
+            query = query.WhereMatchesAny(item => item.AcademicYear, period.YearAliases,
+                item => item.AcademicYear == null &&
+                    item.IncidentDate >= period.YearStart && item.IncidentDate < period.YearEnd);
+            if (period.Term != "all")
+            {
+                query = query.WhereMatchesAny(item => item.Term, period.TermAliases,
+                    item => item.Term == null && item.IncidentDate >= period.Start && item.IncidentDate < period.End);
+            }
+        }
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
-            query = query.Where(item => EF.Functions.Like(item.Student.FullName, pattern, "!") ||
-                EF.Functions.Like(item.Student.SISUserId, pattern, "!") ||
+            query = query.Where(item => item.Student != null &&
+                    (EF.Functions.Like(item.Student.FullName, pattern, "!") ||
+                     EF.Functions.Like(item.Student.SISUserId, pattern, "!")) ||
+                item.SourceStudentName != null && EF.Functions.Like(item.SourceStudentName, pattern, "!") ||
+                item.SourceGradeLevel != null && EF.Functions.Like(item.SourceGradeLevel, pattern, "!") ||
                 EF.Functions.Like(item.BehaviourType, pattern, "!") ||
                 item.Notes != null && EF.Functions.Like(item.Notes, pattern, "!"));
         }
@@ -136,22 +149,51 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
         page = NormalizedPage(page, pageSize, total);
         var items = await query.OrderByDescending(item => item.IncidentDate).ThenByDescending(item => item.Id)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
-        return Page(items.Select(item => Record("student-behaviours", item, item.Student,
-            item.ImportHistory?.ImportedByName ?? item.RecordedByName,
-            ("incident_date", Date(item.IncidentDate)),
-            ("behaviour_type", StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType)),
-            ("notes", item.Notes))).ToList(), page, pageSize, total);
+        var records = items.Select(item =>
+        {
+            var record = Record("student-behaviours", item, item.Student,
+                item.ImportHistory?.ImportedByName ?? item.RecordedByName,
+                ("incident_date", Date(item.IncidentDate)),
+                ("behaviour_type", StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType)),
+                ("notes", item.Notes), ("academic_year", item.AcademicYear), ("term", item.Term),
+                ("incident_time", item.IncidentTimeText), ("subject", item.Subject),
+                ("recorded_by_email", item.RecordedByEmail), ("recorded_by_title", item.RecordedByTitle),
+                ("decision", item.Decision), ("conduct_deduction_level", item.ConductDeductionLevel),
+                ("occurrence_count", item.OccurrenceCount?.ToString()),
+                ("behaviour_points_deducted", item.BehaviourPointsDeducted),
+                ("source_grade_level", item.SourceGradeLevel), ("student_match_status", item.StudentMatchStatus),
+                ("student_match_notes", item.StudentMatchNotes), ("source_data_issues", item.SourceDataIssues),
+                ("source_record_id", item.SourceRecordId?.ToString()));
+            if (item.Student == null)
+            {
+                record.StudentName = item.SourceStudentName ?? string.Empty;
+                record.GradeLevel = item.SourceGradeLevel;
+            }
+            return record;
+        }).ToList();
+        return Page(records, page, pageSize, total);
     }
 
     private async Task<ModuleRecordsPageDto> ListProjects(
-        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period)
     {
         var query = context.StudentProjects.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
         query = ApplyClassScope(query, item => item.Student);
-        if (period.HasValue)
-            query = query.Where(item => (item.ActivityDate ?? item.CreatedAt) >= period.Value.Start &&
-                (item.ActivityDate ?? item.CreatedAt) < period.Value.End);
+        if (period != null)
+        {
+            query = query.WhereMatchesAny(item => item.AcademicYear, period.YearAliases,
+                item => item.AcademicYear == null &&
+                    (item.ActivityDate ?? item.CreatedAt) >= period.YearStart &&
+                    (item.ActivityDate ?? item.CreatedAt) < period.YearEnd);
+            if (period.Term != "all")
+            {
+                query = query.WhereMatchesAny(item => item.Term, period.TermAliases,
+                    item => item.Term == null &&
+                        (item.ActivityDate ?? item.CreatedAt) >= period.Start &&
+                        (item.ActivityDate ?? item.CreatedAt) < period.End);
+            }
+        }
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -173,13 +215,17 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
     }
 
     private async Task<ModuleRecordsPageDto> ListMentalHealth(
-        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period)
     {
         var query = context.StudentMentalHealthRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
         query = ApplyClassScope(query, item => item.Student);
-        if (period.HasValue)
-            query = query.Where(item => item.RecordDate >= period.Value.Start && item.RecordDate < period.Value.End);
+        if (period != null)
+        {
+            query = query.WhereMatchesAny(item => item.AcademicYear, period.YearAliases);
+            if (period.Term != "all")
+                query = query.Where(item => item.RecordDate >= period.Start && item.RecordDate < period.End);
+        }
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -201,13 +247,22 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
     }
 
     private async Task<ModuleRecordsPageDto> ListBusAttendance(
-        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period)
     {
         var query = context.StudentBusAttendanceRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
         query = ApplyClassScope(query, item => item.Student);
-        if (period.HasValue)
-            query = query.Where(item => item.AttendanceDate >= period.Value.Start && item.AttendanceDate < period.Value.End);
+        if (period != null)
+        {
+            query = query.WhereMatchesAny(item => item.AcademicYear, period.YearAliases,
+                item => item.AcademicYear == null &&
+                    item.AttendanceDate >= period.YearStart && item.AttendanceDate < period.YearEnd);
+            if (period.Term != "all")
+            {
+                query = query.WhereMatchesAny(item => item.Term, period.TermAliases,
+                    item => item.Term == null && item.AttendanceDate >= period.Start && item.AttendanceDate < period.End);
+            }
+        }
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -229,14 +284,14 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
     }
 
     private async Task<ModuleRecordsPageDto> ListHealthVisits(
-        int page, int pageSize, string? term, (DateTime Start, DateTime End)? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period)
     {
         var query = context.StudentHealthVisits.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
         query = userAccess.ApplyHomeroomScope(query,
             item => item.Student != null ? item.Student.Homeroom : item.ClassName);
-        if (period.HasValue)
-            query = query.Where(item => item.ExamTime >= period.Value.Start && item.ExamTime < period.Value.End);
+        if (period != null)
+            query = query.Where(item => item.ExamTime >= period.Start && item.ExamTime < period.End);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -272,12 +327,34 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
         var item = await context.StudentBehaviours.FindAsync(id);
         if (item == null) return "not-found";
         if (!TryDate(values, "incident_date", out var date)) return "incident_date is invalid.";
-        var type = Required(values, "behaviour_type");
-        if (type == null || !StudentClassificationService.TryCanonicalBehaviourType(type, out var canonical))
+        var behaviourOption = await recordFieldOptions.FindAsync(
+            StudentRecordFieldOptionService.BehaviourModule,
+            StudentRecordFieldOptionService.BehaviourTypeField,
+            Required(values, "behaviour_type"));
+        if (behaviourOption == null)
             return "behaviour_type is invalid.";
         var custom = await CustomFields("student-behaviours", values);
         if (custom.Error != null) return custom.Error;
-        item.IncidentDate = date; item.BehaviourType = canonical; item.Notes = Clean(Value(values, "notes"));
+        if (!TryNullableInt(values, "occurrence_count", out var occurrenceCount))
+            return "occurrence_count is invalid.";
+        if (!TryNullableInt(values, "source_record_id", out var sourceRecordId))
+            return "source_record_id is invalid.";
+        item.IncidentDate = date; item.BehaviourType = behaviourOption.Value;
+        item.ClassificationCategory = StudentRecordFieldOptionService.CategoryName(behaviourOption.OptionGroup);
+        item.Notes = Clean(Value(values, "notes"));
+        item.AcademicYear = Clean(Value(values, "academic_year")); item.Term = Clean(Value(values, "term"));
+        item.IncidentTimeText = Clean(Value(values, "incident_time")); item.Subject = Clean(Value(values, "subject"));
+        item.RecordedByEmail = Clean(Value(values, "recorded_by_email"));
+        item.RecordedByTitle = Clean(Value(values, "recorded_by_title"));
+        item.Decision = Clean(Value(values, "decision"));
+        item.ConductDeductionLevel = Clean(Value(values, "conduct_deduction_level"));
+        item.OccurrenceCount = occurrenceCount;
+        item.BehaviourPointsDeducted = Clean(Value(values, "behaviour_points_deducted"));
+        item.SourceGradeLevel = Clean(Value(values, "source_grade_level"));
+        item.StudentMatchStatus = Clean(Value(values, "student_match_status"));
+        item.StudentMatchNotes = Clean(Value(values, "student_match_notes"));
+        item.SourceDataIssues = Clean(Value(values, "source_data_issues"));
+        item.SourceRecordId = sourceRecordId;
         item.CustomFieldsJson = custom.Json; item.UpdatedAt = DateTime.UtcNow;
         return null;
     }
@@ -287,8 +364,14 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
         var item = await context.StudentProjects.FindAsync(id);
         if (item == null) return "not-found";
         var name = Required(values, "project_name");
-        var subject = Canonical(StudentDataEntryOptions.ProjectSubjects, Required(values, "subject"));
-        var status = Canonical(StudentDataEntryOptions.ProjectStatuses, Required(values, "status"));
+        var subject = await recordFieldOptions.CanonicalValueAsync(
+            StudentRecordFieldOptionService.ProjectModule,
+            StudentRecordFieldOptionService.ProjectSubjectField,
+            Required(values, "subject"));
+        var status = await recordFieldOptions.CanonicalValueAsync(
+            StudentRecordFieldOptionService.ProjectModule,
+            StudentRecordFieldOptionService.ProjectStatusField,
+            Required(values, "status"));
         if (name == null || subject == null || status == null) return "project_name, subject, or status is invalid.";
         var custom = await CustomFields("student-projects", values);
         if (custom.Error != null) return custom.Error;
@@ -353,6 +436,55 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
         return null;
     }
 
+    private async Task<ModuleRecordPeriod?> ResolvePeriod(string? academicYear, string? reportingTerm)
+    {
+        if (string.IsNullOrWhiteSpace(academicYear)) return null;
+
+        var year = DashboardPeriodNormalizer.AcademicYear(academicYear);
+        var term = string.IsNullOrWhiteSpace(reportingTerm)
+            ? "all"
+            : DashboardPeriodNormalizer.Term(reportingTerm);
+        if (term is not ("hk1" or "hk2")) term = "all";
+
+        var yearValues = await context.AcademicPeriods.AsNoTracking().Select(item => item.AcademicYear)
+            .Concat(context.StudentBehaviours.Where(item => item.AcademicYear != null).Select(item => item.AcademicYear!))
+            .Concat(context.StudentProjects.Where(item => item.AcademicYear != null).Select(item => item.AcademicYear!))
+            .Concat(context.StudentMentalHealthRecords.Select(item => item.AcademicYear))
+            .Concat(context.StudentBusAttendanceRecords.Where(item => item.AcademicYear != null).Select(item => item.AcademicYear!))
+            .Distinct()
+            .ToListAsync();
+        var yearAliases = yearValues
+            .Where(value => DashboardPeriodNormalizer.AcademicYear(value)
+                .Equals(year, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (yearAliases.Count == 0) yearAliases.Add(academicYear.Trim());
+        if (!yearAliases.Contains(year, StringComparer.OrdinalIgnoreCase)) yearAliases.Add(year);
+
+        var termAliases = new List<string>();
+        if (term != "all")
+        {
+            var termValues = await context.AcademicPeriods.AsNoTracking().Select(item => item.Term)
+                .Concat(context.StudentBehaviours.Where(item => item.Term != null).Select(item => item.Term!))
+                .Concat(context.StudentProjects.Where(item => item.Term != null).Select(item => item.Term!))
+                .Concat(context.StudentBusAttendanceRecords.Where(item => item.Term != null).Select(item => item.Term!))
+                .Distinct()
+                .ToListAsync();
+            termAliases = termValues
+                .Where(value => DashboardPeriodNormalizer.Term(value)
+                    .Equals(term, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (termAliases.Count == 0) termAliases.Add(reportingTerm!.Trim());
+            if (!termAliases.Contains(term, StringComparer.OrdinalIgnoreCase)) termAliases.Add(term);
+        }
+
+        var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(year);
+        var (start, end) = DashboardPeriodNormalizer.PeriodRange(year, term);
+        return new ModuleRecordPeriod(
+            yearAliases.ToArray(), termAliases.ToArray(), term, yearStart, yearEnd, start, end);
+    }
+
     private async Task<(string? Error, string? Json)> CustomFields(
         string moduleId, IDictionary<string, string?> values)
     {
@@ -374,7 +506,7 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
         var homeroom = moduleId switch
         {
             "student-behaviours" => await context.StudentBehaviours.Where(item => item.Id == id)
-                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
+                .Select(item => item.Student != null ? item.Student.Homeroom : null).FirstOrDefaultAsync(),
             "student-projects" => await context.StudentProjects.Where(item => item.Id == id)
                 .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
             "student-mental-health" => await context.StudentMentalHealthRecords.Where(item => item.Id == id)
@@ -455,9 +587,26 @@ public sealed class ModuleRecordsController(AppDbContext context, UserAccessServ
         }
         return false;
     }
+    private static bool TryNullableInt(IDictionary<string, string?> values, string key, out int? number)
+    {
+        var value = Clean(Value(values, key));
+        if (value == null) { number = null; return true; }
+        if (int.TryParse(value, out var parsed)) { number = parsed; return true; }
+        number = null;
+        return false;
+    }
     private static bool Checkbox(string? value) => value?.Trim().ToLowerInvariant() is "true" or "1" or "yes" or "y" or "on" or "có";
     private static string EscapeLikePattern(string value) =>
         value.Replace("!", "!!", StringComparison.Ordinal)
             .Replace("%", "!%", StringComparison.Ordinal)
             .Replace("_", "!_", StringComparison.Ordinal);
+
+    private sealed record ModuleRecordPeriod(
+        string[] YearAliases,
+        string[] TermAliases,
+        string Term,
+        DateTime YearStart,
+        DateTime YearEnd,
+        DateTime Start,
+        DateTime End);
 }

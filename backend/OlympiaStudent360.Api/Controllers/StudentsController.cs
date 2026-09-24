@@ -22,15 +22,18 @@ public class StudentsController : ControllerBase
     private readonly AppDbContext _context;
     private readonly CanvasReportingPeriodService _canvasReportingPeriods;
     private readonly UserAccessService _userAccess;
+    private readonly StudentRecordFieldOptionService _recordFieldOptions;
 
     public StudentsController(
         AppDbContext context,
         CanvasReportingPeriodService canvasReportingPeriods,
-        UserAccessService userAccess)
+        UserAccessService userAccess,
+        StudentRecordFieldOptionService recordFieldOptions)
     {
         _context = context;
         _canvasReportingPeriods = canvasReportingPeriods;
         _userAccess = userAccess;
+        _recordFieldOptions = recordFieldOptions;
     }
 
     [HttpGet]
@@ -141,16 +144,16 @@ public class StudentsController : ControllerBase
         var pageStudentIds = pageRows.Select(student => student.Id).ToList();
         var canvasAverages = canAccessAcademic ? await CanvasAverages(pageStudentIds, canvasPeriod) : [];
         var behaviourRows = canAccessAcademic ? await _context.StudentBehaviours.AsNoTracking()
-            .Where(behaviour => pageStudentIds.Contains(behaviour.StudentProfileId))
-            .Select(behaviour => new { behaviour.StudentProfileId, behaviour.BehaviourType, behaviour.IncidentDate })
+            .Where(behaviour => behaviour.StudentProfileId.HasValue && pageStudentIds.Contains(behaviour.StudentProfileId.Value))
+            .Select(behaviour => new { StudentProfileId = behaviour.StudentProfileId!.Value, behaviour.BehaviourType, behaviour.ClassificationCategory, behaviour.IncidentDate })
             .ToListAsync() : [];
         var behaviourCounts = behaviourRows.GroupBy(behaviour => behaviour.StudentProfileId)
             .ToDictionary(group => group.Key, group => new
             {
-                Positive = group.Count(behaviour => StudentClassificationService.IsCommendationBehaviourType(behaviour.BehaviourType)),
-                Concerning = group.Count(behaviour => StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType)),
+                Positive = group.Count(behaviour => StudentClassificationService.IsCommendationBehaviourType(behaviour.BehaviourType, behaviour.ClassificationCategory)),
+                Concerning = group.Count(behaviour => StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType, behaviour.ClassificationCategory)),
                 RecentConcerning = group.Count(behaviour => behaviour.IncidentDate >= riskSince
-                    && StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType))
+                    && StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType, behaviour.ClassificationCategory))
             });
 
         return Ok(new StudentsPageDto
@@ -378,6 +381,10 @@ public class StudentsController : ControllerBase
     [HttpGet("manual-entry-options")]
     public async Task<ActionResult<ManualEntryOptionsDto>> GetManualEntryOptions()
     {
+        var behaviourOptions = await _recordFieldOptions.ListAsync(
+            StudentRecordFieldOptionService.BehaviourModule,
+            StudentRecordFieldOptionService.BehaviourTypeField);
+        var projectOptions = await _recordFieldOptions.ListAsync(StudentRecordFieldOptionService.ProjectModule);
         var academicYears = await _context.AcademicPeriods.AsNoTracking()
             .Select(period => period.AcademicYear)
             .Distinct()
@@ -385,10 +392,10 @@ public class StudentsController : ControllerBase
             .ToListAsync();
         return Ok(new ManualEntryOptionsDto
         {
-            PositiveBehaviourTypes = StudentClassificationService.PositiveBehaviourTypes,
-            ConcerningBehaviourTypes = StudentClassificationService.ConcerningBehaviourTypes,
-            ProjectSubjects = StudentDataEntryOptions.ProjectSubjects,
-            ProjectStatuses = StudentDataEntryOptions.ProjectStatuses,
+            PositiveBehaviourTypes = behaviourOptions.Where(item => item.OptionGroup == "positive").Select(item => item.Value).ToList(),
+            ConcerningBehaviourTypes = behaviourOptions.Where(item => item.OptionGroup == "concerning").Select(item => item.Value).ToList(),
+            ProjectSubjects = projectOptions.Where(item => item.FieldKey == StudentRecordFieldOptionService.ProjectSubjectField).Select(item => item.Value).ToList(),
+            ProjectStatuses = projectOptions.Where(item => item.FieldKey == StudentRecordFieldOptionService.ProjectStatusField).Select(item => item.Value).ToList(),
             AcademicYears = academicYears,
             MentalHealthConcernTypes = StudentDataEntryOptions.MentalHealthConcernTypes,
             MentalHealthRiskLevels = StudentDataEntryOptions.MentalHealthRiskLevels,
@@ -442,7 +449,11 @@ public class StudentsController : ControllerBase
             return BadRequest(new { Message = "The selected student ID is invalid." });
         }
 
-        if (!StudentClassificationService.TryCanonicalBehaviourType(model.BehaviourType, out var behaviourType))
+        var behaviourOption = await _recordFieldOptions.FindAsync(
+            StudentRecordFieldOptionService.BehaviourModule,
+            StudentRecordFieldOptionService.BehaviourTypeField,
+            model.BehaviourType);
+        if (behaviourOption == null)
         {
             return BadRequest(new { Message = "The selected behaviour type is invalid." });
         }
@@ -458,11 +469,16 @@ public class StudentsController : ControllerBase
         {
             StudentProfileId = student.Id,
             IncidentDate = DateTime.SpecifyKind(model.IncidentDate!.Value, DateTimeKind.Utc),
-            BehaviourType = behaviourType,
+            BehaviourType = behaviourOption.Value,
+            ClassificationCategory = StudentRecordFieldOptionService.CategoryName(behaviourOption.OptionGroup),
             Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim(),
             RecordedByName = recordedByName,
+            RecordedByEmail = Clean(model.RecordedByEmail), RecordedByTitle = Clean(model.RecordedByTitle),
             AcademicYear = Clean(model.AcademicYear), Term = Clean(model.Term),
             MeasurementCycle = Clean(model.MeasurementCycle), Program = Clean(model.Program), Subject = Clean(model.Subject),
+            IncidentTimeText = Clean(model.IncidentTime), Decision = Clean(model.Decision),
+            ConductDeductionLevel = Clean(model.ConductDeductionLevel), OccurrenceCount = model.OccurrenceCount,
+            BehaviourPointsDeducted = Clean(model.BehaviourPointsDeducted),
             CustomFieldsJson = customJson
         };
 
@@ -477,11 +493,19 @@ public class StudentsController : ControllerBase
             Id = behaviour.Id,
             IncidentDate = behaviour.IncidentDate,
             BehaviourType = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(behaviour.BehaviourType),
-            Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType),
+            Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType, behaviour.ClassificationCategory),
             Notes = behaviour.Notes,
             RecordedByName = behaviour.RecordedByName,
+            RecordedByEmail = behaviour.RecordedByEmail,
+            RecordedByTitle = behaviour.RecordedByTitle,
             AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
-            MeasurementCycle = behaviour.MeasurementCycle, Program = behaviour.Program, Subject = behaviour.Subject
+            MeasurementCycle = behaviour.MeasurementCycle, Program = behaviour.Program, Subject = behaviour.Subject,
+            IncidentTimeText = behaviour.IncidentTimeText, Decision = behaviour.Decision,
+            ConductDeductionLevel = behaviour.ConductDeductionLevel, OccurrenceCount = behaviour.OccurrenceCount,
+            BehaviourPointsDeducted = behaviour.BehaviourPointsDeducted,
+            SourceRecordId = behaviour.SourceRecordId, SourceStudentName = behaviour.SourceStudentName,
+            SourceGradeLevel = behaviour.SourceGradeLevel, StudentMatchStatus = behaviour.StudentMatchStatus,
+            StudentMatchNotes = behaviour.StudentMatchNotes, SourceDataIssues = behaviour.SourceDataIssues
         });
     }
 
@@ -496,10 +520,14 @@ public class StudentsController : ControllerBase
             return BadRequest(new { Message = "The selected student ID is invalid." });
         }
 
-        var subject = StudentDataEntryOptions.ProjectSubjects.FirstOrDefault(value =>
-            string.Equals(value, model.Subject, StringComparison.OrdinalIgnoreCase));
-        var status = StudentDataEntryOptions.ProjectStatuses.FirstOrDefault(value =>
-            string.Equals(value, model.Status, StringComparison.OrdinalIgnoreCase));
+        var subject = await _recordFieldOptions.CanonicalValueAsync(
+            StudentRecordFieldOptionService.ProjectModule,
+            StudentRecordFieldOptionService.ProjectSubjectField,
+            model.Subject);
+        var status = await _recordFieldOptions.CanonicalValueAsync(
+            StudentRecordFieldOptionService.ProjectModule,
+            StudentRecordFieldOptionService.ProjectStatusField,
+            model.Status);
         if (subject == null || status == null)
         {
             return BadRequest(new { Message = "The selected project subject or status is invalid." });
@@ -792,11 +820,19 @@ public class StudentsController : ControllerBase
                     Id = behaviour.Id,
                     IncidentDate = behaviour.IncidentDate,
                     BehaviourType = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(behaviour.BehaviourType),
-                    Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType),
+                    Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType, behaviour.ClassificationCategory),
                     Notes = behaviour.Notes,
                     RecordedByName = behaviour.RecordedByName,
+                    RecordedByEmail = behaviour.RecordedByEmail,
+                    RecordedByTitle = behaviour.RecordedByTitle,
                     AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
                     MeasurementCycle = behaviour.MeasurementCycle, Program = behaviour.Program, Subject = behaviour.Subject,
+                    IncidentTimeText = behaviour.IncidentTimeText, Decision = behaviour.Decision,
+                    ConductDeductionLevel = behaviour.ConductDeductionLevel, OccurrenceCount = behaviour.OccurrenceCount,
+                    BehaviourPointsDeducted = behaviour.BehaviourPointsDeducted,
+                    SourceRecordId = behaviour.SourceRecordId, SourceStudentName = behaviour.SourceStudentName,
+                    SourceGradeLevel = behaviour.SourceGradeLevel, StudentMatchStatus = behaviour.StudentMatchStatus,
+                    StudentMatchNotes = behaviour.StudentMatchNotes, SourceDataIssues = behaviour.SourceDataIssues,
                     CustomFields = ImportCustomFieldService.Parse(behaviour.CustomFieldsJson)
                 })
                 .ToList(),

@@ -201,17 +201,33 @@ public class StudentBehaviour : BaseEntity
 {
     public int? ImportHistoryId { get; set; }
     public ImportHistory? ImportHistory { get; set; }
-    public int StudentProfileId { get; set; }
-    public StudentProfile Student { get; set; } = default!;
+    public int? StudentProfileId { get; set; }
+    public StudentProfile? Student { get; set; }
     public DateTime IncidentDate { get; set; }
     public string BehaviourType { get; set; } = default!;
+    public string? ClassificationCategory { get; set; }
     public string? Notes { get; set; }
     public string? RecordedByName { get; set; }
+    public string? RecordedByEmail { get; set; }
+    public string? RecordedByTitle { get; set; }
     public string? AcademicYear { get; set; }
     public string? Term { get; set; }
     public string? MeasurementCycle { get; set; }
     public string? Program { get; set; }
     public string? Subject { get; set; }
+    public string? IncidentTimeText { get; set; }
+    public string? Decision { get; set; }
+    public string? ConductDeductionLevel { get; set; }
+    public int? OccurrenceCount { get; set; }
+    public string? BehaviourPointsDeducted { get; set; }
+    public int? SourceRecordId { get; set; }
+    public int? SourceRowNumber { get; set; }
+    public string? SourceFileName { get; set; }
+    public string? SourceStudentName { get; set; }
+    public string? SourceGradeLevel { get; set; }
+    public string? StudentMatchStatus { get; set; }
+    public string? StudentMatchNotes { get; set; }
+    public string? SourceDataIssues { get; set; }
     /// <summary>Values for admin-defined custom fields, keyed by field key. JSON object.</summary>
     public string? CustomFieldsJson { get; set; }
 }
@@ -520,6 +536,17 @@ public class ImportModuleField : BaseEntity
     public string? OptionsJson { get; set; }
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
+}
+
+/// <summary>A configurable option for a built-in dropdown on a student record module.</summary>
+public class StudentRecordFieldOption : BaseEntity
+{
+    public string ModuleId { get; set; } = default!;
+    public string FieldKey { get; set; } = default!;
+    public string Value { get; set; } = default!;
+    /// <summary>Optional semantic group, currently positive or concerning for behaviour types.</summary>
+    public string? OptionGroup { get; set; }
+    public int SortOrder { get; set; }
 }
 
 public class ImportHistory : BaseEntity

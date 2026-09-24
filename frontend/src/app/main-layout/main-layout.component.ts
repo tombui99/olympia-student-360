@@ -4,7 +4,6 @@ import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import {
   faClockRotateLeft,
   faTableColumns,
-  faFileExcel,
   faGaugeHigh,
   faBars,
   faRightFromBracket,
@@ -391,7 +390,6 @@ export class MainLayoutComponent {
       items: [
         { path: '/reports', labelKey: 'nav.reports', icon: faChartColumn },
         { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns, access: 'workspace' },
-        { path: '/imports', labelKey: 'nav.imports', icon: faFileExcel },
         { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList, access: 'academic' },
       ],
     },

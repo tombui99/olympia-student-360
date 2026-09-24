@@ -1588,10 +1588,22 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("varchar(20)");
 
+                    b.Property<string>("BehaviourPointsDeducted")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
                     b.Property<string>("BehaviourType")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("ClassificationCategory")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("ConductDeductionLevel")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -1599,29 +1611,78 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<string>("CustomFieldsJson")
                         .HasColumnType("longtext");
 
+                    b.Property<string>("Decision")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.Property<int?>("ImportHistoryId")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("IncidentDate")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("IncidentTimeText")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
                     b.Property<string>("MeasurementCycle")
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
                     b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar(4000)");
+
+                    b.Property<int?>("OccurrenceCount")
+                        .HasColumnType("int");
 
                     b.Property<string>("Program")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<string>("RecordedByEmail")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.Property<string>("RecordedByName")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<int>("StudentProfileId")
+                    b.Property<string>("RecordedByTitle")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("SourceDataIssues")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("SourceFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("SourceGradeLevel")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("SourceRecordId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SourceRowNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceStudentName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("StudentMatchNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("StudentMatchStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("StudentProfileId")
                         .HasColumnType("int");
 
                     b.Property<string>("Subject")
@@ -1642,6 +1703,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("IncidentDate");
 
                     b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("SourceFileName", "SourceRecordId")
+                        .IsUnique();
 
                     b.ToTable("StudentBehaviours");
                 });
@@ -2117,6 +2181,50 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("StudentProjects");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentRecordFieldOption", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("FieldKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ModuleId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("OptionGroup")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ModuleId", "FieldKey", "SortOrder");
+
+                    b.HasIndex("ModuleId", "FieldKey", "Value")
+                        .IsUnique();
+
+                    b.ToTable("StudentRecordFieldOptions");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherAccessGrant", b =>
                 {
                     b.Property<int>("Id")
@@ -2465,8 +2573,7 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
                         .WithMany("Behaviours")
                         .HasForeignKey("StudentProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("ImportHistory");
 

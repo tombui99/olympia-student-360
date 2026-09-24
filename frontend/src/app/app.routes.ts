@@ -134,13 +134,6 @@ export const routes: Routes = [
           import('./reports/static-reports.component').then((m) => m.StaticReportsComponent),
       },
       {
-        path: 'imports',
-        loadComponent: () =>
-          import('./imports/manual-excel-import.component').then(
-            (m) => m.ManualExcelImportComponent,
-          ),
-      },
-      {
         path: 'forms/new',
         loadComponent: () => import('./custom-forms/form-builder.component').then((m) => m.FormBuilderComponent),
         canActivate: [formManagerGuard],

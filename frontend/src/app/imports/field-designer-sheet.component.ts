@@ -8,6 +8,7 @@ import {
   CustomFieldType,
   ImportModuleField,
   ImportModuleFieldsService,
+  StudentRecordFieldOption,
 } from './import-module-fields.service';
 
 @Component({
@@ -45,6 +46,96 @@ import {
       </header>
 
       <div class="flex-1 space-y-6 overflow-y-auto px-6 py-6" (scroll)="closeFieldTypeMenu()">
+        @if (supportsStandardOptions()) {
+          <section>
+            <h3 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">
+              {{ languageService.t('imports.designer.standardOptions') }}
+            </h3>
+            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('imports.designer.standardOptionsHint') }}</p>
+
+            <div class="mt-3 space-y-4">
+              @for (field of standardOptionFields(); track field.key) {
+                <div class="rounded-lg border border-[#ebe6ef] bg-white p-4">
+                  <h4 class="text-sm font-semibold text-[#32124f]">{{ languageService.t(field.labelKey) }}</h4>
+                  @if (standardOptionsLoading()) {
+                    <p class="mt-2 text-sm text-[#7c7284]">{{ languageService.t('imports.manual.loading') }}</p>
+                  } @else {
+                    <ul class="mt-3 space-y-2">
+                      @for (option of standardOptionsFor(field.key); track option.id) {
+                        <li class="flex items-start justify-between gap-3 rounded-md bg-[#faf9f6] px-3 py-2.5">
+                          <div class="min-w-0">
+                            <p class="break-words text-sm font-medium text-[#34243d]">{{ option.value }}</p>
+                            @if (option.optionGroup) {
+                              <span class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                [class]="option.optionGroup === 'concerning' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'">
+                                {{ languageService.t('imports.designer.group.' + option.optionGroup) }}
+                              </span>
+                            }
+                          </div>
+                          <div class="flex shrink-0 gap-1">
+                            <button class="rounded-md border border-[#d8d0df] px-2.5 py-1 text-xs font-semibold text-[#32124f] hover:bg-white" type="button" (click)="startStandardOptionEdit(option)">
+                              {{ languageService.t('imports.designer.edit') }}
+                            </button>
+                            <button class="rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50" type="button" (click)="deleteStandardOption(option)">
+                              {{ languageService.t('imports.designer.delete') }}
+                            </button>
+                          </div>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="mt-4 rounded-lg border border-[#ebe6ef] bg-[#faf9f6] p-4">
+              <h4 class="text-sm font-semibold text-[#32124f]">
+                {{ languageService.t(standardOptionEditingId() ? 'imports.designer.editOption' : 'imports.designer.addOption') }}
+              </h4>
+              <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                @if (standardOptionFields().length > 1) {
+                  <label class="block">
+                    <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('imports.designer.standardField') }}</span>
+                    <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-2.5 text-sm" name="standardOptionField" [(ngModel)]="standardOptionFieldKey" [disabled]="!!standardOptionEditingId()">
+                      @for (field of standardOptionFields(); track field.key) {
+                        <option [value]="field.key">{{ languageService.t(field.labelKey) }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (moduleId === 'student-behaviours') {
+                  <label class="block">
+                    <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('imports.designer.behaviourGroup') }}</span>
+                    <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-2.5 text-sm" name="standardOptionGroup" [(ngModel)]="standardOptionGroup">
+                      <option value="positive">{{ languageService.t('imports.designer.group.positive') }}</option>
+                      <option value="concerning">{{ languageService.t('imports.designer.group.concerning') }}</option>
+                    </select>
+                  </label>
+                }
+                <label class="block sm:col-span-2">
+                  <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('imports.designer.optionValue') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#6d3a91]" name="standardOptionValue" [(ngModel)]="standardOptionValue" maxlength="255" />
+                </label>
+              </div>
+              @if (standardOptionError()) {
+                <p class="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-700">{{ standardOptionError() }}</p>
+              }
+              <div class="mt-3 flex justify-end gap-2">
+                @if (standardOptionEditingId()) {
+                  <button class="rounded-md border border-[#d8d0df] px-4 py-2 text-sm font-semibold text-[#32124f]" type="button" (click)="resetStandardOptionForm()">
+                    {{ languageService.t('imports.designer.cancelEdit') }}
+                  </button>
+                }
+                <button class="rounded-md bg-[#32124f] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45" type="button" [disabled]="standardOptionSaving() || !standardOptionValue.trim()" (click)="saveStandardOption()">
+                  {{ languageService.t(standardOptionEditingId() ? 'imports.designer.saveOption' : 'imports.designer.addOption') }}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <div class="border-t border-[#ebe6ef]"></div>
+        }
+
         <!-- Existing custom fields -->
         <section>
           <h3 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">
@@ -224,6 +315,11 @@ export class FieldDesignerSheetComponent implements OnInit {
   readonly pendingDelete = signal<ImportModuleField | null>(null);
   readonly deleting = signal(false);
   readonly deleteError = signal<string | null>(null);
+  readonly standardOptions = signal<StudentRecordFieldOption[]>([]);
+  readonly standardOptionsLoading = signal(false);
+  readonly standardOptionSaving = signal(false);
+  readonly standardOptionEditingId = signal<number | null>(null);
+  readonly standardOptionError = signal<string | null>(null);
   readonly fieldTypeMenuOpen = signal(false);
   readonly fieldTypeMenuPosition = signal<{ left: number; top: number | null; bottom: number | null; width: number; maxHeight: number }>({
     left: 0,
@@ -237,9 +333,16 @@ export class FieldDesignerSheetComponent implements OnInit {
   fieldType: CustomFieldType = 'text';
   required = false;
   optionsText = '';
+  standardOptionFieldKey = '';
+  standardOptionValue = '';
+  standardOptionGroup: 'positive' | 'concerning' = 'positive';
 
   ngOnInit(): void {
     this.reload();
+    if (this.supportsStandardOptions()) {
+      this.standardOptionFieldKey = this.standardOptionFields()[0].key;
+      this.reloadStandardOptions();
+    }
   }
 
   @HostListener('document:keydown.escape')
@@ -295,6 +398,100 @@ export class FieldDesignerSheetComponent implements OnInit {
       },
       error: () => this.loading.set(false),
     });
+  }
+
+  supportsStandardOptions(): boolean {
+    return this.moduleId === 'student-behaviours' || this.moduleId === 'student-projects';
+  }
+
+  standardOptionFields(): { key: string; labelKey: string }[] {
+    return this.moduleId === 'student-behaviours'
+      ? [{ key: 'behaviour_type', labelKey: 'imports.templateFields.behaviour_type' }]
+      : this.moduleId === 'student-projects'
+        ? [
+            { key: 'subject', labelKey: 'imports.templateFields.subject' },
+            { key: 'status', labelKey: 'imports.templateFields.status' },
+          ]
+        : [];
+  }
+
+  standardOptionsFor(fieldKey: string): StudentRecordFieldOption[] {
+    return this.standardOptions().filter((option) => option.fieldKey === fieldKey);
+  }
+
+  startStandardOptionEdit(option: StudentRecordFieldOption): void {
+    this.standardOptionEditingId.set(option.id);
+    this.standardOptionFieldKey = option.fieldKey;
+    this.standardOptionValue = option.value;
+    this.standardOptionGroup = option.optionGroup === 'concerning' ? 'concerning' : 'positive';
+    this.standardOptionError.set(null);
+  }
+
+  resetStandardOptionForm(): void {
+    this.standardOptionEditingId.set(null);
+    this.standardOptionFieldKey = this.standardOptionFields()[0]?.key ?? '';
+    this.standardOptionValue = '';
+    this.standardOptionGroup = 'positive';
+    this.standardOptionError.set(null);
+  }
+
+  saveStandardOption(): void {
+    const value = this.standardOptionValue.trim();
+    if (!value || !this.standardOptionFieldKey) return;
+    const editingId = this.standardOptionEditingId();
+    const existing = editingId ? this.standardOptions().find((option) => option.id === editingId) : null;
+    const fieldOptions = this.standardOptionsFor(this.standardOptionFieldKey);
+    const payload = {
+      fieldKey: this.standardOptionFieldKey,
+      value,
+      optionGroup: this.moduleId === 'student-behaviours' ? this.standardOptionGroup : null,
+      sortOrder: existing?.sortOrder ?? (fieldOptions.length ? Math.max(...fieldOptions.map((option) => option.sortOrder)) + 1 : 0),
+    };
+    this.standardOptionSaving.set(true);
+    this.standardOptionError.set(null);
+    const request = editingId
+      ? this.fieldsService.updateStandardOption(this.moduleId, editingId, payload)
+      : this.fieldsService.createStandardOption(this.moduleId, payload);
+    request.pipe(finalize(() => this.standardOptionSaving.set(false))).subscribe({
+      next: () => {
+        this.resetStandardOptionForm();
+        this.reloadStandardOptions();
+        this.changed.emit();
+      },
+      error: (error) => this.standardOptionError.set(
+        error?.error?.message || this.languageService.t('imports.designer.optionSaveError'),
+      ),
+    });
+  }
+
+  deleteStandardOption(option: StudentRecordFieldOption): void {
+    const confirmation = this.languageService.t('imports.designer.optionDeleteConfirm')
+      .replace('{option}', option.value);
+    if (!window.confirm(confirmation)) return;
+    this.standardOptionSaving.set(true);
+    this.standardOptionError.set(null);
+    this.fieldsService.removeStandardOption(this.moduleId, option.id)
+      .pipe(finalize(() => this.standardOptionSaving.set(false)))
+      .subscribe({
+        next: () => {
+          if (this.standardOptionEditingId() === option.id) this.resetStandardOptionForm();
+          this.reloadStandardOptions();
+          this.changed.emit();
+        },
+        error: (error) => this.standardOptionError.set(
+          error?.error?.message || this.languageService.t('imports.designer.optionDeleteError'),
+        ),
+      });
+  }
+
+  private reloadStandardOptions(): void {
+    this.standardOptionsLoading.set(true);
+    this.fieldsService.listStandardOptions(this.moduleId)
+      .pipe(finalize(() => this.standardOptionsLoading.set(false)))
+      .subscribe({
+        next: (options) => this.standardOptions.set(options),
+        error: () => this.standardOptionError.set(this.languageService.t('imports.designer.optionLoadError')),
+      });
   }
 
   startEdit(field: ImportModuleField): void {

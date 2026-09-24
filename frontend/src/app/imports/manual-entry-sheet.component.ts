@@ -4,6 +4,7 @@ import { catchError, debounceTime, distinctUntilChanged, finalize, of, Subject, 
 import { LanguageService } from '../core/language/language.service';
 import { ManualEntryOptions, ManualEntryService, ManualEntryStudent } from './manual-entry.service';
 import { ImportModuleField, ImportModuleFieldsService } from './import-module-fields.service';
+import { BehaviourTypeSelectComponent } from './behaviour-type-select.component';
 
 const localDateTimeNow = (): string => {
   const now = new Date();
@@ -12,7 +13,7 @@ const localDateTimeNow = (): string => {
 
 @Component({
   selector: 'app-manual-entry-sheet',
-  imports: [FormsModule],
+  imports: [FormsModule, BehaviourTypeSelectComponent],
   styles: `
     :host { position: fixed; inset: 0; z-index: 70; }
     .sheet-backdrop { animation: fade-in 160ms ease-out; }
@@ -117,37 +118,85 @@ const localDateTimeNow = (): string => {
             </div>
 
             @if (moduleId === 'student-behaviours') {
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.incidentDate') }}</span>
-                <input
-                  class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
-                  type="date"
-                  name="incidentDate"
-                  required
-                  [(ngModel)]="incidentDate"
-                />
-              </label>
-              <label class="block">
+              <div class="grid gap-5 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.incidentDate') }}</span>
+                  <input
+                    class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
+                    type="date"
+                    name="incidentDate"
+                    required
+                    [(ngModel)]="incidentDate"
+                  />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.incidentTime') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="time" name="incidentTime" [(ngModel)]="incidentTime" />
+                </label>
+              </div>
+              <div class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.behaviourType') }}</span>
-                <select
-                  class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
-                  name="behaviourType"
-                  required
-                  [(ngModel)]="behaviourType"
-                >
-                  <option value="">{{ languageService.t('imports.manual.selectBehaviour') }}</option>
-                  <optgroup [label]="languageService.t('imports.manual.positiveBehaviours')">
-                    @for (type of options()?.positiveBehaviourTypes ?? []; track type) {
-                      <option [value]="type">{{ type }}</option>
-                    }
-                  </optgroup>
-                  <optgroup [label]="languageService.t('imports.manual.concerningBehaviours')">
-                    @for (type of options()?.concerningBehaviourTypes ?? []; track type) {
-                      <option [value]="type">{{ type }}</option>
-                    }
-                  </optgroup>
-                </select>
+                <app-behaviour-type-select
+                  class="mt-2 block"
+                  [positiveOptions]="options()?.positiveBehaviourTypes ?? []"
+                  [concerningOptions]="options()?.concerningBehaviourTypes ?? []"
+                  [value]="behaviourType"
+                  (valueChange)="behaviourType = $event"
+                />
+              </div>
+              <div class="grid gap-5 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.academicYear') }}</span>
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourAcademicYear" [(ngModel)]="behaviourAcademicYear">
+                    <option value="">{{ languageService.t('imports.manual.optional') }}</option>
+                    @for (year of options()?.academicYears ?? []; track year) { <option [value]="year">{{ year }}</option> }
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.term') }}</span>
+                  <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourTerm" [(ngModel)]="behaviourTerm">
+                    <option value="">{{ languageService.t('imports.manual.optional') }}</option>
+                    <option value="hk1">{{ languageService.t('dashboard.period.term.hk1') }}</option>
+                    <option value="hk2">{{ languageService.t('dashboard.period.term.hk2') }}</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="border-t border-[#ebe6ef] pt-5">
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-[#8a6811]">{{ languageService.t('imports.manual.behaviourDetails') }}</p>
+              </div>
+              <label class="block">
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.subject') }}</span>
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourSubject" maxlength="100" [(ngModel)]="behaviourSubject" [placeholder]="languageService.t('imports.manual.optional')" />
               </label>
+              <div class="grid gap-5 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.reporterEmail') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="email" name="recordedByEmail" maxlength="255" [(ngModel)]="recordedByEmail" [placeholder]="languageService.t('imports.manual.optional')" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.reporterTitle') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="recordedByTitle" maxlength="100" [(ngModel)]="recordedByTitle" [placeholder]="languageService.t('imports.manual.optional')" />
+                </label>
+              </div>
+              <label class="block">
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.decision') }}</span>
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="decision" maxlength="255" [(ngModel)]="decision" [placeholder]="languageService.t('imports.manual.optional')" />
+              </label>
+              <div class="grid gap-5 sm:grid-cols-3">
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.conductDeductionLevel') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="conductDeductionLevel" maxlength="50" [(ngModel)]="conductDeductionLevel" [placeholder]="languageService.t('imports.manual.optional')" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.occurrenceCount') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="number" min="1" name="occurrenceCount" [(ngModel)]="occurrenceCount" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.pointsDeducted') }}</span>
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourPointsDeducted" maxlength="50" [(ngModel)]="behaviourPointsDeducted" [placeholder]="languageService.t('imports.manual.optional')" />
+                </label>
+              </div>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.notes') }}</span>
                 <textarea
@@ -408,7 +457,17 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
   studentId: number | null = null;
   selectedStudent: ManualEntryStudent | null = null;
   incidentDate = new Date().toISOString().slice(0, 10);
+  incidentTime = '';
   behaviourType = '';
+  behaviourAcademicYear = '';
+  behaviourTerm = '';
+  behaviourSubject = '';
+  recordedByEmail = '';
+  recordedByTitle = '';
+  decision = '';
+  conductDeductionLevel = '';
+  occurrenceCount: number | null = null;
+  behaviourPointsDeducted = '';
   notes = '';
   projectName = '';
   subject = '';
@@ -602,7 +661,17 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
     const request = this.moduleId === 'student-behaviours'
       ? this.manualEntryService.createBehaviour(this.studentId, {
           incidentDate: this.incidentDate,
+          incidentTime: this.incidentTime || null,
           behaviourType: this.behaviourType,
+          academicYear: this.behaviourAcademicYear || null,
+          term: this.behaviourTerm || null,
+          subject: this.behaviourSubject.trim() || null,
+          recordedByEmail: this.recordedByEmail.trim() || null,
+          recordedByTitle: this.recordedByTitle.trim() || null,
+          decision: this.decision.trim() || null,
+          conductDeductionLevel: this.conductDeductionLevel.trim() || null,
+          occurrenceCount: this.occurrenceCount,
+          behaviourPointsDeducted: this.behaviourPointsDeducted.trim() || null,
           notes: this.notes.trim() || null,
           customFields,
         })

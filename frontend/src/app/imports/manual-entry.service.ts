@@ -25,7 +25,17 @@ export interface ManualEntryOptions {
 
 export interface CreateBehaviourRequest {
   incidentDate: string;
+  incidentTime?: string | null;
   behaviourType: string;
+  academicYear?: string | null;
+  term?: string | null;
+  subject?: string | null;
+  recordedByEmail?: string | null;
+  recordedByTitle?: string | null;
+  decision?: string | null;
+  conductDeductionLevel?: string | null;
+  occurrenceCount?: number | null;
+  behaviourPointsDeducted?: string | null;
   notes?: string | null;
   customFields?: Record<string, string>;
 }

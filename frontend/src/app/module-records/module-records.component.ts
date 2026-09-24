@@ -1,7 +1,7 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, inject, OnDestroy, OnInit, signal, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { finalize, forkJoin } from 'rxjs';
+import { catchError, finalize, forkJoin, of } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { ExcelImportSheetComponent } from '../imports/excel-import-sheet.component';
@@ -10,6 +10,8 @@ import { ImportModule, importModules } from '../imports/import-template-data';
 import { ImportModuleField, ImportModuleFieldsService } from '../imports/import-module-fields.service';
 import { ManualEntryOptions, ManualEntryService } from '../imports/manual-entry.service';
 import { ManualEntrySheetComponent } from '../imports/manual-entry-sheet.component';
+import { BehaviourTypeSelectComponent } from '../imports/behaviour-type-select.component';
+import { defaultFilterSet, WorkspaceFiltersService, WorkspaceFilterSet } from '../workspace/workspace-filters.service';
 import { ModuleRecord, ModuleRecordsService } from './module-records.service';
 
 type RecordField = {
@@ -29,6 +31,7 @@ type RecordField = {
     ManualEntrySheetComponent,
     ExcelImportSheetComponent,
     FieldDesignerSheetComponent,
+    BehaviourTypeSelectComponent,
   ],
   template: `
     <section class="space-y-7">
@@ -67,6 +70,36 @@ type RecordField = {
 
       <section class="rounded-lg border border-[#e6dfeb] bg-white p-5 shadow-[0_12px_35px_rgba(50,18,79,0.06)]">
         <form class="flex flex-wrap items-end gap-3" (ngSubmit)="load(1)">
+          <label class="w-full sm:w-48">
+            <span class="mb-1.5 block text-xs font-bold uppercase tracking-[0.1em] text-[#776c80]">{{ t('dashboard.period.year') }}</span>
+            <select
+              class="w-full rounded-md border border-[#ddd5e3] bg-[#faf9fb] px-3 py-2.5 text-sm font-semibold text-[#32124f] outline-none transition focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10 disabled:cursor-wait disabled:opacity-60"
+              name="academicYear"
+              [(ngModel)]="selectedYear"
+              (ngModelChange)="onPeriodChange()"
+              [disabled]="periodLoading()"
+            >
+              <option value="">{{ t('moduleRecords.allYears') }}</option>
+              @for (year of years(); track year) {
+                <option [value]="year">{{ formatYear(year) }}</option>
+              }
+            </select>
+          </label>
+          <label class="w-full sm:w-44">
+            <span class="mb-1.5 block text-xs font-bold uppercase tracking-[0.1em] text-[#776c80]">{{ t('dashboard.period.term') }}</span>
+            <select
+              class="w-full rounded-md border border-[#ddd5e3] bg-[#faf9fb] px-3 py-2.5 text-sm font-semibold text-[#32124f] outline-none transition focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10 disabled:cursor-not-allowed disabled:opacity-60"
+              name="reportingTerm"
+              [(ngModel)]="selectedTerm"
+              (ngModelChange)="onPeriodChange()"
+              [disabled]="periodLoading() || !selectedYear"
+            >
+              <option value="all">{{ t('dashboard.period.term.all') }}</option>
+              @for (term of terms(); track term) {
+                <option [value]="term">{{ termLabel(term) }}</option>
+              }
+            </select>
+          </label>
           <label class="min-w-64 flex-1">
             <span class="mb-1.5 block text-xs font-bold uppercase tracking-[0.1em] text-[#776c80]">{{ t('moduleRecords.search') }}</span>
             <input
@@ -100,8 +133,18 @@ type RecordField = {
           </div>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="w-full min-w-max text-left">
+        <div
+          #topScroll
+          class="overflow-x-auto overflow-y-hidden border-b border-[#ebe6ef] bg-[#faf9fb]"
+          [style.height.px]="tableOverflows() ? 16 : 0"
+          [attr.aria-label]="t('moduleRecords.horizontalScroll')"
+          (scroll)="syncHorizontalScroll('top')"
+        >
+          <div class="h-px" [style.width.px]="tableScrollWidth()"></div>
+        </div>
+
+        <div #tableScroll class="overflow-x-auto" (scroll)="syncHorizontalScroll('table')">
+          <table #recordsTable class="w-full min-w-max text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
               <tr>
                 @if (isHealthModule()) {
@@ -207,7 +250,7 @@ type RecordField = {
           [moduleId]="moduleId"
           [moduleTitleKey]="module().titleKey"
           (close)="designerClosed()"
-          (changed)="reloadCustomFields()"
+          (changed)="designerChanged()"
         />
       }
 
@@ -226,7 +269,19 @@ type RecordField = {
             <div class="flex-1 overflow-y-auto px-6 py-6">
               <form id="module-record-edit-form" class="space-y-5" (ngSubmit)="saveEdit()">
                 @for (field of fields(); track field.key) {
-                  <label class="block">
+                  @if (field.key === 'behaviour_type') {
+                    <div class="block">
+                      <span class="text-sm font-semibold text-[#32124f]">{{ fieldLabel(field) }}@if (field.required) { <span class="text-red-600">*</span> }</span>
+                      <app-behaviour-type-select
+                        class="mt-2 block"
+                        [positiveOptions]="options()?.positiveBehaviourTypes ?? []"
+                        [concerningOptions]="options()?.concerningBehaviourTypes ?? []"
+                        [value]="editValues[field.key]"
+                        (valueChange)="editValues[field.key] = $event"
+                      />
+                    </div>
+                  } @else {
+                    <label class="block">
                     <span class="text-sm font-semibold text-[#32124f]">{{ fieldLabel(field) }}@if (field.required) { <span class="text-red-600">*</span> }</span>
                     @if (field.type === 'textarea') {
                       <textarea class="mt-2 min-h-28 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" [name]="field.key" [required]="field.required" [(ngModel)]="editValues[field.key]"></textarea>
@@ -238,7 +293,8 @@ type RecordField = {
                     } @else {
                       <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" [type]="field.type" [name]="field.key" [required]="field.required" [(ngModel)]="editValues[field.key]" />
                     }
-                  </label>
+                    </label>
+                  }
                 }
                 @if (editError()) { <p class="rounded-md bg-red-50 p-4 text-sm text-red-700">{{ editError() }}</p> }
               </form>
@@ -253,12 +309,17 @@ type RecordField = {
     </section>
   `,
 })
-export class ModuleRecordsComponent implements OnInit {
+export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy {
+  @ViewChild('topScroll') private topScroll?: ElementRef<HTMLDivElement>;
+  @ViewChild('tableScroll') private tableScroll?: ElementRef<HTMLDivElement>;
+  @ViewChild('recordsTable') private recordsTable?: ElementRef<HTMLTableElement>;
+
   private readonly route = inject(ActivatedRoute);
   private readonly service = inject(ModuleRecordsService);
   private readonly fieldsService = inject(ImportModuleFieldsService);
   private readonly manualService = inject(ManualEntryService);
   private readonly authService = inject(AuthenticationService);
+  private readonly workspaceFilters = inject(WorkspaceFiltersService);
   readonly languageService = inject(LanguageService);
 
   readonly moduleId = String(this.route.snapshot.data['moduleId']);
@@ -278,15 +339,49 @@ export class ModuleRecordsComponent implements OnInit {
   readonly editing = signal<ModuleRecord | null>(null);
   readonly saving = signal(false);
   readonly editError = signal<string | null>(null);
+  readonly years = signal<string[]>([]);
+  readonly terms = signal<string[]>([]);
+  readonly periodLoading = signal(true);
+  readonly tableScrollWidth = signal(0);
+  readonly tableOverflows = signal(false);
   search = '';
+  selectedYear = '';
+  selectedTerm = 'all';
   editValues: Record<string, string | null> = {};
+  private currentFilters: WorkspaceFilterSet = defaultFilterSet();
+  private tableResizeObserver?: ResizeObserver;
 
   ngOnInit(): void {
     forkJoin({ fields: this.fieldsService.list(this.moduleId), options: this.manualService.options() }).subscribe({
       next: ({ fields, options }) => { this.customFields.set(fields); this.options.set(options); },
       error: () => this.error.set(this.t('moduleRecords.optionsError')),
     });
-    this.load();
+    this.workspaceFilters.load().pipe(catchError(() => of(defaultFilterSet()))).subscribe((filters) => {
+      this.currentFilters = filters;
+      this.selectedYear = filters.year;
+      this.selectedTerm = filters.semester || 'all';
+      this.ensureSelectedPeriodOptions();
+      this.load();
+    });
+    this.workspaceFilters.periodOptions().pipe(
+      catchError(() => of({ academicYears: [] as string[], terms: [] as string[] })),
+    ).subscribe((options) => {
+      this.years.set([...options.academicYears]);
+      this.terms.set([...options.terms]);
+      this.ensureSelectedPeriodOptions();
+      this.periodLoading.set(false);
+    });
+  }
+
+  ngAfterViewInit(): void {
+    this.tableResizeObserver = new ResizeObserver(() => this.updateTableScrollSize());
+    if (this.recordsTable) this.tableResizeObserver.observe(this.recordsTable.nativeElement);
+    if (this.tableScroll) this.tableResizeObserver.observe(this.tableScroll.nativeElement);
+    queueMicrotask(() => this.updateTableScrollSize());
+  }
+
+  ngOnDestroy(): void {
+    this.tableResizeObserver?.disconnect();
   }
 
   module(): ImportModule {
@@ -314,7 +409,14 @@ export class ModuleRecordsComponent implements OnInit {
 
   load(page = this.page()): void {
     this.loading.set(true); this.error.set(null);
-    this.service.list(this.moduleId, page, this.pageSize(), this.search).subscribe({
+    this.service.list(
+      this.moduleId,
+      page,
+      this.pageSize(),
+      this.search,
+      this.selectedYear || undefined,
+      this.selectedTerm,
+    ).subscribe({
       next: (result) => {
         this.records.set(result.items); this.page.set(result.page); this.totalCount.set(result.totalCount);
         this.totalPages.set(result.totalPages); this.loading.set(false);
@@ -324,12 +426,53 @@ export class ModuleRecordsComponent implements OnInit {
   }
 
   clearSearch(): void { this.search = ''; this.load(1); }
+  onPeriodChange(): void {
+    if (!this.selectedYear) this.selectedTerm = 'all';
+    this.currentFilters = {
+      ...this.currentFilters,
+      year: this.selectedYear,
+      semester: this.selectedTerm,
+    };
+    this.workspaceFilters.save(this.currentFilters);
+    this.load(1);
+  }
+  formatYear(year: string): string { return year.replace('-', '–'); }
+  termLabel(term: string): string {
+    const key = `dashboard.period.term.${term}`;
+    const translated = this.t(key);
+    return translated === key ? term : translated;
+  }
   changePageSize(event: Event): void { this.pageSize.set(Number((event.target as HTMLSelectElement).value)); this.load(1); }
   pageLabel(): string { return this.t('pagination.pageOf').replace('{page}', String(this.page())).replace('{pages}', String(this.totalPages())).replace('{total}', String(this.totalCount())); }
   fieldLabel(field: RecordField): string { return field.custom ? field.label! : this.t(`imports.templateFields.${field.key}`); }
   isHealthModule(): boolean { return this.moduleId === 'student-health-visits'; }
   formatDateTime(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(value)); }
   isBadgeField(key: string): boolean { return ['behaviour_type', 'status', 'risk_level', 'violation_type'].includes(key); }
+
+  syncHorizontalScroll(source: 'top' | 'table'): void {
+    const sourceElement = source === 'top' ? this.topScroll?.nativeElement : this.tableScroll?.nativeElement;
+    const targetElement = source === 'top' ? this.tableScroll?.nativeElement : this.topScroll?.nativeElement;
+    if (sourceElement && targetElement && targetElement.scrollLeft !== sourceElement.scrollLeft) {
+      targetElement.scrollLeft = sourceElement.scrollLeft;
+    }
+  }
+
+  private updateTableScrollSize(): void {
+    const table = this.recordsTable?.nativeElement;
+    const viewport = this.tableScroll?.nativeElement;
+    if (!table || !viewport) return;
+    this.tableScrollWidth.set(table.scrollWidth);
+    this.tableOverflows.set(table.scrollWidth > viewport.clientWidth + 1);
+  }
+
+  private ensureSelectedPeriodOptions(): void {
+    if (this.selectedYear && !this.years().includes(this.selectedYear)) {
+      this.years.update((years) => [this.selectedYear, ...years]);
+    }
+    if (this.selectedTerm !== 'all' && !this.terms().includes(this.selectedTerm)) {
+      this.terms.update((terms) => [...terms, this.selectedTerm]);
+    }
+  }
 
   displayValue(key: string, value: string | null | undefined): string {
     if (!value) return '';
@@ -347,6 +490,7 @@ export class ModuleRecordsComponent implements OnInit {
 
   badgeClass(value: string | null): string {
     const normalized = value?.toLocaleLowerCase() ?? '';
+    if (this.options()?.concerningBehaviourTypes.some((item) => item.toLocaleLowerCase() === normalized)) return 'bg-red-50 text-red-700';
     if (normalized.includes('high') || normalized.includes('no seatbelt') || normalized.includes('concerning')) return 'bg-red-50 text-red-700';
     if (normalized.includes('medium') || normalized.includes('late') || normalized.includes('progress')) return 'bg-amber-50 text-amber-800';
     return 'bg-emerald-50 text-emerald-700';
@@ -388,11 +532,24 @@ export class ModuleRecordsComponent implements OnInit {
   designerClosed(): void {
     this.designerOpen.set(false);
     this.reloadCustomFields();
+    this.reloadEntryOptions();
+  }
+
+  designerChanged(): void {
+    this.reloadCustomFields();
+    this.reloadEntryOptions();
   }
 
   reloadCustomFields(): void {
     this.fieldsService.list(this.moduleId).subscribe({
       next: (fields) => this.customFields.set(fields),
+      error: () => this.error.set(this.t('moduleRecords.optionsError')),
+    });
+  }
+
+  private reloadEntryOptions(): void {
+    this.manualService.options(true).subscribe({
+      next: (options) => this.options.set(options),
       error: () => this.error.set(this.t('moduleRecords.optionsError')),
     });
   }
@@ -420,8 +577,9 @@ export class ModuleRecordsComponent implements OnInit {
   private standardFieldType(key: string): RecordField['type'] {
     if (key === 'visit_date') return 'datetime-local';
     if (key.endsWith('_date')) return 'date';
-    if (['notes', 'teacher_notes', 'symptoms', 'diagnosis', 'treatment'].includes(key)) return 'textarea';
+    if (['notes', 'teacher_notes', 'symptoms', 'diagnosis', 'treatment', 'student_match_notes', 'source_data_issues'].includes(key)) return 'textarea';
     if (key === 'notification_sent') return 'checkbox';
+    if (['occurrence_count', 'source_record_id'].includes(key)) return 'number';
     if (['behaviour_type', 'subject', 'status', 'academic_year', 'concern_type', 'risk_level', 'trip_direction', 'violation_type'].includes(key)) return 'select';
     return 'text';
   }

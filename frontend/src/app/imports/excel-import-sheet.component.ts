@@ -1,7 +1,7 @@
 import { Component, EventEmitter, HostListener, inject, Input, OnInit, Output, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { LanguageService } from '../core/language/language.service';
-import { ImportHistoryService } from './import-history.service';
+import { ExcelImportService } from './excel-import.service';
 import { ImportModule, ValidationResult, importModules } from './import-template-data';
 import { ImportModuleField, ImportModuleFieldsService } from './import-module-fields.service';
 
@@ -131,7 +131,7 @@ export class ExcelImportSheetComponent implements OnInit {
   @Output() readonly close = new EventEmitter<void>();
   @Output() readonly imported = new EventEmitter<string>();
 
-  private readonly importHistoryService = inject(ImportHistoryService);
+  private readonly excelImportService = inject(ExcelImportService);
   private readonly fieldsService = inject(ImportModuleFieldsService);
   readonly languageService = inject(LanguageService);
   readonly selectedFileName = signal<string | null>(null);
@@ -213,7 +213,7 @@ export class ExcelImportSheetComponent implements OnInit {
 
   private importFile(fileName: string, rows: Record<string, string>[], dataStartRow: number): void {
     this.importing.set(true);
-    this.importHistoryService.importExcel(this.moduleId, fileName, rows, this.customFieldKeys(), dataStartRow).subscribe({
+    this.excelImportService.importExcel(this.moduleId, fileName, rows, this.customFieldKeys(), dataStartRow).subscribe({
       next: () => {
         this.validationResult.set({ status: 'Valid', errors: [], validRows: rows.length, invalidRows: 0 });
         this.imported.emit(this.moduleId);
