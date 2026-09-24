@@ -43,7 +43,7 @@ const today = (): string => {
       <form id="support-action-form" class="min-h-0 flex-1 overflow-y-auto px-6 py-6" (ngSubmit)="submit()">
         <div class="space-y-5">
           <div class="relative">
-            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.student') }} *</span>
+            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.student') }} <span class="text-red-600">*</span></span>
             @if (fixedStudent || action) {
               <div class="mt-2 rounded-md border border-[#d8d0df] bg-[#faf8fb] px-4 py-3">
                 <p class="font-semibold text-[#32124f]">{{ selectedStudent()?.fullName }}</p>
@@ -77,47 +77,47 @@ const today = (): string => {
 
           <div class="grid gap-5 sm:grid-cols-2">
             <label class="block">
-              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.category') }} *</span>
+              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.category') }} <span class="text-red-600">*</span></span>
               <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="category" required [(ngModel)]="category">
                 @for (option of availableCategories(); track option) { <option [value]="option">{{ categoryLabel(option) }}</option> }
               </select>
             </label>
             <label class="block">
-              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.actionDate') }} *</span>
+              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.actionDate') }} <span class="text-red-600">*</span></span>
               <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="date" name="actionDate" required [(ngModel)]="actionDate" />
             </label>
           </div>
 
           <label class="block">
-            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.title') }} *</span>
+            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.title') }} <span class="text-red-600">*</span></span>
             <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="title" maxlength="255" required [(ngModel)]="title" [placeholder]="t('support.form.titlePlaceholder')" />
           </label>
 
           @if (category === 'Learning') {
             <label class="block">
               <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.subject') }}</span>
-              <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="subject" maxlength="100" [(ngModel)]="subject" [placeholder]="t('support.form.optional')" />
+              <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="subject" maxlength="100" [(ngModel)]="subject" />
             </label>
           }
 
           <label class="block">
-            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.goal') }} *</span>
+            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.goal') }} <span class="text-red-600">*</span></span>
             <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="goal" maxlength="2000" required [(ngModel)]="goal" [placeholder]="t('support.form.goalPlaceholder')"></textarea>
           </label>
           <label class="block">
-            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.actionTaken') }} *</span>
+            <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.actionTaken') }} <span class="text-red-600">*</span></span>
             <textarea class="mt-2 min-h-28 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="actionTaken" maxlength="4000" required [(ngModel)]="actionTaken" [placeholder]="t('support.form.actionPlaceholder')"></textarea>
           </label>
 
           <div class="grid gap-5 sm:grid-cols-2">
             <label class="block">
-              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.status') }} *</span>
+              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.status') }} <span class="text-red-600">*</span></span>
               <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="status" [(ngModel)]="status">
                 @for (option of statuses; track option) { <option [value]="option">{{ statusLabel(option) }}</option> }
               </select>
             </label>
             <label class="block">
-              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.progress') }} *</span>
+              <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.progress') }} <span class="text-red-600">*</span></span>
               <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="progress" [(ngModel)]="progress">
                 @for (option of progressValues; track option) { <option [value]="option">{{ progressLabel(option) }}</option> }
               </select>
@@ -126,7 +126,7 @@ const today = (): string => {
 
           <label class="block">
             <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.result') }}</span>
-            <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="result" maxlength="4000" [(ngModel)]="result" [placeholder]="t('support.form.resultPlaceholder')"></textarea>
+            <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="result" maxlength="4000" [(ngModel)]="result"></textarea>
           </label>
 
           <div class="grid gap-5 sm:grid-cols-2">
@@ -138,14 +138,14 @@ const today = (): string => {
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.academicYear') }}</span>
                 <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="academicYear" [(ngModel)]="academicYear">
-                  <option value="">{{ t('support.form.auto') }}</option>
+                  <option value=""></option>
                   @for (year of academicYears(); track year) { <option [value]="year">{{ year.replace('-', '–') }}</option> }
                 </select>
               </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.term') }}</span>
                 <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="term" [(ngModel)]="term">
-                  <option value="">{{ t('support.form.allYear') }}</option>
+                  <option value=""></option>
                   <option value="hk1">{{ t('dashboard.period.term.hk1') }}</option>
                   <option value="hk2">{{ t('dashboard.period.term.hk2') }}</option>
                 </select>
@@ -155,7 +155,7 @@ const today = (): string => {
 
           <label class="block">
             <span class="text-sm font-semibold text-[#32124f]">{{ t('support.form.nextStep') }}</span>
-            <textarea class="mt-2 min-h-20 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="nextStep" maxlength="2000" [(ngModel)]="nextStep" [placeholder]="t('support.form.nextStepPlaceholder')"></textarea>
+            <textarea class="mt-2 min-h-20 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="nextStep" maxlength="2000" [(ngModel)]="nextStep"></textarea>
           </label>
 
           <label class="flex items-start gap-3 rounded-md border border-[#e4d9e9] bg-[#faf7fc] p-4">

@@ -435,7 +435,6 @@ type ProfileSection =
                     <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.date') }}</th>
                     <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.type') }}</th>
                     <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.notes') }}</th>
-                    <th class="px-6 py-3 font-semibold">{{ languageService.t('studentProfile.createdBy') }}</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-[#ebe6ef]">
@@ -463,13 +462,10 @@ type ProfileSection =
                           </span>
                         }
                       </td>
-                      <td class="whitespace-nowrap px-6 py-3 font-medium text-[#5f5666]">
-                        {{ behaviour.recordedByName || '—' }}
-                      </td>
                     </tr>
                   } @empty {
                     <tr>
-                      <td class="px-6 py-10 text-center text-sm text-[#7c7284]" colspan="4">
+                      <td class="px-6 py-10 text-center text-sm text-[#7c7284]" colspan="3">
                         {{ languageService.t('studentProfile.noBehaviours') }}
                       </td>
                     </tr>

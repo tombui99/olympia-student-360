@@ -17,10 +17,11 @@ import { ModuleRecord, ModuleRecordsService } from './module-records.service';
 type RecordField = {
   key: string;
   required: boolean;
-  type: 'text' | 'textarea' | 'number' | 'date' | 'datetime-local' | 'select' | 'checkbox';
+  type: 'text' | 'email' | 'textarea' | 'number' | 'date' | 'datetime-local' | 'select' | 'checkbox';
   options: string[];
   custom: boolean;
   label?: string;
+  sectionKey?: string;
 };
 
 @Component({
@@ -151,19 +152,21 @@ type RecordField = {
                   <th class="min-w-28 px-5 py-4 font-semibold">{{ t('imports.templateFields.class_name') }}</th>
                 }
                 <th class="min-w-56 px-5 py-4 font-semibold">{{ t('moduleRecords.student') }}</th>
-                @for (field of fields(); track field.key) {
-                  <th class="min-w-36 px-5 py-4 font-semibold">{{ fieldLabel(field) }}</th>
+                @for (field of tableFields(); track field.key) {
+                  <th class="min-w-36 px-5 py-4 font-semibold" [class.min-w-48]="isBehaviourModule() && field.key === 'incident_date'">{{ tableFieldLabel(field) }}</th>
                 }
                 @if (isHealthModule()) {
                   <th class="min-w-32 px-5 py-4 font-semibold">{{ t('imports.templateFields.sis') }}</th>
                 }
-                <th class="min-w-40 px-5 py-4 font-semibold">{{ t('moduleRecords.enteredBy') }}</th>
-                <th class="sticky right-0 min-w-40 bg-[#faf9f6] px-5 py-4 text-right font-semibold">{{ t('moduleRecords.actions') }}</th>
+                @if (!isBehaviourModule()) {
+                  <th class="min-w-40 px-5 py-4 font-semibold">{{ t('moduleRecords.enteredBy') }}</th>
+                }
+                <th class="sticky right-0 z-20 min-w-40 bg-[#f1edf4] px-5 py-4 text-right font-semibold text-[#5b287d] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#8f70a1] before:content-['']">{{ t('moduleRecords.actions') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-[#ebe6ef]">
               @for (record of records(); track record.id) {
-                <tr class="align-top text-sm transition hover:bg-[#fdfcff]">
+                <tr class="group align-top text-sm transition hover:bg-[#fdfcff]">
                   @if (isHealthModule()) {
                     <td class="whitespace-nowrap px-5 py-4 font-semibold text-[#32124f]">{{ record.homeroom || '—' }}</td>
                   }
@@ -179,9 +182,14 @@ type RecordField = {
                       </span>
                     }
                   </td>
-                  @for (field of fields(); track field.key) {
+                  @for (field of tableFields(); track field.key) {
                     <td class="max-w-72 px-5 py-4 text-[#5f5368]" [class.whitespace-nowrap]="field.type === 'date' || field.type === 'datetime-local'">
-                      @if (isBadgeField(field.key) && record.values[field.key]) {
+                      @if (isBehaviourModule() && field.key === 'incident_date') {
+                        <span class="font-medium text-[#4f4357]">{{ displayValue(field.key, record.values[field.key]) || '—' }}</span>
+                        @if (record.values['incident_time']) {
+                          <span class="mt-1 block text-xs text-[#81758a]">{{ record.values['incident_time'] }}</span>
+                        }
+                      } @else if (isBadgeField(field.key) && record.values[field.key]) {
                         <span class="rounded-full px-2.5 py-1 text-xs font-semibold" [class]="badgeClass(record.values[field.key])">
                           {{ displayValue(field.key, record.values[field.key]) }}
                         </span>
@@ -193,11 +201,13 @@ type RecordField = {
                   @if (isHealthModule()) {
                     <td class="whitespace-nowrap px-5 py-4 text-[#6f6877]">{{ record.sisUserId || '—' }}</td>
                   }
-                  <td class="px-5 py-4 text-[#6f6877]">
-                    {{ record.enteredByName || '—' }}
-                    <span class="mt-1 block whitespace-nowrap text-xs text-[#9a91a3]">{{ formatDateTime(record.createdAt) }}</span>
-                  </td>
-                  <td class="sticky right-0 bg-white px-5 py-4 text-right">
+                  @if (!isBehaviourModule()) {
+                    <td class="px-5 py-4 text-[#6f6877]">
+                      {{ record.enteredByName || '—' }}
+                      <span class="mt-1 block whitespace-nowrap text-xs text-[#9a91a3]">{{ formatDateTime(record.createdAt) }}</span>
+                    </td>
+                  }
+                  <td class="sticky right-0 z-10 bg-[#fbf8fc] px-5 py-4 text-right transition before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#8f70a1] before:content-[''] group-hover:bg-[#f7f1fa]">
                     <div class="flex justify-end gap-2">
                       <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:bg-[#f7f3fa]" type="button" (click)="edit(record)">{{ t('moduleRecords.edit') }}</button>
                       <button class="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50" type="button" (click)="remove(record)">{{ t('moduleRecords.delete') }}</button>
@@ -206,9 +216,9 @@ type RecordField = {
                 </tr>
               }
               @if (loading()) {
-                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="fields().length + 3 + (isHealthModule() ? 2 : 0)">{{ t('moduleRecords.loading') }}</td></tr>
+                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="tableColumnCount()">{{ t('moduleRecords.loading') }}</td></tr>
               } @else if (!records().length) {
-                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="fields().length + 3 + (isHealthModule() ? 2 : 0)">{{ t('moduleRecords.empty') }}</td></tr>
+                <tr><td class="px-6 py-12 text-center text-sm text-[#7c7284]" [attr.colspan]="tableColumnCount()">{{ t('moduleRecords.empty') }}</td></tr>
               }
             </tbody>
           </table>
@@ -261,17 +271,29 @@ type RecordField = {
             <header class="flex items-start justify-between gap-4 border-b border-[#ebe6ef] px-6 py-5">
               <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#8a6811]">{{ t('moduleRecords.editEyebrow') }}</p>
-                <h2 class="mt-2 text-2xl font-semibold text-[#32124f]">{{ editing()!.studentName }}</h2>
-                <p class="mt-1 text-sm text-[#6f6877]">{{ editing()!.sisUserId }}</p>
+                <h2 class="mt-2 text-2xl font-semibold text-[#32124f]">{{ t(module().titleKey) }}</h2>
+                <p class="mt-1 text-sm text-[#6f6877]">{{ editing()!.studentName }} · {{ editing()!.sisUserId }}</p>
               </div>
               <button class="grid h-10 w-10 place-items-center rounded-full border border-[#ded6e4] text-xl text-[#5d5265]" type="button" (click)="closeEdit()">×</button>
             </header>
             <div class="flex-1 overflow-y-auto px-6 py-6">
-              <form id="module-record-edit-form" class="space-y-5" (ngSubmit)="saveEdit()">
-                @for (field of fields(); track field.key) {
+              <form id="module-record-edit-form" class="grid grid-cols-1 gap-5 sm:grid-cols-6" (ngSubmit)="saveEdit()">
+                <div class="sm:col-span-6">
+                  <span class="text-sm font-semibold text-[#32124f]">{{ t('imports.manual.student') }} <span class="text-red-600">*</span></span>
+                  <div class="mt-2 rounded-md border border-[#d8d0df] bg-[#faf8fb] px-4 py-3">
+                    <p class="text-sm font-semibold text-[#32124f]">{{ editing()!.studentName }}</p>
+                    <p class="mt-0.5 text-xs text-[#7c7284]">{{ editing()!.sisUserId }}</p>
+                  </div>
+                </div>
+                @for (field of editFields(); track field.key) {
+                  @if (field.sectionKey) {
+                    <div class="border-t border-[#ebe6ef] pt-5 sm:col-span-6">
+                      <p class="text-xs font-semibold uppercase tracking-[0.16em] text-[#8a6811]">{{ t(field.sectionKey) }}</p>
+                    </div>
+                  }
                   @if (field.key === 'behaviour_type') {
-                    <div class="block">
-                      <span class="text-sm font-semibold text-[#32124f]">{{ fieldLabel(field) }}@if (field.required) { <span class="text-red-600">*</span> }</span>
+                    <div [class]="editFieldClass(field)">
+                      <span class="text-sm font-semibold text-[#32124f]">{{ editFieldLabel(field) }}@if (field.required) { <span class="text-red-600"> *</span> }</span>
                       <app-behaviour-type-select
                         class="mt-2 block"
                         [positiveOptions]="options()?.positiveBehaviourTypes ?? []"
@@ -281,22 +303,33 @@ type RecordField = {
                       />
                     </div>
                   } @else {
-                    <label class="block">
-                    <span class="text-sm font-semibold text-[#32124f]">{{ fieldLabel(field) }}@if (field.required) { <span class="text-red-600">*</span> }</span>
+                    <label [class]="editFieldClass(field) + (isCompactBehaviourField(field) ? ' grid grid-rows-[2.5rem_auto] content-start' : ' block')">
+                    <span class="text-sm font-semibold text-[#32124f]">{{ editFieldLabel(field) }}@if (field.required) { <span class="text-red-600"> *</span> }</span>
                     @if (field.type === 'textarea') {
                       <textarea class="mt-2 min-h-28 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" [name]="field.key" [required]="field.required" [(ngModel)]="editValues[field.key]"></textarea>
-                    } @else if (field.type === 'select' || field.type === 'checkbox') {
+                    } @else if (field.type === 'checkbox') {
+                      <span class="mt-2 flex min-h-12 items-center rounded-md border border-[#d8d0df] px-3 py-3">
+                        <input
+                          class="h-4 w-4 accent-[#5d2d7b]"
+                          type="checkbox"
+                          [name]="field.key"
+                          [required]="field.required"
+                          [ngModel]="editValues[field.key] === 'true'"
+                          (ngModelChange)="editValues[field.key] = $event ? 'true' : 'false'"
+                        />
+                      </span>
+                    } @else if (field.type === 'select') {
                       <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" [name]="field.key" [required]="field.required" [(ngModel)]="editValues[field.key]">
-                        <option value="">{{ t('moduleRecords.selectValue') }}</option>
+                        <option value="">{{ field.required ? t('moduleRecords.selectValue') : '' }}</option>
                         @for (option of optionsFor(field); track option) { <option [value]="option">{{ displayValue(field.key, option) }}</option> }
                       </select>
                     } @else {
-                      <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" [type]="field.type" [name]="field.key" [required]="field.required" [(ngModel)]="editValues[field.key]" />
+                      <input class="w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" [class.mt-2]="!isCompactBehaviourField(field)" [type]="field.type" [name]="field.key" [required]="field.required" [(ngModel)]="editValues[field.key]" />
                     }
                     </label>
                   }
                 }
-                @if (editError()) { <p class="rounded-md bg-red-50 p-4 text-sm text-red-700">{{ editError() }}</p> }
+                @if (editError()) { <p class="rounded-md bg-red-50 p-4 text-sm text-red-700 sm:col-span-6">{{ editError() }}</p> }
               </form>
             </div>
             <footer class="flex justify-end gap-3 border-t border-[#ebe6ef] bg-[#faf9f6] px-6 py-4">
@@ -407,6 +440,66 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
     }))];
   }
 
+  editFields(): RecordField[] {
+    const allFields = this.fields();
+    const standardFields = allFields.filter((field) => !field.custom);
+    const customFields = allFields.filter((field) => field.custom);
+    const orderByModule: Record<string, string[]> = {
+      'student-behaviours': [
+        'incident_date', 'incident_time', 'behaviour_type', 'academic_year', 'term',
+        'subject', 'reporter_name', 'recorded_by_email', 'recorded_by_title', 'decision',
+        'conduct_deduction_level', 'occurrence_count', 'behaviour_points_deducted', 'notes',
+      ],
+      'student-projects': ['project_name', 'subject', 'status', 'teacher_notes'],
+      'student-bus-attendance': ['attendance_date', 'trip_direction', 'violation_type', 'bus_code', 'route_name', 'notes'],
+      'student-mental-health': ['record_date', 'academic_year', 'concern_type', 'risk_level', 'notes'],
+      'student-health-visits': ['visit_date', 'classification', 'diagnosis', 'symptoms', 'treatment', 'medication', 'notes', 'notification_sent'],
+    };
+    const order = orderByModule[this.moduleId] ?? standardFields.map((field) => field.key);
+    const standardByKey = new Map(standardFields.map((field) => [field.key, field]));
+    const orderedStandard = order
+      .map((key) => standardByKey.get(key))
+      .filter((field): field is RecordField => !!field)
+      .map((field) => ({
+        ...field,
+        sectionKey: this.moduleId === 'student-behaviours' && field.key === 'subject'
+          ? 'imports.manual.behaviourDetails'
+          : undefined,
+      }));
+    const orderedKeys = new Set(orderedStandard.map((field) => field.key));
+    const remainingStandard = standardFields.filter((field) => !orderedKeys.has(field.key));
+    const orderedCustom = customFields.map((field, index) => ({
+      ...field,
+      sectionKey: index === 0 ? 'imports.designer.customSection' : undefined,
+    }));
+    return [...orderedStandard, ...remainingStandard, ...orderedCustom];
+  }
+
+  editFieldClass(field: RecordField): string {
+    if (field.custom) return 'sm:col-span-6';
+    const halfWidthByModule: Record<string, Set<string>> = {
+      'student-behaviours': new Set(['incident_date', 'incident_time', 'academic_year', 'term', 'recorded_by_email', 'recorded_by_title']),
+      'student-projects': new Set(['subject', 'status']),
+      'student-bus-attendance': new Set(['trip_direction', 'violation_type', 'bus_code', 'route_name']),
+      'student-mental-health': new Set(['record_date', 'academic_year', 'concern_type', 'risk_level']),
+    };
+    if (halfWidthByModule[this.moduleId]?.has(field.key)) return 'sm:col-span-3';
+    if (this.isCompactBehaviourField(field)) return 'sm:col-span-2';
+    return 'sm:col-span-6';
+  }
+
+  isCompactBehaviourField(field: RecordField): boolean {
+    return this.moduleId === 'student-behaviours' && [
+      'conduct_deduction_level', 'occurrence_count', 'behaviour_points_deducted',
+    ].includes(field.key);
+  }
+
+  tableFields(): RecordField[] {
+    return this.isBehaviourModule()
+      ? this.fields().filter((field) => field.key !== 'incident_time')
+      : this.fields();
+  }
+
   load(page = this.page()): void {
     this.loading.set(true); this.error.set(null);
     this.service.list(
@@ -445,6 +538,53 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   changePageSize(event: Event): void { this.pageSize.set(Number((event.target as HTMLSelectElement).value)); this.load(1); }
   pageLabel(): string { return this.t('pagination.pageOf').replace('{page}', String(this.page())).replace('{pages}', String(this.totalPages())).replace('{total}', String(this.totalCount())); }
   fieldLabel(field: RecordField): string { return field.custom ? field.label! : this.t(`imports.templateFields.${field.key}`); }
+  editFieldLabel(field: RecordField): string {
+    if (field.custom) return field.label!;
+    const manualLabelByKey: Record<string, string> = {
+      incident_date: 'imports.manual.incidentDate',
+      incident_time: 'imports.manual.incidentTime',
+      behaviour_type: 'imports.manual.behaviourType',
+      notes: 'imports.manual.notes',
+      reporter_name: 'imports.manual.reporterName',
+      recorded_by_email: 'imports.manual.reporterEmail',
+      recorded_by_title: 'imports.manual.reporterTitle',
+      decision: 'imports.manual.decision',
+      conduct_deduction_level: 'imports.manual.conductDeductionLevel',
+      occurrence_count: 'imports.manual.occurrenceCount',
+      behaviour_points_deducted: 'imports.manual.pointsDeducted',
+      term: 'imports.manual.term',
+      project_name: 'imports.manual.projectName',
+      subject: 'imports.manual.subject',
+      status: 'imports.manual.status',
+      teacher_notes: 'imports.manual.teacherNotes',
+      attendance_date: 'imports.manual.attendanceDate',
+      trip_direction: 'imports.manual.tripDirection',
+      violation_type: 'imports.manual.violationType',
+      bus_code: 'imports.manual.busCode',
+      route_name: 'imports.manual.routeName',
+      record_date: 'imports.manual.recordDate',
+      academic_year: 'imports.manual.academicYear',
+      concern_type: 'imports.manual.concernType',
+      risk_level: 'imports.manual.riskLevel',
+      visit_date: 'imports.manual.visitDate',
+      symptoms: 'imports.manual.symptoms',
+      diagnosis: 'imports.manual.diagnosis',
+      classification: 'imports.manual.classification',
+      treatment: 'imports.manual.treatment',
+      medication: 'imports.manual.medication',
+      notification_sent: 'imports.manual.notificationSent',
+    };
+    return this.t(manualLabelByKey[field.key] ?? `imports.templateFields.${field.key}`);
+  }
+  tableFieldLabel(field: RecordField): string {
+    return this.isBehaviourModule() && field.key === 'incident_date'
+      ? this.t('imports.templateFields.incident_datetime')
+      : this.fieldLabel(field);
+  }
+  tableColumnCount(): number {
+    return this.tableFields().length + 2 + (this.isBehaviourModule() ? 0 : 1) + (this.isHealthModule() ? 2 : 0);
+  }
+  isBehaviourModule(): boolean { return this.moduleId === 'student-behaviours'; }
   isHealthModule(): boolean { return this.moduleId === 'student-health-visits'; }
   formatDateTime(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(value)); }
   isBadgeField(key: string): boolean { return ['behaviour_type', 'status', 'risk_level', 'violation_type'].includes(key); }
@@ -477,6 +617,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   displayValue(key: string, value: string | null | undefined): string {
     if (!value) return '';
     if (key === 'visit_date') return this.formatDateTime(value);
+    if (key === 'term') return this.termLabel(value);
     if (value === 'true' || value === 'false') return this.t(`moduleRecords.boolean.${value}`);
     const slug = value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const prefix = key === 'concern_type' ? 'imports.mentalHealthOptions.concern.'
@@ -562,9 +703,10 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   optionsFor(field: RecordField): string[] {
     if (field.type === 'checkbox') return ['true', 'false'];
     if (field.custom) return field.options;
+    if (field.key === 'term') return ['hk1', 'hk2'];
     const options = this.options(); if (!options) return [];
     return field.key === 'behaviour_type' ? [...options.positiveBehaviourTypes, ...options.concerningBehaviourTypes]
-      : field.key === 'subject' ? options.projectSubjects
+      : field.key === 'subject' && this.moduleId === 'student-projects' ? options.projectSubjects
       : field.key === 'status' ? options.projectStatuses
       : field.key === 'academic_year' ? options.academicYears
       : field.key === 'concern_type' ? options.mentalHealthConcernTypes
@@ -577,10 +719,12 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   private standardFieldType(key: string): RecordField['type'] {
     if (key === 'visit_date') return 'datetime-local';
     if (key.endsWith('_date')) return 'date';
-    if (['notes', 'teacher_notes', 'symptoms', 'diagnosis', 'treatment', 'student_match_notes', 'source_data_issues'].includes(key)) return 'textarea';
+    if (['notes', 'teacher_notes', 'symptoms', 'diagnosis', 'treatment'].includes(key)) return 'textarea';
     if (key === 'notification_sent') return 'checkbox';
-    if (['occurrence_count', 'source_record_id'].includes(key)) return 'number';
-    if (['behaviour_type', 'subject', 'status', 'academic_year', 'concern_type', 'risk_level', 'trip_direction', 'violation_type'].includes(key)) return 'select';
+    if (key === 'occurrence_count') return 'number';
+    if (key === 'recorded_by_email') return 'email';
+    if (key === 'subject') return this.moduleId === 'student-projects' ? 'select' : 'text';
+    if (['behaviour_type', 'status', 'academic_year', 'term', 'concern_type', 'risk_level', 'trip_direction', 'violation_type'].includes(key)) return 'select';
     return 'text';
   }
 }

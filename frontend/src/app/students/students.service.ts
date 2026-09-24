@@ -110,7 +110,6 @@ export interface StudentBehaviour {
   behaviourType: string;
   category: 'Positive' | 'Concerning' | 'Other';
   notes?: string | null;
-  recordedByName?: string | null;
   academicYear?: string | null;
   term?: string | null;
   customFields?: Record<string, string>;

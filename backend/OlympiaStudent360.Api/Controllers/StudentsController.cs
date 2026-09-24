@@ -336,7 +336,7 @@ public class StudentsController : ControllerBase
                     .Where(date => date.HasValue).Max(date => date!.Value),
                 CommendationType = "Multi-source recognition",
                 Notes = entry.PositiveBehaviours.FirstOrDefault()?.Notes,
-                RecordedByName = entry.PositiveBehaviours.FirstOrDefault()?.RecordedByName,
+                RecordedByName = entry.PositiveBehaviours.FirstOrDefault()?.ImportHistory?.ImportedByName,
                 PositiveBehaviourCount = entry.Signals.PositiveBehaviourCount,
                 AverageCanvasGrade = entry.Signals.AverageCanvasGrade,
                 BusViolationCount = entry.Signals.CommendationBusViolationCount
@@ -472,7 +472,7 @@ public class StudentsController : ControllerBase
             BehaviourType = behaviourOption.Value,
             ClassificationCategory = StudentRecordFieldOptionService.CategoryName(behaviourOption.OptionGroup),
             Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim(),
-            RecordedByName = recordedByName,
+            ReporterName = Clean(model.ReporterName),
             RecordedByEmail = Clean(model.RecordedByEmail), RecordedByTitle = Clean(model.RecordedByTitle),
             AcademicYear = Clean(model.AcademicYear), Term = Clean(model.Term),
             MeasurementCycle = Clean(model.MeasurementCycle), Program = Clean(model.Program), Subject = Clean(model.Subject),
@@ -495,7 +495,7 @@ public class StudentsController : ControllerBase
             BehaviourType = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(behaviour.BehaviourType),
             Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType, behaviour.ClassificationCategory),
             Notes = behaviour.Notes,
-            RecordedByName = behaviour.RecordedByName,
+            ReporterName = behaviour.ReporterName,
             RecordedByEmail = behaviour.RecordedByEmail,
             RecordedByTitle = behaviour.RecordedByTitle,
             AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
@@ -503,9 +503,7 @@ public class StudentsController : ControllerBase
             IncidentTimeText = behaviour.IncidentTimeText, Decision = behaviour.Decision,
             ConductDeductionLevel = behaviour.ConductDeductionLevel, OccurrenceCount = behaviour.OccurrenceCount,
             BehaviourPointsDeducted = behaviour.BehaviourPointsDeducted,
-            SourceRecordId = behaviour.SourceRecordId, SourceStudentName = behaviour.SourceStudentName,
-            SourceGradeLevel = behaviour.SourceGradeLevel, StudentMatchStatus = behaviour.StudentMatchStatus,
-            StudentMatchNotes = behaviour.StudentMatchNotes, SourceDataIssues = behaviour.SourceDataIssues
+            SourceStudentName = behaviour.SourceStudentName
         });
     }
 
@@ -822,7 +820,7 @@ public class StudentsController : ControllerBase
                     BehaviourType = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(behaviour.BehaviourType),
                     Category = StudentClassificationService.BehaviourCategory(behaviour.BehaviourType, behaviour.ClassificationCategory),
                     Notes = behaviour.Notes,
-                    RecordedByName = behaviour.RecordedByName,
+                    ReporterName = behaviour.ReporterName,
                     RecordedByEmail = behaviour.RecordedByEmail,
                     RecordedByTitle = behaviour.RecordedByTitle,
                     AcademicYear = behaviour.AcademicYear, Term = behaviour.Term,
@@ -830,9 +828,7 @@ public class StudentsController : ControllerBase
                     IncidentTimeText = behaviour.IncidentTimeText, Decision = behaviour.Decision,
                     ConductDeductionLevel = behaviour.ConductDeductionLevel, OccurrenceCount = behaviour.OccurrenceCount,
                     BehaviourPointsDeducted = behaviour.BehaviourPointsDeducted,
-                    SourceRecordId = behaviour.SourceRecordId, SourceStudentName = behaviour.SourceStudentName,
-                    SourceGradeLevel = behaviour.SourceGradeLevel, StudentMatchStatus = behaviour.StudentMatchStatus,
-                    StudentMatchNotes = behaviour.StudentMatchNotes, SourceDataIssues = behaviour.SourceDataIssues,
+                    SourceStudentName = behaviour.SourceStudentName,
                     CustomFields = ImportCustomFieldService.Parse(behaviour.CustomFieldsJson)
                 })
                 .ToList(),
@@ -1617,6 +1613,7 @@ public class StudentsController : ControllerBase
         return await query
             .AsSplitQuery()
             .Include(student => student.Behaviours)
+                .ThenInclude(behaviour => behaviour.ImportHistory)
             .Include(student => student.Projects)
             .Include(student => student.MentalHealthRecords)
             .Include(student => student.BusAttendanceRecords)

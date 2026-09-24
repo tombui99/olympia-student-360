@@ -45,10 +45,8 @@ export const importModules: ImportModule[] = [
     descriptionKey: 'imports.modules.behaviours.description',
     headers: [
       'student_id', 'student_name', 'incident_date', 'incident_time', 'behaviour_type', 'notes',
-      'subject', 'academic_year', 'term', 'recorded_by_email', 'recorded_by_title', 'decision',
+      'subject', 'academic_year', 'term', 'reporter_name', 'recorded_by_email', 'recorded_by_title', 'decision',
       'conduct_deduction_level', 'occurrence_count', 'behaviour_points_deducted',
-      'source_grade_level', 'student_match_status', 'student_match_notes', 'source_data_issues',
-      'source_record_id',
     ],
     requiredHeaders: ['student_id', 'student_name', 'incident_date', 'behaviour_type'],
   },

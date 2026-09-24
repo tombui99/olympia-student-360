@@ -1644,28 +1644,17 @@ namespace OlympiaStudent360.Api.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<string>("RecordedByName")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
                     b.Property<string>("RecordedByTitle")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
-                    b.Property<string>("SourceDataIssues")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
+                    b.Property<string>("ReporterName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("SourceFileName")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
-
-                    b.Property<string>("SourceGradeLevel")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<int?>("SourceRecordId")
-                        .HasColumnType("int");
 
                     b.Property<int?>("SourceRowNumber")
                         .HasColumnType("int");
@@ -1673,14 +1662,6 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<string>("SourceStudentName")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
-
-                    b.Property<string>("StudentMatchNotes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
-
-                    b.Property<string>("StudentMatchStatus")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
 
                     b.Property<int?>("StudentProfileId")
                         .HasColumnType("int");
@@ -1704,7 +1685,7 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasIndex("StudentProfileId");
 
-                    b.HasIndex("SourceFileName", "SourceRecordId")
+                    b.HasIndex("SourceFileName", "SourceRowNumber")
                         .IsUnique();
 
                     b.ToTable("StudentBehaviours");

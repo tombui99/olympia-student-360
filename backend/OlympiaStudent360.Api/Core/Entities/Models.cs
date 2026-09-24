@@ -237,7 +237,7 @@ public class StudentBehaviour : BaseEntity
     public string BehaviourType { get; set; } = default!;
     public string? ClassificationCategory { get; set; }
     public string? Notes { get; set; }
-    public string? RecordedByName { get; set; }
+    public string? ReporterName { get; set; }
     public string? RecordedByEmail { get; set; }
     public string? RecordedByTitle { get; set; }
     public string? AcademicYear { get; set; }
@@ -250,14 +250,9 @@ public class StudentBehaviour : BaseEntity
     public string? ConductDeductionLevel { get; set; }
     public int? OccurrenceCount { get; set; }
     public string? BehaviourPointsDeducted { get; set; }
-    public int? SourceRecordId { get; set; }
     public int? SourceRowNumber { get; set; }
     public string? SourceFileName { get; set; }
     public string? SourceStudentName { get; set; }
-    public string? SourceGradeLevel { get; set; }
-    public string? StudentMatchStatus { get; set; }
-    public string? StudentMatchNotes { get; set; }
-    public string? SourceDataIssues { get; set; }
     /// <summary>Values for admin-defined custom fields, keyed by field key. JSON object.</summary>
     public string? CustomFieldsJson { get; set; }
 }

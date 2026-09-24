@@ -179,7 +179,10 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
     {
         var period = await ResolvePeriod(academicYear, reportingTerm);
         var query = userAccess.ApplyStudentScope(
-            context.StudentBehaviours.AsNoTracking().Include(item => item.Student).AsQueryable(),
+            context.StudentBehaviours.AsNoTracking()
+                .Include(item => item.Student)
+                .Include(item => item.ImportHistory)
+                .AsQueryable(),
             item => item.Student);
         if (period != null)
         {
@@ -202,7 +205,7 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
                 item.StudentProfileId,
                 Clean(item.Student?.SISUserId),
                 name,
-                Clean(item.Student?.GradeLevel) ?? Clean(item.Student?.CanvasGradeLevel) ?? Clean(item.SourceGradeLevel),
+                Clean(item.Student?.GradeLevel) ?? Clean(item.Student?.CanvasGradeLevel),
                 Clean(item.Student?.Homeroom),
                 item.IncidentDate,
                 type,
@@ -210,7 +213,7 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
                 Clean(item.Notes),
                 Clean(item.Subject),
                 Clean(item.Decision),
-                Clean(item.RecordedByName) ?? Clean(item.RecordedByEmail));
+                Clean(item.ReporterName) ?? Clean(item.RecordedByEmail) ?? Clean(item.ImportHistory?.ImportedByName));
         }).ToList();
     }
 

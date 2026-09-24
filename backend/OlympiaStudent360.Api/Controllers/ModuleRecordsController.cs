@@ -141,7 +141,6 @@ public sealed class ModuleRecordsController(
                     (EF.Functions.Like(item.Student.FullName, pattern, "!") ||
                      EF.Functions.Like(item.Student.SISUserId, pattern, "!")) ||
                 item.SourceStudentName != null && EF.Functions.Like(item.SourceStudentName, pattern, "!") ||
-                item.SourceGradeLevel != null && EF.Functions.Like(item.SourceGradeLevel, pattern, "!") ||
                 EF.Functions.Like(item.BehaviourType, pattern, "!") ||
                 item.Notes != null && EF.Functions.Like(item.Notes, pattern, "!"));
         }
@@ -152,22 +151,19 @@ public sealed class ModuleRecordsController(
         var records = items.Select(item =>
         {
             var record = Record("student-behaviours", item, item.Student,
-                item.ImportHistory?.ImportedByName ?? item.RecordedByName,
+                null,
                 ("incident_date", Date(item.IncidentDate)),
                 ("behaviour_type", StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType)),
                 ("notes", item.Notes), ("academic_year", item.AcademicYear), ("term", item.Term),
                 ("incident_time", item.IncidentTimeText), ("subject", item.Subject),
+                ("reporter_name", item.ReporterName),
                 ("recorded_by_email", item.RecordedByEmail), ("recorded_by_title", item.RecordedByTitle),
                 ("decision", item.Decision), ("conduct_deduction_level", item.ConductDeductionLevel),
                 ("occurrence_count", item.OccurrenceCount?.ToString()),
-                ("behaviour_points_deducted", item.BehaviourPointsDeducted),
-                ("source_grade_level", item.SourceGradeLevel), ("student_match_status", item.StudentMatchStatus),
-                ("student_match_notes", item.StudentMatchNotes), ("source_data_issues", item.SourceDataIssues),
-                ("source_record_id", item.SourceRecordId?.ToString()));
+                ("behaviour_points_deducted", item.BehaviourPointsDeducted));
             if (item.Student == null)
             {
                 record.StudentName = item.SourceStudentName ?? string.Empty;
-                record.GradeLevel = item.SourceGradeLevel;
             }
             return record;
         }).ToList();
@@ -337,24 +333,18 @@ public sealed class ModuleRecordsController(
         if (custom.Error != null) return custom.Error;
         if (!TryNullableInt(values, "occurrence_count", out var occurrenceCount))
             return "occurrence_count is invalid.";
-        if (!TryNullableInt(values, "source_record_id", out var sourceRecordId))
-            return "source_record_id is invalid.";
         item.IncidentDate = date; item.BehaviourType = behaviourOption.Value;
         item.ClassificationCategory = StudentRecordFieldOptionService.CategoryName(behaviourOption.OptionGroup);
         item.Notes = Clean(Value(values, "notes"));
         item.AcademicYear = Clean(Value(values, "academic_year")); item.Term = Clean(Value(values, "term"));
         item.IncidentTimeText = Clean(Value(values, "incident_time")); item.Subject = Clean(Value(values, "subject"));
+        item.ReporterName = Clean(Value(values, "reporter_name"));
         item.RecordedByEmail = Clean(Value(values, "recorded_by_email"));
         item.RecordedByTitle = Clean(Value(values, "recorded_by_title"));
         item.Decision = Clean(Value(values, "decision"));
         item.ConductDeductionLevel = Clean(Value(values, "conduct_deduction_level"));
         item.OccurrenceCount = occurrenceCount;
         item.BehaviourPointsDeducted = Clean(Value(values, "behaviour_points_deducted"));
-        item.SourceGradeLevel = Clean(Value(values, "source_grade_level"));
-        item.StudentMatchStatus = Clean(Value(values, "student_match_status"));
-        item.StudentMatchNotes = Clean(Value(values, "student_match_notes"));
-        item.SourceDataIssues = Clean(Value(values, "source_data_issues"));
-        item.SourceRecordId = sourceRecordId;
         item.CustomFieldsJson = custom.Json; item.UpdatedAt = DateTime.UtcNow;
         return null;
     }

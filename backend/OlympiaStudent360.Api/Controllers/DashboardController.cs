@@ -871,7 +871,8 @@ public class DashboardController : ControllerBase
                 query = query.Where(item => item.IncidentDate >= monthStart.Value && item.IncidentDate < monthEnd!.Value);
             var rows = await query
                 .Select(item => new { item.StudentProfileId, item.IncidentDate, item.BehaviourType, item.ClassificationCategory,
-                    item.Notes, item.RecordedByName, item.Subject })
+                    item.Notes, RecordedByName = item.ImportHistory != null ? item.ImportHistory.ImportedByName : null,
+                    item.Subject })
                 .ToListAsync();
             samples.AddRange(rows
                 .Where(item => item.StudentProfileId.HasValue)

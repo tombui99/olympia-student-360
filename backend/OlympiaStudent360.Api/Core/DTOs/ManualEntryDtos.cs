@@ -40,6 +40,7 @@ public class CreateStudentBehaviourDto
     [MaxLength(50)] public string? MeasurementCycle { get; set; }
     [MaxLength(100)] public string? Program { get; set; }
     [MaxLength(100)] public string? Subject { get; set; }
+    [MaxLength(255)] public string? ReporterName { get; set; }
     [MaxLength(255)] public string? RecordedByEmail { get; set; }
     [MaxLength(100)] public string? RecordedByTitle { get; set; }
     [MaxLength(255)] public string? Decision { get; set; }

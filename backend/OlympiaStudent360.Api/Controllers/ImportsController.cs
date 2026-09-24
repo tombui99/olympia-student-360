@@ -67,18 +67,16 @@ public class ImportsController : ControllerBase
                 BehaviourType = behaviourOption.Value,
                 ClassificationCategory = StudentRecordFieldOptionService.CategoryName(behaviourOption.OptionGroup),
                 Notes = string.IsNullOrWhiteSpace(row.Notes) ? null : row.Notes.Trim(),
-                RecordedByName = recordedByName,
+                ReporterName = Clean(row.ReporterName),
                 RecordedByEmail = Clean(row.RecordedByEmail), RecordedByTitle = Clean(row.RecordedByTitle),
                 AcademicYear = Clean(row.AcademicYear), Term = Clean(row.Term),
                 MeasurementCycle = Clean(row.MeasurementCycle), Program = Clean(row.Program), Subject = Clean(row.Subject),
                 IncidentTimeText = Clean(row.IncidentTimeText), Decision = Clean(row.Decision),
                 ConductDeductionLevel = Clean(row.ConductDeductionLevel), OccurrenceCount = row.OccurrenceCount,
                 BehaviourPointsDeducted = Clean(row.BehaviourPointsDeducted),
-                SourceRecordId = row.SourceRecordId, SourceRowNumber = row.SourceRowNumber ?? rowNumber,
+                SourceRowNumber = row.SourceRowNumber ?? rowNumber,
                 SourceFileName = Clean(row.SourceFileName) ?? model.FileName.Trim(),
                 SourceStudentName = Clean(row.SourceStudentName) ?? row.StudentName.Trim(),
-                SourceGradeLevel = Clean(row.SourceGradeLevel), StudentMatchStatus = Clean(row.StudentMatchStatus),
-                StudentMatchNotes = Clean(row.StudentMatchNotes), SourceDataIssues = Clean(row.SourceDataIssues),
                 CustomFieldsJson = customJson
             });
         }

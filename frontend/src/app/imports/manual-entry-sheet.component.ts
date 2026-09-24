@@ -57,7 +57,7 @@ const localDateTimeNow = (): string => {
         } @else {
           <form id="manual-entry-form" class="space-y-5" (ngSubmit)="submit()">
             <div class="relative block">
-              <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.student') }}</span>
+              <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.student') }} <span class="text-red-600">*</span></span>
               <div class="relative mt-2">
                 <input
                   class="w-full rounded-md border border-[#d8d0df] bg-white py-3 pl-10 pr-10 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
@@ -120,7 +120,7 @@ const localDateTimeNow = (): string => {
             @if (moduleId === 'student-behaviours') {
               <div class="grid gap-5 sm:grid-cols-2">
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.incidentDate') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.incidentDate') }} <span class="text-red-600">*</span></span>
                   <input
                     class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
                     type="date"
@@ -131,11 +131,11 @@ const localDateTimeNow = (): string => {
                 </label>
                 <label class="block">
                   <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.incidentTime') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="time" name="incidentTime" [(ngModel)]="incidentTime" />
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="incidentTime" maxlength="100" [(ngModel)]="incidentTime" />
                 </label>
               </div>
               <div class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.behaviourType') }}</span>
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.behaviourType') }} <span class="text-red-600">*</span></span>
                 <app-behaviour-type-select
                   class="mt-2 block"
                   [positiveOptions]="options()?.positiveBehaviourTypes ?? []"
@@ -148,14 +148,14 @@ const localDateTimeNow = (): string => {
                 <label class="block">
                   <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.academicYear') }}</span>
                   <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourAcademicYear" [(ngModel)]="behaviourAcademicYear">
-                    <option value="">{{ languageService.t('imports.manual.optional') }}</option>
+                    <option value=""></option>
                     @for (year of options()?.academicYears ?? []; track year) { <option [value]="year">{{ year }}</option> }
                   </select>
                 </label>
                 <label class="block">
                   <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.term') }}</span>
                   <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourTerm" [(ngModel)]="behaviourTerm">
-                    <option value="">{{ languageService.t('imports.manual.optional') }}</option>
+                    <option value=""></option>
                     <option value="hk1">{{ languageService.t('dashboard.period.term.hk1') }}</option>
                     <option value="hk2">{{ languageService.t('dashboard.period.term.hk2') }}</option>
                   </select>
@@ -167,34 +167,38 @@ const localDateTimeNow = (): string => {
               </div>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.subject') }}</span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourSubject" maxlength="100" [(ngModel)]="behaviourSubject" [placeholder]="languageService.t('imports.manual.optional')" />
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourSubject" maxlength="100" [(ngModel)]="behaviourSubject" />
+              </label>
+              <label class="block">
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.reporterName') }}</span>
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="reporterName" maxlength="255" [(ngModel)]="reporterName" />
               </label>
               <div class="grid gap-5 sm:grid-cols-2">
                 <label class="block">
                   <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.reporterEmail') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="email" name="recordedByEmail" maxlength="255" [(ngModel)]="recordedByEmail" [placeholder]="languageService.t('imports.manual.optional')" />
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="email" name="recordedByEmail" maxlength="255" [(ngModel)]="recordedByEmail" />
                 </label>
                 <label class="block">
                   <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.reporterTitle') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="recordedByTitle" maxlength="100" [(ngModel)]="recordedByTitle" [placeholder]="languageService.t('imports.manual.optional')" />
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="recordedByTitle" maxlength="100" [(ngModel)]="recordedByTitle" />
                 </label>
               </div>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.decision') }}</span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="decision" maxlength="255" [(ngModel)]="decision" [placeholder]="languageService.t('imports.manual.optional')" />
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="decision" maxlength="255" [(ngModel)]="decision" />
               </label>
               <div class="grid gap-5 sm:grid-cols-3">
-                <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.conductDeductionLevel') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="conductDeductionLevel" maxlength="50" [(ngModel)]="conductDeductionLevel" [placeholder]="languageService.t('imports.manual.optional')" />
+                <label class="grid grid-rows-[2.5rem_auto] content-start">
+                  <span class="self-start text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.conductDeductionLevel') }}</span>
+                  <input class="w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="conductDeductionLevel" maxlength="50" [(ngModel)]="conductDeductionLevel" />
                 </label>
-                <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.occurrenceCount') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="number" min="1" name="occurrenceCount" [(ngModel)]="occurrenceCount" />
+                <label class="grid grid-rows-[2.5rem_auto] content-start">
+                  <span class="self-start text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.occurrenceCount') }}</span>
+                  <input class="w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" type="number" min="1" name="occurrenceCount" [(ngModel)]="occurrenceCount" />
                 </label>
-                <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.pointsDeducted') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourPointsDeducted" maxlength="50" [(ngModel)]="behaviourPointsDeducted" [placeholder]="languageService.t('imports.manual.optional')" />
+                <label class="grid grid-rows-[2.5rem_auto] content-start">
+                  <span class="self-start text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.pointsDeducted') }}</span>
+                  <input class="w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91]" name="behaviourPointsDeducted" maxlength="50" [(ngModel)]="behaviourPointsDeducted" />
                 </label>
               </div>
               <label class="block">
@@ -204,12 +208,11 @@ const localDateTimeNow = (): string => {
                   name="notes"
                   maxlength="1000"
                   [(ngModel)]="notes"
-                  [placeholder]="languageService.t('imports.manual.optional')"
                 ></textarea>
               </label>
             } @else if (moduleId === 'student-projects') {
               <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.projectName') }}</span>
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.projectName') }} <span class="text-red-600">*</span></span>
                 <input
                   class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
                   name="projectName"
@@ -220,7 +223,7 @@ const localDateTimeNow = (): string => {
               </label>
               <div class="grid gap-5 sm:grid-cols-2">
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.subject') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.subject') }} <span class="text-red-600">*</span></span>
                   <select
                     class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
                     name="subject"
@@ -234,7 +237,7 @@ const localDateTimeNow = (): string => {
                   </select>
                 </label>
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.status') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.status') }} <span class="text-red-600">*</span></span>
                   <select
                     class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
                     name="status"
@@ -255,24 +258,23 @@ const localDateTimeNow = (): string => {
                   name="teacherNotes"
                   maxlength="1000"
                   [(ngModel)]="teacherNotes"
-                  [placeholder]="languageService.t('imports.manual.optional')"
                 ></textarea>
               </label>
             } @else if (moduleId === 'student-bus-attendance') {
               <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.attendanceDate') }}</span>
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.attendanceDate') }} <span class="text-red-600">*</span></span>
                 <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" type="date" name="attendanceDate" required [(ngModel)]="attendanceDate" />
               </label>
               <div class="grid gap-5 sm:grid-cols-2">
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.tripDirection') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.tripDirection') }} <span class="text-red-600">*</span></span>
                   <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="tripDirection" required [(ngModel)]="tripDirection">
                     <option value="">{{ languageService.t('imports.manual.selectTripDirection') }}</option>
                     @for (value of options()?.busTripDirections ?? []; track value) { <option [value]="value">{{ busOptionLabel('direction', value) }}</option> }
                   </select>
                 </label>
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.violationType') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.violationType') }} <span class="text-red-600">*</span></span>
                   <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="violationType" required [(ngModel)]="violationType">
                     <option value="">{{ languageService.t('imports.manual.selectViolationType') }}</option>
                     @for (value of options()?.busViolationTypes ?? []; track value) { <option [value]="value">{{ busOptionLabel('violation', value) }}</option> }
@@ -282,25 +284,25 @@ const localDateTimeNow = (): string => {
               <div class="grid gap-5 sm:grid-cols-2">
                 <label class="block">
                   <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.busCode') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="busCode" maxlength="100" [(ngModel)]="busCode" [placeholder]="languageService.t('imports.manual.optional')" />
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="busCode" maxlength="100" [(ngModel)]="busCode" />
                 </label>
                 <label class="block">
                   <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.routeName') }}</span>
-                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="routeName" maxlength="255" [(ngModel)]="routeName" [placeholder]="languageService.t('imports.manual.optional')" />
+                  <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="routeName" maxlength="255" [(ngModel)]="routeName" />
                 </label>
               </div>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.notes') }}</span>
-                <textarea class="mt-2 min-h-28 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="busNotes" maxlength="1000" [(ngModel)]="notes" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
+                <textarea class="mt-2 min-h-28 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="busNotes" maxlength="1000" [(ngModel)]="notes"></textarea>
               </label>
             } @else if (moduleId === 'student-mental-health') {
               <div class="grid gap-5 sm:grid-cols-2">
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.recordDate') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.recordDate') }} <span class="text-red-600">*</span></span>
                   <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" type="date" name="recordDate" required [(ngModel)]="recordDate" />
                 </label>
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.academicYear') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.academicYear') }} <span class="text-red-600">*</span></span>
                   <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="academicYear" required [(ngModel)]="academicYear">
                     <option value="">{{ languageService.t('imports.manual.selectAcademicYear') }}</option>
                     @for (year of options()?.academicYears ?? []; track year) { <option [value]="year">{{ year }}</option> }
@@ -309,14 +311,14 @@ const localDateTimeNow = (): string => {
               </div>
               <div class="grid gap-5 sm:grid-cols-2">
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.concernType') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.concernType') }} <span class="text-red-600">*</span></span>
                   <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="concernType" required [(ngModel)]="concernType">
                     <option value="">{{ languageService.t('imports.manual.selectConcernType') }}</option>
                     @for (value of options()?.mentalHealthConcernTypes ?? []; track value) { <option [value]="value">{{ mentalOptionLabel('concern', value) }}</option> }
                   </select>
                 </label>
                 <label class="block">
-                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.riskLevel') }}</span>
+                  <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.riskLevel') }} <span class="text-red-600">*</span></span>
                   <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="riskLevel" required [(ngModel)]="riskLevel">
                     <option value="">{{ languageService.t('imports.manual.selectRiskLevel') }}</option>
                     @for (value of options()?.mentalHealthRiskLevels ?? []; track value) { <option [value]="value">{{ mentalOptionLabel('risk', value) }}</option> }
@@ -325,36 +327,36 @@ const localDateTimeNow = (): string => {
               </div>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.notes') }}</span>
-                <textarea class="mt-2 min-h-28 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="mentalNotes" maxlength="1000" [(ngModel)]="notes" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
+                <textarea class="mt-2 min-h-28 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="mentalNotes" maxlength="1000" [(ngModel)]="notes"></textarea>
               </label>
             } @else {
               <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.visitDate') }}</span>
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.visitDate') }} <span class="text-red-600">*</span></span>
                 <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" type="datetime-local" name="visitDate" required [(ngModel)]="visitDate" />
               </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.classification') }}</span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="classification" maxlength="100" [(ngModel)]="classification" [placeholder]="languageService.t('imports.manual.optional')" />
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="classification" maxlength="100" [(ngModel)]="classification" />
               </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.diagnosis') }}</span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="diagnosis" maxlength="1000" [(ngModel)]="diagnosis" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
+                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="diagnosis" maxlength="1000" [(ngModel)]="diagnosis"></textarea>
               </label>
               <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.symptoms') }}</span>
+                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.symptoms') }} <span class="text-red-600">*</span></span>
                 <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="symptoms" maxlength="1000" required [(ngModel)]="symptoms"></textarea>
               </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.treatment') }}</span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="treatment" maxlength="1000" [(ngModel)]="treatment" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
+                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="treatment" maxlength="1000" [(ngModel)]="treatment"></textarea>
               </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.medication') }}</span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="medication" maxlength="500" [(ngModel)]="medication" [placeholder]="languageService.t('imports.manual.optional')" />
+                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="medication" maxlength="500" [(ngModel)]="medication" />
               </label>
               <label class="block">
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.notes') }}</span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="healthNotes" maxlength="1000" [(ngModel)]="notes" [placeholder]="languageService.t('imports.manual.optional')"></textarea>
+                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="healthNotes" maxlength="1000" [(ngModel)]="notes"></textarea>
               </label>
               <label class="flex items-center gap-3 rounded-md border border-[#e5dfe8] bg-[#faf9fb] px-4 py-3 text-sm font-semibold text-[#32124f]">
                 <input class="h-4 w-4 accent-[#5d2d7b]" type="checkbox" name="notificationSent" [(ngModel)]="notificationSent" />
@@ -370,7 +372,7 @@ const localDateTimeNow = (): string => {
                 @for (field of customFields(); track field.id) {
                   <label class="block">
                     <span class="text-sm font-semibold text-[#32124f]">
-                      {{ field.label }}@if (field.required) { <span class="text-[#a9485d]">*</span> }
+                      {{ field.label }}@if (field.required) { <span class="text-red-600"> *</span> }
                     </span>
                     @switch (field.fieldType) {
                       @case ('textarea') {
@@ -378,7 +380,7 @@ const localDateTimeNow = (): string => {
                       }
                       @case ('select') {
                         <select class="mt-2 w-full rounded-md border border-[#d8d0df] bg-white px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" [name]="'cf_' + field.fieldKey" [(ngModel)]="customValues[field.fieldKey]">
-                          <option value="">{{ languageService.t('imports.manual.optional') }}</option>
+                          <option value=""></option>
                           @for (option of field.options; track option) { <option [value]="option">{{ option }}</option> }
                         </select>
                       }
@@ -462,6 +464,7 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
   behaviourAcademicYear = '';
   behaviourTerm = '';
   behaviourSubject = '';
+  reporterName = '';
   recordedByEmail = '';
   recordedByTitle = '';
   decision = '';
@@ -666,6 +669,7 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
           academicYear: this.behaviourAcademicYear || null,
           term: this.behaviourTerm || null,
           subject: this.behaviourSubject.trim() || null,
+          reporterName: this.reporterName.trim() || null,
           recordedByEmail: this.recordedByEmail.trim() || null,
           recordedByTitle: this.recordedByTitle.trim() || null,
           decision: this.decision.trim() || null,

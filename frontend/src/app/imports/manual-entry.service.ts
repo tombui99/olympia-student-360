@@ -30,6 +30,7 @@ export interface CreateBehaviourRequest {
   academicYear?: string | null;
   term?: string | null;
   subject?: string | null;
+  reporterName?: string | null;
   recordedByEmail?: string | null;
   recordedByTitle?: string | null;
   decision?: string | null;
