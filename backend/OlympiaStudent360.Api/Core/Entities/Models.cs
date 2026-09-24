@@ -617,10 +617,6 @@ public class CustomFormResponse : BaseEntity
     public CustomForm Form { get; set; } = default!;
     public int StudentProfileId { get; set; }
     public StudentProfile Student { get; set; } = default!;
-    public string RespondentName { get; set; } = default!;
-    public string RespondentRelationship { get; set; } = default!;
-    public string RespondentEmail { get; set; } = default!;
-    public string RespondentPhone { get; set; } = default!;
     public string AnswersJson { get; set; } = default!;
     public string QuestionSnapshotJson { get; set; } = default!;
     public bool IsDeleted { get; set; }

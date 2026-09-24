@@ -85,10 +85,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<CustomFormResponse>(response =>
         {
-            response.Property(item => item.RespondentName).HasMaxLength(255);
-            response.Property(item => item.RespondentRelationship).HasMaxLength(100);
-            response.Property(item => item.RespondentEmail).HasMaxLength(255);
-            response.Property(item => item.RespondentPhone).HasMaxLength(50);
             response.Property(item => item.DeletedByUserId).HasMaxLength(450);
             response.HasIndex(item => new { item.CustomFormId, item.StudentProfileId });
             response.HasIndex(item => new { item.CustomFormId, item.IsDeleted, item.CreatedAt });

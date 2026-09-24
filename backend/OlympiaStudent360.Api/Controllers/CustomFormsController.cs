@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Data;
-using System.Net.Mail;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -123,6 +122,18 @@ public class CustomFormsController : ControllerBase
         return NoContent();
     }
 
+    [HttpDelete("{id:int}/permanent")]
+    [Authorize(Roles = Managers)]
+    public async Task<IActionResult> DeletePermanently(int id)
+    {
+        var form = await _context.CustomForms.FirstOrDefaultAsync(item => item.Id == id);
+        if (form == null) return NoContent();
+
+        _context.CustomForms.Remove(form);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
     [HttpGet("{id:int}/responses")]
     [Authorize(Roles = Managers)]
     public async Task<ActionResult<CustomFormResponsePageDto>> Responses(int id, int page = 1, int pageSize = 20)
@@ -183,13 +194,12 @@ public class CustomFormsController : ControllerBase
             var sheetData = new SheetData(); worksheetPart.Worksheet = new Worksheet(sheetData);
             var sheets = workbookPart.Workbook.AppendChild(new Sheets());
             sheets.Append(new Sheet { Id = workbookPart.GetIdOfPart(worksheetPart), SheetId = 1, Name = "Responses" });
-            AddRow(sheetData, ["Submitted at", "Student ID", "Student name", "Grade", "Homeroom", "Respondent", "Relationship", "Email", "Phone", .. questions.Select(q => q.Label)]);
+            AddRow(sheetData, ["Submitted at", "Student ID", "Student name", "Grade", "Homeroom", .. questions.Select(q => q.Label)]);
             foreach (var response in responses)
             {
                 var answers = Answers(response.AnswersJson);
                 AddRow(sheetData, [response.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), response.Student.SISUserId,
-                    response.Student.FullName, response.Student.GradeLevel ?? "", response.Student.Homeroom ?? "", response.RespondentName,
-                    response.RespondentRelationship, response.RespondentEmail, response.RespondentPhone,
+                    response.Student.FullName, response.Student.GradeLevel ?? "", response.Student.Homeroom ?? "",
                     .. questions.Select(question => Display(answers.GetValueOrDefault(question.Id)))]);
             }
             workbookPart.Workbook.Save();
@@ -256,8 +266,6 @@ public class CustomFormsController : ControllerBase
         StudentName = item.Student.FullName,
         GradeLevel = item.Student.GradeLevel ?? item.Student.CanvasGradeLevel,
         Homeroom = item.Student.Homeroom,
-        RespondentName = item.RespondentName, RespondentRelationship = item.RespondentRelationship,
-        RespondentEmail = item.RespondentEmail, RespondentPhone = item.RespondentPhone,
         Answers = Answers(item.AnswersJson), QuestionSnapshot = Definition(item.QuestionSnapshotJson), SubmittedAt = item.CreatedAt
     };
 
@@ -382,22 +390,12 @@ public class PublicCustomFormsController : ControllerBase
             return Conflict(new { Message = "This form is no longer accepting responses." });
         if (!session.Form.AllowMultipleSubmissions && await _context.CustomFormResponses.AnyAsync(item => item.CustomFormId == session.Form.Id && item.StudentProfileId == session.StudentProfileId && !item.IsDeleted))
             return Conflict(new { Message = "A response has already been submitted for this student." });
-        if (string.IsNullOrWhiteSpace(model.RespondentName) || string.IsNullOrWhiteSpace(model.RespondentRelationship) ||
-            string.IsNullOrWhiteSpace(model.RespondentEmail) || string.IsNullOrWhiteSpace(model.RespondentPhone))
-            return BadRequest(new { Message = "Guardian name, relationship, email, and phone are required." });
-        if (model.RespondentName.Trim().Length > 255 || model.RespondentRelationship.Trim().Length > 100 ||
-            model.RespondentEmail.Trim().Length > 255 || model.RespondentPhone.Trim().Length > 50)
-            return BadRequest(new { Message = "One or more guardian details are too long." });
-        if (!MailAddress.TryCreate(model.RespondentEmail.Trim(), out _))
-            return BadRequest(new { Message = "A valid guardian email is required." });
         var definition = CustomFormsController.Definition(session.Form.DefinitionJson);
         var validationError = ValidateAnswers(definition, model.Answers);
         if (validationError != null) return BadRequest(new { Message = validationError });
         _context.CustomFormResponses.Add(new CustomFormResponse
         {
             CustomFormId = session.CustomFormId, StudentProfileId = session.StudentProfileId,
-            RespondentName = model.RespondentName.Trim(), RespondentRelationship = model.RespondentRelationship.Trim(),
-            RespondentEmail = model.RespondentEmail.Trim(), RespondentPhone = model.RespondentPhone.Trim(),
             AnswersJson = JsonSerializer.Serialize(model.Answers), QuestionSnapshotJson = session.Form.DefinitionJson
         });
         session.UsedAt = DateTime.UtcNow;

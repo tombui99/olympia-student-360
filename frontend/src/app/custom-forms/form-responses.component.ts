@@ -24,7 +24,7 @@ import { CustomFormDetail, CustomFormsService, FormQuestion, FormResponse } from
           <div class="overflow-x-auto">
             <table class="w-full min-w-[980px] text-left text-sm">
               <thead class="bg-[#faf9f6] text-xs uppercase tracking-[.08em] text-[#746b7b]"><tr>
-                <th class="px-5 py-4">{{ t('forms.submittedAt') }}</th><th class="px-5 py-4">{{ t('forms.student') }}</th><th class="px-5 py-4">{{ t('forms.class') }}</th><th class="px-5 py-4">{{ t('forms.respondent') }}</th>
+                <th class="px-5 py-4">{{ t('forms.submittedAt') }}</th><th class="px-5 py-4">{{ t('forms.student') }}</th><th class="px-5 py-4">{{ t('forms.class') }}</th>
                 @for (question of historyQuestions(); track question.id) { <th class="max-w-52 px-5 py-4">{{ question.label }}</th> }
                 <th class="px-5 py-4 text-right">{{ t('forms.actions') }}</th>
               </tr></thead>
@@ -33,11 +33,10 @@ import { CustomFormDetail, CustomFormsService, FormQuestion, FormResponse } from
                   <td class="whitespace-nowrap px-5 py-4 text-[#746b7b]">{{ formatDate(response.submittedAt) }}</td>
                   <td class="px-5 py-4"><span class="font-semibold text-[#32124f]">{{ response.studentName }}</span><br><span class="text-xs text-[#746b7b]">{{ response.studentId }}</span></td>
                   <td class="px-5 py-4 text-[#746b7b]">{{ response.gradeLevel || '—' }} / {{ response.homeroom || '—' }}</td>
-                  <td class="px-5 py-4 text-[#746b7b]">{{ response.respondentName }}<br><span class="text-xs">{{ response.respondentRelationship }}</span></td>
                   @for (question of historyQuestions(); track question.id) { <td class="max-w-52 truncate px-5 py-4 text-[#746b7b]">{{ display(response.answers[question.id]) }}</td> }
                   <td class="whitespace-nowrap px-5 py-4 text-right"><button class="mr-3 text-sm font-semibold text-[#5b287c]" (click)="responseDetail.set(response)">{{ t('forms.view') }}</button><button class="text-sm font-semibold text-red-700" (click)="removeResponse(response)">{{ t('forms.delete') }}</button></td>
                 </tr> }
-                @if (!responses().length) { <tr><td class="px-5 py-12 text-center text-[#746b7b]" [attr.colspan]="5 + historyQuestions().length">{{ t('forms.noResponses') }}</td></tr> }
+                @if (!responses().length) { <tr><td class="px-5 py-12 text-center text-[#746b7b]" [attr.colspan]="4 + historyQuestions().length">{{ t('forms.noResponses') }}</td></tr> }
               </tbody>
             </table>
           </div>
@@ -49,7 +48,7 @@ import { CustomFormDetail, CustomFormsService, FormQuestion, FormResponse } from
     @if (responseDetail()) {
       <div class="fixed inset-0 z-[80] grid place-items-center bg-[#24182f]/50 p-4" (click)="responseDetail.set(null)">
         <article class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 shadow-2xl" (click)="$event.stopPropagation()">
-          <div class="flex justify-between gap-3"><div><h3 class="text-xl font-semibold text-[#32124f]">{{ responseDetail()!.studentName }}</h3><p class="text-sm text-[#746b7b]">{{ responseDetail()!.respondentName }} · {{ responseDetail()!.respondentEmail }} · {{ responseDetail()!.respondentPhone }}</p></div><button class="text-2xl" (click)="responseDetail.set(null)">×</button></div>
+          <div class="flex justify-between gap-3"><div><h3 class="text-xl font-semibold text-[#32124f]">{{ responseDetail()!.studentName }}</h3><p class="text-sm text-[#746b7b]">{{ responseDetail()!.studentId }} · {{ formatDate(responseDetail()!.submittedAt) }}</p></div><button class="text-2xl" (click)="responseDetail.set(null)">×</button></div>
           <div class="mt-6 space-y-4">@for (question of snapshotQuestions(responseDetail()!); track question.id) { <div class="rounded-lg bg-[#f8f5fa] p-4"><p class="text-sm font-semibold text-[#32124f]">{{ question.label }}</p><p class="mt-1 whitespace-pre-wrap text-sm text-[#5f5765]">{{ display(responseDetail()!.answers[question.id]) || '—' }}</p></div> }</div>
         </article>
       </div>

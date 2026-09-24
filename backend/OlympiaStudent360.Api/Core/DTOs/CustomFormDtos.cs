@@ -121,10 +121,6 @@ public class VerifiedFormStudentDto
 public class SubmitCustomFormDto
 {
     public string AccessToken { get; set; } = default!;
-    public string RespondentName { get; set; } = default!;
-    public string RespondentRelationship { get; set; } = default!;
-    public string RespondentEmail { get; set; } = default!;
-    public string RespondentPhone { get; set; } = default!;
     public Dictionary<string, JsonElement> Answers { get; set; } = [];
 }
 
@@ -136,10 +132,6 @@ public class CustomFormResponseDto
     public string StudentName { get; set; } = default!;
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
-    public string RespondentName { get; set; } = default!;
-    public string RespondentRelationship { get; set; } = default!;
-    public string RespondentEmail { get; set; } = default!;
-    public string RespondentPhone { get; set; } = default!;
     public Dictionary<string, JsonElement> Answers { get; set; } = [];
     public CustomFormDefinitionDto QuestionSnapshot { get; set; } = new();
     public DateTime SubmittedAt { get; set; }

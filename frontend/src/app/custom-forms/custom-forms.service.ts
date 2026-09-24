@@ -50,8 +50,7 @@ export interface FormStudentCandidate {
 }
 export interface FormResponse {
   id: number; studentProfileId: number; studentId: string; studentName: string; gradeLevel?: string | null;
-  homeroom?: string | null; respondentName: string; respondentRelationship: string; respondentEmail: string;
-  respondentPhone: string; answers: Record<string, unknown>; questionSnapshot: FormDefinition; submittedAt: string;
+  homeroom?: string | null; answers: Record<string, unknown>; questionSnapshot: FormDefinition; submittedAt: string;
 }
 export interface FormResponsePage { items: FormResponse[]; page: number; pageSize: number; totalCount: number; totalPages: number; }
 
@@ -66,6 +65,7 @@ export class CustomFormsService {
   create(model: SaveCustomForm) { return this.http.post<CustomFormDetail>(`${this.basePath}/api/custom-forms`, model); }
   update(id: number, model: SaveCustomForm) { return this.http.put<CustomFormDetail>(`${this.basePath}/api/custom-forms/${id}`, model); }
   archive(id: number) { return this.http.delete<void>(`${this.basePath}/api/custom-forms/${id}`); }
+  deletePermanently(id: number) { return this.http.delete<void>(`${this.basePath}/api/custom-forms/${id}/permanent`); }
   restore(id: number) { return this.http.patch<void>(`${this.basePath}/api/custom-forms/${id}/restore`, {}); }
   responses(id: number, page = 1, pageSize = 20) {
     return this.http.get<FormResponsePage>(`${this.basePath}/api/custom-forms/${id}/responses`, {
@@ -81,7 +81,7 @@ export class CustomFormsService {
   lookupStudents(publicId: string, email: string, phone: string) {
     return this.http.post<FormStudentCandidate[]>(`${this.basePath}/api/public/forms/${publicId}/students/lookup`, { email, phone });
   }
-  submit(publicId: string, payload: { accessToken: string; respondentName: string; respondentRelationship: string; respondentEmail: string; respondentPhone: string; answers: Record<string, unknown> }) {
+  submit(publicId: string, payload: { accessToken: string; answers: Record<string, unknown> }) {
     return this.http.post<{ message: string }>(`${this.basePath}/api/public/forms/${publicId}/responses`, payload);
   }
 }

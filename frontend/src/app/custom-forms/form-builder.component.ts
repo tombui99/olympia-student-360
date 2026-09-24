@@ -3,6 +3,7 @@ import { Component, HostListener, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LanguageService } from '../core/language/language.service';
+import { ToastService } from '../core/toast/toast.service';
 import { blankQuestion, blankSection, CustomFormsService, FormQuestion, FormQuestionType, FormSection, newId, SaveCustomForm } from './custom-forms.service';
 import { QuestionTypeIconComponent } from './question-type-icon.component';
 
@@ -13,7 +14,16 @@ import { QuestionTypeIconComponent } from './question-type-icon.component';
     <section class="mx-auto max-w-6xl space-y-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3"><a routerLink="/forms" class="grid h-9 w-9 place-items-center rounded-full border border-[#ddd4e2] text-[#32124f]">←</a><div><p class="text-xs uppercase tracking-[.16em] text-[#8a6811]">{{ t('forms.builder') }}</p><h2 class="text-2xl font-semibold text-[#32124f]">{{ id ? t('forms.editForm') : t('forms.newForm') }}</h2></div></div>
-        <div class="flex gap-2"><button class="rounded-md border border-[#d8d0df] px-4 py-2 text-sm font-semibold text-[#32124f] disabled:opacity-50" [disabled]="loadingForm()" (click)="openPreview()">{{ t('forms.preview') }}</button><button class="rounded-md bg-[#32124f] px-5 py-2 text-sm font-semibold text-white disabled:opacity-50" [disabled]="saving() || loadingForm()" (click)="save()">{{ saving() ? t('forms.saving') : t('forms.save') }}</button></div>
+        <div class="flex gap-2">
+          <button class="inline-flex items-center gap-2 rounded-md border border-[#d8d0df] px-4 py-2 text-sm font-semibold text-[#32124f] transition hover:bg-[#f7f3fa] disabled:opacity-50" [disabled]="loadingForm()" (click)="openPreview()">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+            {{ t('forms.preview') }}
+          </button>
+          <button class="inline-flex items-center gap-2 rounded-md bg-[#32124f] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#4b2070] disabled:opacity-50" [disabled]="saving() || loadingForm()" (click)="save()">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+            {{ saving() ? t('forms.saving') : t('forms.save') }}
+          </button>
+        </div>
       </div>
       @if (error()) { <div class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ error() }}</div> }
 
@@ -105,7 +115,18 @@ import { QuestionTypeIconComponent } from './question-type-icon.component';
 
         <aside class="space-y-4 xl:sticky xl:top-5 xl:self-start">
           <section class="rounded-xl border border-[#e2dbe7] bg-white p-4"><h3 class="font-semibold text-[#32124f]">{{ t('forms.settings') }}</h3><div class="mt-4 space-y-4"><label class="flex items-center justify-between gap-3 text-sm"><span>{{ t('forms.allowMultiple') }}</span><input type="checkbox" [(ngModel)]="model.allowMultipleSubmissions"></label><label class="block text-xs text-[#746b7b]">{{ t('forms.opensAt') }}<input type="datetime-local" class="mt-1 w-full rounded-md border px-3 py-2 text-sm" [(ngModel)]="opensAt"></label><label class="block text-xs text-[#746b7b]">{{ t('forms.closesAt') }}<input type="datetime-local" class="mt-1 w-full rounded-md border px-3 py-2 text-sm" [(ngModel)]="closesAt"></label><label class="block text-xs text-[#746b7b]">{{ t('forms.responseLimit') }}<input type="number" min="1" class="mt-1 w-full rounded-md border px-3 py-2 text-sm" [(ngModel)]="model.responseLimit" [placeholder]="t('forms.unlimited')"></label><label class="block text-xs text-[#746b7b]">{{ t('forms.confirmation') }}<textarea rows="3" class="mt-1 w-full rounded-md border px-3 py-2 text-sm" [(ngModel)]="model.confirmationMessage"></textarea></label></div></section>
-          @if (id) { <button class="w-full rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50" (click)="archive()">{{ t('forms.archive') }}</button> }
+          @if (id) {
+            <div class="space-y-2 rounded-xl border border-[#e2dbe7] bg-white p-4">
+              <button class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#d8d0df] px-4 py-2.5 text-sm font-semibold text-[#51256e] transition hover:bg-[#f7f3fa] disabled:opacity-50" [disabled]="deleting()" (click)="archive()">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1zM10 12h4"/></svg>
+                {{ t('forms.archive') }}
+              </button>
+              <button class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-wait disabled:opacity-50" [disabled]="deleting()" (click)="deletePermanently()">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/></svg>
+                {{ t('forms.deleteForm') }}
+              </button>
+            </div>
+          }
         </aside>
       </div>
     </section>
@@ -122,10 +143,6 @@ import { QuestionTypeIconComponent } from './question-type-icon.component';
             <article class="rounded-xl border-t-8 border-emerald-600 bg-white p-8 shadow"><div class="mb-4 grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-2xl text-emerald-700">✓</div><h1 class="text-2xl font-semibold text-[#32124f]">{{ t('publicForm.complete') }}</h1><p class="mt-3 text-[#746b7b]">{{ model.confirmationMessage }}</p><button class="mt-6 rounded-md border border-[#d4cbd9] px-4 py-2 text-sm font-semibold" (click)="restartPreview()">{{ t('forms.restartPreview') }}</button></article>
           } @else {
             <article class="rounded-xl border-t-8 border-[#5b287c] bg-white p-6 shadow sm:p-8"><h1 class="text-3xl font-semibold text-[#32124f]">{{ model.title || t('forms.formTitle') }}</h1><p class="mt-2 text-[#746b7b]">{{ model.description }}</p><div class="mt-5 rounded-md bg-[#fff8e1] p-3 text-sm"><span class="font-semibold">{{ t('forms.previewStudent') }}</span> · STU-0001 · Grade 8 / 8A</div></article>
-
-            @if (previewSectionIndex() === 0) {
-              <article class="mt-4 rounded-xl bg-white p-6 shadow"><h2 class="text-lg font-semibold text-[#32124f]">{{ t('publicForm.aboutYou') }}</h2><p class="mt-1 text-sm text-[#746b7b]">{{ t('publicForm.aboutYouHint') }}</p><div class="mt-5 grid gap-4 sm:grid-cols-2"><label class="text-sm font-semibold">{{ t('publicForm.guardianName') }} *<input class="mt-1 w-full rounded border px-3 py-2.5 font-normal" [(ngModel)]="previewRespondent.name" placeholder="Nguyen Van A"></label><label class="text-sm font-semibold">{{ t('publicForm.relationship') }} *<input class="mt-1 w-full rounded border px-3 py-2.5 font-normal" [(ngModel)]="previewRespondent.relationship" placeholder="Parent"></label><label class="text-sm font-semibold">{{ t('publicForm.email') }} *<input type="email" class="mt-1 w-full rounded border px-3 py-2.5 font-normal" [(ngModel)]="previewRespondent.email" placeholder="parent@example.com"></label><label class="text-sm font-semibold">{{ t('publicForm.phone') }} *<input type="tel" class="mt-1 w-full rounded border px-3 py-2.5 font-normal" [(ngModel)]="previewRespondent.phone" placeholder="090 000 0000"></label></div></article>
-            }
 
             @if (previewCurrentSection(); as section) {
               <div class="mt-4 rounded-t-xl bg-[#32124f] px-6 py-4 text-white"><p class="text-xs font-semibold uppercase tracking-[.12em] text-[#f3c246]">{{ t('publicForm.section') }} {{ previewSectionIndex()+1 }} / {{ model.definition.sections.length }}</p><h2 class="mt-1 text-xl font-semibold">{{ section.title }}</h2><p class="mt-1 text-sm text-white/70">{{ section.description }}</p></div>
@@ -153,11 +170,11 @@ import { QuestionTypeIconComponent } from './question-type-icon.component';
 export class FormBuilderComponent implements OnInit {
   id: number | null = null; saving = signal(false); error = signal<string | null>(null); preview = signal(false); opensAt = ''; closesAt = '';
   loadingForm = signal(false);
+  deleting = signal(false);
   previewSectionIndex = signal(0);
   previewSubmitted = signal(false);
   previewSectionHistory:number[] = [];
   previewAnswers:Record<string,any> = {};
-  previewRespondent = {name:'',relationship:'',email:'',phone:''};
   openTypeQuestionId = signal<string | null>(null);
   typeMenuPosition = signal<{left:number;top:number|null;bottom:number|null;maxHeight:number}>({left:0,top:0,bottom:null,maxHeight:480});
   readonly blankSection = blankSection;
@@ -165,7 +182,7 @@ export class FormBuilderComponent implements OnInit {
   questionTypes: { value: FormQuestionType; labelKey: string }[] = [
     {value:'shortText',labelKey:'forms.types.shortText'},{value:'paragraph',labelKey:'forms.types.paragraph'},{value:'multipleChoice',labelKey:'forms.types.multipleChoice'},{value:'checkboxes',labelKey:'forms.types.checkboxes'},{value:'dropdown',labelKey:'forms.types.dropdown'},{value:'linearScale',labelKey:'forms.types.linearScale'},{value:'rating',labelKey:'forms.types.rating'},{value:'multipleChoiceGrid',labelKey:'forms.types.multipleChoiceGrid'},{value:'checkboxGrid',labelKey:'forms.types.checkboxGrid'},{value:'date',labelKey:'forms.types.date'},{value:'time',labelKey:'forms.types.time'},
   ];
-  constructor(private route: ActivatedRoute, private router: Router, private service: CustomFormsService, private language: LanguageService) {}
+  constructor(private route: ActivatedRoute, private router: Router, private service: CustomFormsService, private language: LanguageService, private toast: ToastService) {}
   ngOnInit() {
     this.route.paramMap.subscribe(params => {
       const value = params.get('id');
@@ -229,7 +246,7 @@ export class FormBuilderComponent implements OnInit {
   setBranch(q:FormQuestion,option:string,target:string){q.branches=q.branches.filter(b=>b.value!==option);if(target)q.branches.push({value:option,targetSectionId:target});}
   allQuestions(){return this.model.definition.sections.flatMap(s=>s.questions);}
   openPreview(){this.restartPreview();this.preview.set(true);}
-  restartPreview(){this.previewSectionIndex.set(0);this.previewSubmitted.set(false);this.previewSectionHistory=[];this.previewAnswers={};this.previewRespondent={name:'',relationship:'',email:'',phone:''};}
+  restartPreview(){this.previewSectionIndex.set(0);this.previewSubmitted.set(false);this.previewSectionHistory=[];this.previewAnswers={};}
   previewCurrentSection(){return this.model.definition.sections[this.previewSectionIndex()]||null;}
   previewChecked(id:string,option:string){return Array.isArray(this.previewAnswers[id])&&this.previewAnswers[id].includes(option);}
   togglePreviewCheck(id:string,option:string,event:Event){const checked=(event.target as HTMLInputElement).checked;const values=Array.isArray(this.previewAnswers[id])?[...this.previewAnswers[id]]:[];this.previewAnswers[id]=checked?[...values,option]:values.filter((value:string)=>value!==option);}
@@ -245,5 +262,13 @@ export class FormBuilderComponent implements OnInit {
   previewIsLastStep(){const section=this.previewCurrentSection();if(!section)return true;const target=this.previewBranchTarget(section);return target==='__submit'||(!target&&this.previewSectionIndex()===this.model.definition.sections.length-1);}
   save(){if(this.loadingForm())return;this.error.set(null);this.saving.set(true);this.model.opensAt=this.opensAt?new Date(this.opensAt).toISOString():null;this.model.closesAt=this.closesAt?new Date(this.closesAt).toISOString():null;const request=this.id?this.service.update(this.id,this.model):this.service.create(this.model);request.subscribe({next:()=>this.router.navigate(['/forms'],{replaceUrl:true}),error:e=>{this.error.set(e.error?.message||this.t('forms.saveError'));this.saving.set(false);}});}
   archive(){if(!this.id||!confirm(this.t('forms.confirmArchive')))return;this.service.archive(this.id).subscribe(()=>this.router.navigate(['/forms']));}
+  deletePermanently(){
+    if(!this.id||this.deleting()||!confirm(this.t('forms.confirmDeleteForm')))return;
+    this.deleting.set(true);
+    this.service.deletePermanently(this.id).subscribe({
+      next:()=>{this.toast.success(this.t('forms.formDeleted'));this.router.navigate(['/forms'],{replaceUrl:true});},
+      error:()=>{this.deleting.set(false);this.error.set(this.t('forms.deleteFormError'));},
+    });
+  }
   localDate(value?:string|null){if(!value)return '';const date=new Date(value);const offset=date.getTimezoneOffset();return new Date(date.getTime()-offset*60000).toISOString().slice(0,16);}
 }
