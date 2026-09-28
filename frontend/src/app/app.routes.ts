@@ -167,6 +167,11 @@ export const routes: Routes = [
         data: { access: 'academic' },
       },
       {
+        path: 'account/change-password',
+        loadComponent: () =>
+          import('./account/change-password.component').then((m) => m.ChangePasswordComponent),
+      },
+      {
         path: 'admin/accounts',
         loadComponent: () =>
           import('./admin/account-management.component').then((m) => m.AccountManagementComponent),

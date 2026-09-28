@@ -2,7 +2,13 @@ import { Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { catchError, map, Observable, of, tap } from 'rxjs';
 import { AuthService as ApiAuthService } from '../../api/api/auth.service';
-import { AuthResponseDto, CurrentUserDto, LoginDto, UserAccessCapabilitiesDto } from '../../api/model/models';
+import {
+  AuthResponseDto,
+  ChangePasswordDto,
+  CurrentUserDto,
+  LoginDto,
+  UserAccessCapabilitiesDto,
+} from '../../api/model/models';
 
 @Injectable({ providedIn: 'root' })
 export class AuthenticationService {
@@ -34,6 +40,10 @@ export class AuthenticationService {
         this.currentUserLoaded = true;
       }),
     );
+  }
+
+  changePassword(credentials: ChangePasswordDto) {
+    return this.apiAuthService.apiAuthChangePasswordPost(credentials);
   }
 
   logout() {

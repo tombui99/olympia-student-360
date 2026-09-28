@@ -3,6 +3,12 @@ export interface LoginDto {
   password: string;
 }
 
+export interface ChangePasswordDto {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
 export interface AuthResponseDto {
   token: string;
   role: string;

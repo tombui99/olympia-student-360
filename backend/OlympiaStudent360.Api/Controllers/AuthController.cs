@@ -129,6 +129,43 @@ public class AuthController : ControllerBase
         });
     }
 
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto model)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null)
+        {
+            return Unauthorized();
+        }
+
+        if (string.Equals(model.CurrentPassword, model.NewPassword, StringComparison.Ordinal))
+        {
+            return BadRequest(new
+            {
+                Errors = new[] { "The new password must be different from the current password." }
+            });
+        }
+
+        var result = await _userManager.ChangePasswordAsync(
+            user,
+            model.CurrentPassword,
+            model.NewPassword);
+        if (!result.Succeeded)
+        {
+            return BadRequest(new { Errors = result.Errors.Select(error => error.Description) });
+        }
+
+        return NoContent();
+    }
+
     [HttpPost("logout")]
     [Authorize]
     public IActionResult Logout()

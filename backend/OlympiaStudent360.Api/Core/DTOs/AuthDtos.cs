@@ -10,6 +10,19 @@ public class LoginDto
     public string Password { get; set; } = default!;
 }
 
+public class ChangePasswordDto
+{
+    [Required]
+    public string CurrentPassword { get; set; } = default!;
+
+    [Required]
+    public string NewPassword { get; set; } = default!;
+
+    [Required]
+    [Compare(nameof(NewPassword))]
+    public string ConfirmPassword { get; set; } = default!;
+}
+
 public class RegisterDto
 {
     [Required]

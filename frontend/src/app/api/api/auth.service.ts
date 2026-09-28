@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { BASE_PATH } from '../variables';
-import { AuthResponseDto, CurrentUserDto, LoginDto } from '../model/models';
+import { AuthResponseDto, ChangePasswordDto, CurrentUserDto, LoginDto } from '../model/models';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -15,6 +15,10 @@ export class AuthService {
 
   apiAuthMeGet(): Observable<CurrentUserDto> {
     return this.http.get<CurrentUserDto>(`${this.basePath}/api/Auth/me`);
+  }
+
+  apiAuthChangePasswordPost(changePasswordDto: ChangePasswordDto): Observable<void> {
+    return this.http.post<void>(`${this.basePath}/api/Auth/change-password`, changePasswordDto);
   }
 
   apiAuthLogoutPost(): Observable<void> {

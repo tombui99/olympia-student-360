@@ -18,6 +18,7 @@ import {
   faUserShield,
   faHandHoldingHeart,
   faCompass,
+  faKey,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
@@ -126,8 +127,22 @@ interface NavSection {
               </div>
             }
           </div>
+          <a
+            routerLink="/account/change-password"
+            routerLinkActive="nav-link-active"
+            [routerLinkActiveOptions]="{ exact: true }"
+            class="nav-link mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-white/25 px-4 py-2 text-sm font-medium transition"
+            [attr.aria-label]="sidebarCollapsed() ? languageService.t('nav.changePassword') : null"
+            [attr.title]="sidebarCollapsed() ? languageService.t('nav.changePassword') : null"
+            (click)="closeMobileNavigation()"
+          >
+            <fa-icon [icon]="changePasswordIcon" />
+            @if (!sidebarCollapsed()) {
+              <span>{{ languageService.t('nav.changePassword') }}</span>
+            }
+          </a>
           <button
-            class="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-white/25 px-4 py-2 text-sm font-medium text-white transition hover:border-[#f3c246] hover:bg-white/10"
+            class="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-white/25 px-4 py-2 text-sm font-medium text-white transition hover:border-[#f3c246] hover:bg-white/10"
             type="button"
             [attr.aria-label]="languageService.t('nav.signOut')"
             [attr.title]="sidebarCollapsed() ? languageService.t('nav.signOut') : null"
@@ -345,7 +360,7 @@ interface NavSection {
         padding-inline: 0;
       }
 
-      .sidebar-compact .sidebar-account button {
+      .sidebar-compact .sidebar-account :is(a, button) {
         padding-inline: 0;
       }
 
@@ -373,6 +388,7 @@ export class MainLayoutComponent {
   readonly mobileMenuOpen = signal(false);
   readonly menuIcon = faBars;
   readonly signOutIcon = faRightFromBracket;
+  readonly changePasswordIcon = faKey;
   readonly navSections: NavSection[] = [
     {
       titleKey: 'navSection.overview',
