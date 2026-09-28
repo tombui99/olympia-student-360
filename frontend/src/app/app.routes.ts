@@ -109,6 +109,12 @@ export const routes: Routes = [
         data: { access: 'support' },
       },
       {
+        path: 'career-guidance',
+        loadComponent: () => import('./career-guidance/career-guidance.component').then((m) => m.CareerGuidanceComponent),
+        canActivate: [scopeGuard],
+        data: { access: 'academic' },
+      },
+      {
         path: 'students/:studentId',
         loadComponent: () =>
           import('./students/student-profile.component').then((m) => m.StudentProfileComponent),

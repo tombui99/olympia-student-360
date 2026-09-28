@@ -17,6 +17,7 @@ import {
   faChartColumn,
   faUserShield,
   faHandHoldingHeart,
+  faCompass,
 } from '@fortawesome/free-solid-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { AuthenticationService } from '../core/auth/auth.service';
@@ -398,6 +399,7 @@ export class MainLayoutComponent {
       titleKey: 'navSection.data',
       items: [
         { path: '/support-journey', labelKey: 'nav.supportJourney', icon: faHandHoldingHeart, access: 'support' },
+        { path: '/career-guidance', labelKey: 'nav.careerGuidance', icon: faCompass, access: 'academic' },
         { path: '/behaviours', labelKey: 'nav.behaviours', icon: faAward, access: 'academic' },
         { path: '/projects', labelKey: 'nav.projects', icon: faClipboardList, access: 'academic' },
         { path: '/bus-attendance', labelKey: 'nav.busAttendance', icon: faTableColumns, access: 'bus' },

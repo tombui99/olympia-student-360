@@ -21,6 +21,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentHealthVisit> StudentHealthVisits { get; set; }
     public DbSet<StudentBusAttendanceRecord> StudentBusAttendanceRecords { get; set; }
     public DbSet<StudentSupportAction> StudentSupportActions { get; set; }
+    public DbSet<StudentCareerGuidanceRecord> StudentCareerGuidanceRecords { get; set; }
     public DbSet<ImportHistory> ImportHistories { get; set; }
     public DbSet<ImportModuleField> ImportModuleFields { get; set; }
     public DbSet<StudentRecordFieldOption> StudentRecordFieldOptions { get; set; }
@@ -198,6 +199,46 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             action.HasIndex(item => new { item.AcademicYear, item.Category, item.Status });
             action.HasOne(item => item.Student)
                 .WithMany(student => student.SupportActions)
+                .HasForeignKey(item => item.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StudentCareerGuidanceRecord>(record =>
+        {
+            record.Property(item => item.RecordType).HasMaxLength(40);
+            record.Property(item => item.AcademicYear).HasMaxLength(20);
+            record.Property(item => item.Term).HasMaxLength(50);
+            record.Property(item => item.Title).HasMaxLength(255);
+            record.Property(item => item.Status).HasMaxLength(30);
+            // Keep long, multilingual narrative answers out of the InnoDB inline row. DTO length
+            // validation still caps individual values while TEXT prevents an oversized row made
+            // up of many utf8mb4 VARCHAR(4000) columns.
+            record.Property(item => item.TargetCountries).HasColumnType("text");
+            record.Property(item => item.TargetUniversities).HasColumnType("text");
+            record.Property(item => item.TargetMajors).HasColumnType("text");
+            record.Property(item => item.CareerInterests).HasColumnType("text");
+            record.Property(item => item.ActivitiesSummary).HasColumnType("text");
+            record.Property(item => item.Issues).HasColumnType("text");
+            record.Property(item => item.Solutions).HasColumnType("text");
+            record.Property(item => item.StudentSupport).HasColumnType("text");
+            record.Property(item => item.StudentFeedback).HasColumnType("text");
+            record.Property(item => item.NextSteps).HasColumnType("text");
+            record.Property(item => item.Recommendations).HasColumnType("text");
+            record.Property(item => item.Proposals).HasColumnType("text");
+            record.Property(item => item.InternshipCompany).HasMaxLength(255);
+            record.Property(item => item.InternshipRole).HasMaxLength(255);
+            record.Property(item => item.StudentSelfAssessment).HasColumnType("text");
+            record.Property(item => item.HostAssessment).HasColumnType("text");
+            record.Property(item => item.FinalProduct).HasColumnType("text");
+            record.Property(item => item.RecordedByUserId).HasMaxLength(450);
+            record.Property(item => item.RecordedByName).HasMaxLength(255);
+            record.Property(item => item.UpdatedByUserId).HasMaxLength(450);
+            record.Property(item => item.UpdatedByName).HasMaxLength(255);
+            record.HasIndex(item => item.StudentProfileId);
+            record.HasIndex(item => item.RecordDate);
+            record.HasIndex(item => new { item.AcademicYear, item.RecordType, item.Status });
+            record.HasOne(item => item.Student)
+                .WithMany(student => student.CareerGuidanceRecords)
                 .HasForeignKey(item => item.StudentProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

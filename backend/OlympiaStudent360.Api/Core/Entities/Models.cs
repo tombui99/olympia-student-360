@@ -65,6 +65,7 @@ public class StudentProfile : BaseEntity
     public ICollection<StudentHealthVisit> HealthVisits { get; set; } = [];
     public ICollection<StudentBusAttendanceRecord> BusAttendanceRecords { get; set; } = [];
     public ICollection<StudentSupportAction> SupportActions { get; set; } = [];
+    public ICollection<StudentCareerGuidanceRecord> CareerGuidanceRecords { get; set; } = [];
 }
 
 /// <summary>
@@ -92,6 +93,57 @@ public class StudentSupportAction : BaseEntity
     public bool ShareWithFamily { get; set; } = true;
     public string CreatedByUserId { get; set; } = default!;
     public string CreatedByName { get; set; } = default!;
+    public string? UpdatedByUserId { get; set; }
+    public string? UpdatedByName { get; set; }
+}
+
+/// <summary>
+/// A staff-authored career and university guidance record for a student. One model covers the
+/// recurring reports used by the university and career counselling team: general plans,
+/// university applications, preparation for younger cohorts, internships, and counselling.
+/// Record-type-specific fields remain nullable so each workflow only asks teachers for relevant
+/// information.
+/// </summary>
+public class StudentCareerGuidanceRecord : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public string RecordType { get; set; } = default!;
+    public DateTime RecordDate { get; set; }
+    public string AcademicYear { get; set; } = default!;
+    public string? Term { get; set; }
+    public string Title { get; set; } = default!;
+    public string Status { get; set; } = default!;
+
+    public string? TargetCountries { get; set; }
+    public string? TargetUniversities { get; set; }
+    public string? TargetMajors { get; set; }
+    public string? CareerInterests { get; set; }
+    public int? ApplicationProgressPercent { get; set; }
+    public int? PreparationProgressPercent { get; set; }
+    public int? QualityRating { get; set; }
+
+    public string? ActivitiesSummary { get; set; }
+    public string? Issues { get; set; }
+    public string? Solutions { get; set; }
+    public string? StudentSupport { get; set; }
+    public string? StudentFeedback { get; set; }
+    public string? NextSteps { get; set; }
+    public string? Recommendations { get; set; }
+    public string? Proposals { get; set; }
+
+    public string? InternshipCompany { get; set; }
+    public string? InternshipRole { get; set; }
+    public DateTime? InternshipStartDate { get; set; }
+    public DateTime? InternshipEndDate { get; set; }
+    public int? InternshipProgressPercent { get; set; }
+    public int? InternshipQualityRating { get; set; }
+    public string? StudentSelfAssessment { get; set; }
+    public string? HostAssessment { get; set; }
+    public string? FinalProduct { get; set; }
+
+    public string RecordedByUserId { get; set; } = default!;
+    public string RecordedByName { get; set; } = default!;
     public string? UpdatedByUserId { get; set; }
     public string? UpdatedByName { get; set; }
 }

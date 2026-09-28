@@ -222,6 +222,7 @@ public sealed class UserAccessMiddleware(RequestDelegate next)
             return access.CanAccessWorkspace;
         if (path.StartsWith("/api/customforms") || path.StartsWith("/api/custom-forms"))
             return access.CanAccessAcademic;
+        if (path.StartsWith("/api/career-guidance")) return access.CanAccessAcademic;
         if (path.StartsWith("/api/support-actions")) return access.CanAccessSupport;
         if (path.StartsWith("/api/students/at-risk") || path.StartsWith("/api/students/commendations") ||
             path.StartsWith("/api/students/classification-settings")) return access.CanAccessAcademic;

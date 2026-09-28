@@ -13,11 +13,13 @@ import {
   StudentCanvasSubmissionSheetComponent,
 } from './student-canvas-submission-sheet.component';
 import { StudentSupportJourneyComponent } from '../support-actions/student-support-journey.component';
+import { StudentCareerGuidanceComponent } from '../career-guidance/student-career-guidance.component';
 
 type ProfileSection =
   | 'overview'
   | 'parents'
   | 'support'
+  | 'career'
   | 'behaviours'
   | 'projects'
   | 'transport'
@@ -26,7 +28,7 @@ type ProfileSection =
 
 @Component({
   selector: 'app-student-profile',
-  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent, StudentSupportJourneyComponent],
+  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent, StudentSupportJourneyComponent, StudentCareerGuidanceComponent],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -248,6 +250,17 @@ type ProfileSection =
 
         @if (activeSection() === 'support') {
           <app-student-support-journey
+            [studentId]="profile.id"
+            [studentName]="profile.fullName"
+            [sisUserId]="profile.sisUserId"
+            [gradeLevel]="profile.gradeLevel ?? null"
+            [homeroom]="profile.homeroom ?? null"
+            [academicYear]="selectedYear()"
+          />
+        }
+
+        @if (activeSection() === 'career') {
+          <app-student-career-guidance
             [studentId]="profile.id"
             [studentName]="profile.fullName"
             [sisUserId]="profile.sisUserId"
@@ -1087,6 +1100,10 @@ export class StudentProfileComponent implements OnInit {
           label: this.languageService.t('studentProfile.navigation.support'),
         },
         {
+          id: 'career',
+          label: this.languageService.language() === 'vi' ? 'Hướng nghiệp' : 'Career guidance',
+        },
+        {
           id: 'behaviours',
           label: this.languageService.t('studentProfile.navigation.behaviours'),
         },
@@ -1111,6 +1128,7 @@ export class StudentProfileComponent implements OnInit {
         if (item.id === 'transport') return this.authService.canAccess('bus');
         if (item.id === 'wellbeing') return this.authService.canAccess('health');
         if (item.id === 'support') return this.authService.canAccess('support');
+        if (item.id === 'career') return this.authService.canAccess('academic');
         if (['parents', 'behaviours', 'projects', 'learning'].includes(item.id)) {
           return this.authService.canAccess('academic');
         }
@@ -1444,6 +1462,7 @@ export class StudentProfileComponent implements OnInit {
       value === 'overview' ||
       value === 'parents' ||
       value === 'support' ||
+      value === 'career' ||
       value === 'behaviours' ||
       value === 'projects' ||
       value === 'transport' ||

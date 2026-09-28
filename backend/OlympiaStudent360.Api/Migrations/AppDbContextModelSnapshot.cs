@@ -1742,6 +1742,151 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("StudentBusAttendanceRecords");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentCareerGuidanceRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("AcademicYear")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("ActivitiesSummary")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ApplicationProgressPercent")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CareerInterests")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("FinalProduct")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HostAssessment")
+                        .HasColumnType("text");
+
+                    b.Property<string>("InternshipCompany")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("InternshipEndDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("InternshipProgressPercent")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("InternshipQualityRating")
+                        .HasColumnType("int");
+
+                    b.Property<string>("InternshipRole")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("InternshipStartDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Issues")
+                        .HasColumnType("text");
+
+                    b.Property<string>("NextSteps")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("PreparationProgressPercent")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Proposals")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("QualityRating")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Recommendations")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("RecordDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("RecordType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar(40)");
+
+                    b.Property<string>("RecordedByName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("RecordedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.Property<string>("Solutions")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<string>("StudentFeedback")
+                        .HasColumnType("text");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StudentSelfAssessment")
+                        .HasColumnType("text");
+
+                    b.Property<string>("StudentSupport")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetCountries")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetMajors")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetUniversities")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Term")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedByName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecordDate");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("AcademicYear", "RecordType", "Status");
+
+                    b.ToTable("StudentCareerGuidanceRecords");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentClassificationSetting", b =>
                 {
                     b.Property<int>("Id")
@@ -2663,6 +2808,17 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentCareerGuidanceRecord", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany("CareerGuidanceRecords")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentHealthVisit", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.ImportHistory", "ImportHistory")
@@ -2837,6 +2993,8 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Behaviours");
 
                     b.Navigation("BusAttendanceRecords");
+
+                    b.Navigation("CareerGuidanceRecords");
 
                     b.Navigation("HealthVisits");
 
