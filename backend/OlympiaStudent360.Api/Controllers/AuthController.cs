@@ -220,6 +220,8 @@ public class AuthController : ControllerBase
         CanAccessWorkspace = access.CanAccessWorkspace,
         CanAccessAtRisk = access.CanAccessAtRisk,
         CanAccessCommendations = access.CanAccessCommendations,
-        CanAccessSupport = access.CanAccessSupport
+        CanAccessSupport = access.CanAccessSupport,
+        CanAccessForms = access.CanAccessForms,
+        CanManageForms = access.CanManageForms
     };
 }

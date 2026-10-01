@@ -94,7 +94,7 @@ export class AuthenticationService {
     return localStorage.getItem(this.usernameKey);
   }
 
-  canAccess(capability: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations' | 'support'): boolean {
+  canAccess(capability: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations' | 'support' | 'forms'): boolean {
     if (this.getUserRole() !== 'Teacher') return true;
     const access = this.accessSignal();
     return {
@@ -105,7 +105,15 @@ export class AuthenticationService {
       atRisk: access.canAccessAtRisk,
       commendations: access.canAccessCommendations,
       support: access.canAccessSupport ?? (access.canAccessAcademic || access.canAccessHealth),
+      forms: access.canAccessForms ?? (access.canAccessAcademic || access.canAccessHealth || access.canAccessBus),
     }[capability];
+  }
+
+  canManageForms(): boolean {
+    if (this.getUserRole() !== 'Teacher') return true;
+    const access = this.accessSignal();
+    return access.canManageForms ?? (access.hasAll || access.scopes.some((scope) =>
+      ['Academic', 'Health', 'Bus'].includes(scope)));
   }
 
   private getAccess(): UserAccessCapabilitiesDto {
@@ -118,6 +126,7 @@ export class AuthenticationService {
       canAccessBus: true, canAccessWorkspace: true, canAccessAtRisk: true,
       canAccessCommendations: true, restrictsClasses: false, scopes: ['All'], homerooms: [],
       schoolLevels: [], restrictsStudents: false, canAccessSupport: true,
+      canAccessForms: true, canManageForms: true,
     };
   }
 

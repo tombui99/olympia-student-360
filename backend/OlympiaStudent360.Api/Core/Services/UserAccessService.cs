@@ -64,6 +64,9 @@ public sealed record UserAccessSnapshot(
     public bool CanAccessAtRisk => CanAccessAcademic;
     public bool CanAccessCommendations => CanAccessAcademic;
     public bool CanAccessSupport => CanAccessAcademic || CanAccessHealth;
+    public bool CanAccessForms => CanAccessAcademic || CanAccessHealth || CanAccessBus;
+    public bool CanManageForms => HasAll || Scopes.Contains(TeacherAccessScopes.Academic) ||
+        Scopes.Contains(TeacherAccessScopes.Health) || Scopes.Contains(TeacherAccessScopes.Bus);
     public bool RestrictsClasses => IsTeacher && !HasAll && Scopes.Contains(TeacherAccessScopes.Class);
     public bool RestrictsStudents => IsTeacher && !HasAll &&
         (Scopes.Contains(TeacherAccessScopes.Class) || Scopes.Contains(TeacherAccessScopes.SchoolLevel));
@@ -313,7 +316,7 @@ public sealed class UserAccessMiddleware(RequestDelegate next)
         if (path.StartsWith("/api/dashboard/metrics") || path.StartsWith("/api/dashboard/metric-drilldown"))
             return access.CanAccessWorkspace;
         if (path.StartsWith("/api/customforms") || path.StartsWith("/api/custom-forms"))
-            return access.CanAccessAcademic;
+            return access.CanAccessForms;
         if (path.StartsWith("/api/career-guidance")) return access.CanAccessAcademic;
         if (path.StartsWith("/api/support-actions")) return access.CanAccessSupport;
         if (path.StartsWith("/api/students/at-risk") || path.StartsWith("/api/students/commendations") ||

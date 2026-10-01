@@ -100,7 +100,7 @@ export class CustomFormsComponent implements OnInit {
   constructor(private service: CustomFormsService, private auth: AuthenticationService, private language: LanguageService, private toast: ToastService) {}
   ngOnInit() { this.load(); }
   t(key: string) { return this.language.t(key); }
-  canManage() { return ['Admin', 'SchoolAdministration', 'Principal'].includes(this.auth.getUserRole() || ''); }
+  canManage() { return this.auth.canManageForms(); }
   load() {
     this.loading.set(true);
     this.service.list().subscribe({ next: forms => { this.forms.set(forms); this.loading.set(false); }, error: () => { this.error.set(this.t('forms.loadError')); this.loading.set(false); } });

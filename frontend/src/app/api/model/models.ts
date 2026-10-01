@@ -36,6 +36,8 @@ export interface UserAccessCapabilitiesDto {
   canAccessAtRisk: boolean;
   canAccessCommendations: boolean;
   canAccessSupport: boolean;
+  canAccessForms: boolean;
+  canManageForms: boolean;
   restrictsClasses: boolean;
   restrictsStudents: boolean;
   scopes: string[];
@@ -61,6 +63,21 @@ export interface AdminUserDto {
   role: string;
   createdAt: string;
   lastLoginAt?: string | null;
+  accessScopes: string[];
+  homerooms: string[];
+  schoolLevels: string[];
+}
+
+export interface AdminUserPageDto {
+  items: AdminUserDto[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+export interface AdminUserOptionsDto {
+  roles: string[];
   accessScopes: string[];
   homerooms: string[];
   schoolLevels: string[];

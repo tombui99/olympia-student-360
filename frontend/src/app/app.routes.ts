@@ -164,7 +164,7 @@ export const routes: Routes = [
         path: 'forms',
         loadComponent: () => import('./custom-forms/custom-forms.component').then((m) => m.CustomFormsComponent),
         canActivate: [scopeGuard],
-        data: { access: 'academic' },
+        data: { access: 'forms' },
       },
       {
         path: 'account/change-password',

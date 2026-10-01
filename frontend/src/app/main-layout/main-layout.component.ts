@@ -31,7 +31,7 @@ interface NavItem {
   icon: IconDefinition;
   adminOnly?: boolean;
   accessManagerOnly?: boolean;
-  access?: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations' | 'support';
+  access?: 'academic' | 'health' | 'bus' | 'workspace' | 'atRisk' | 'commendations' | 'support' | 'forms';
 }
 
 interface NavSection {
@@ -408,7 +408,7 @@ export class MainLayoutComponent {
       items: [
         { path: '/reports', labelKey: 'nav.reports', icon: faChartColumn },
         { path: '/workspace', labelKey: 'nav.workspace', icon: faTableColumns, access: 'workspace' },
-        { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList, access: 'academic' },
+        { path: '/forms', labelKey: 'nav.forms', icon: faClipboardList, access: 'forms' },
       ],
     },
     {

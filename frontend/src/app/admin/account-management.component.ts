@@ -1,10 +1,11 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgFor, NgIf } from '@angular/common';
+import { Subject, Subscription, debounceTime, distinctUntilChanged } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AdminUsersService } from '../api/api/admin-users.service';
 import { AdminUserDto, CreateAdminUserDto, UpdateAdminUserDto } from '../api/model/models';
 import { LanguageService } from '../core/language/language.service';
-import { UserAccessService } from './user-access.service';
 
 type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | null };
 
@@ -35,6 +36,37 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
         <div class="border-b border-[#ebe6ef] p-6">
           <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('accounts.accountsList') }}</h3>
           <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('accounts.accountsListHint') }}</p>
+
+          <div class="mt-5 grid overflow-hidden rounded-xl border border-[#ded7e4] bg-white shadow-[0_4px_16px_rgba(50,18,79,0.05)] md:grid-cols-[minmax(0,1fr)_260px]">
+            <label class="flex min-w-0 items-center gap-3 border-b border-[#ebe6ef] px-4 py-3 md:border-b-0 md:border-r">
+              <svg class="h-5 w-5 shrink-0 text-[#8798af]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m20 20-3.5-3.5"></path>
+              </svg>
+              <input
+                class="min-w-0 flex-1 bg-transparent py-1 text-sm text-[#34243d] outline-none placeholder:text-[#9aa5b5]"
+                type="search"
+                [value]="searchInput()"
+                [attr.aria-label]="languageService.t('accounts.searchPlaceholder')"
+                [placeholder]="languageService.t('accounts.searchPlaceholder')"
+                (input)="onSearchInput($event)"
+              />
+            </label>
+            <label class="relative flex items-center">
+              <span class="sr-only">{{ languageService.t('accounts.roleFilter') }}</span>
+              <select
+                class="w-full appearance-none bg-transparent px-4 py-4 pr-11 text-sm font-medium text-[#34243d] outline-none"
+                [value]="roleFilter()"
+                (change)="onRoleFilterChange($event)"
+              >
+                <option value="">{{ languageService.t('accounts.allRoles') }}</option>
+                <option *ngFor="let role of roles()" [value]="role">{{ roleLabel(role) }}</option>
+              </select>
+              <svg class="pointer-events-none absolute right-4 h-4 w-4 text-[#8798af]" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="m5 7.5 5 5 5-5"></path>
+              </svg>
+            </label>
+          </div>
         </div>
 
         <div class="overflow-x-auto">
@@ -48,7 +80,7 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                 <th class="px-6 py-4 text-right font-semibold">{{ languageService.t('accounts.actions') }}</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-[#ebe6ef]">
+            <tbody class="divide-y divide-[#ebe6ef]" [class.opacity-60]="loading()">
               <tr *ngFor="let user of users()" class="text-sm">
                 <td class="px-6 py-4">
                   <p class="font-semibold text-[#32124f]">{{ user.fullName }}</p>
@@ -78,9 +110,41 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                   </div>
                 </td>
               </tr>
+              <tr *ngIf="loading() && users().length === 0">
+                <td colspan="5" class="px-6 py-12 text-center text-sm text-[#746a7c]">
+                  {{ languageService.t('accounts.loading') }}
+                </td>
+              </tr>
+              <tr *ngIf="!loading() && users().length === 0">
+                <td colspan="5" class="px-6 py-12 text-center text-sm text-[#746a7c]">
+                  {{ languageService.t('accounts.noResults') }}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
+
+        <footer *ngIf="totalCount() > 0" class="flex flex-wrap items-center justify-between gap-3 border-t border-[#ebe6ef] bg-[#faf9f6] px-6 py-4">
+          <p class="text-sm text-[#746a7c]">{{ paginationLabel() }}</p>
+          <div class="flex items-center gap-2">
+            <button
+              class="rounded-md border border-[#d8d0df] bg-white px-4 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1] disabled:cursor-not-allowed disabled:opacity-40"
+              type="button"
+              [disabled]="loading() || page() <= 1"
+              (click)="goToPage(page() - 1)"
+            >
+              {{ languageService.t('pagination.previous') }}
+            </button>
+            <button
+              class="rounded-md border border-[#d8d0df] bg-white px-4 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1] disabled:cursor-not-allowed disabled:opacity-40"
+              type="button"
+              [disabled]="loading() || page() >= totalPages()"
+              (click)="goToPage(page() + 1)"
+            >
+              {{ languageService.t('pagination.next') }}
+            </button>
+          </div>
+        </footer>
       </section>
 
       <div
@@ -255,41 +319,104 @@ export class AccountManagementComponent implements OnInit {
   saving = signal(false);
   error = signal<string | null>(null);
   success = signal<string | null>(null);
+  loading = signal(false);
+  searchInput = signal('');
+  search = signal('');
+  roleFilter = signal('');
+  page = signal(1);
+  totalCount = signal(0);
+  totalPages = signal(1);
   editingUserId = signal<string | null>(null);
   sheetMounted = signal(false);
   sheetOpen = signal(false);
   passwordValue = '';
+  readonly pageSize = 20;
+
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly searchTerms = new Subject<string>();
+  private usersRequest?: Subscription;
 
   form: AccountForm = this.emptyForm();
 
   constructor(
     private readonly adminUsersService: AdminUsersService,
-    private readonly userAccessService: UserAccessService,
     readonly languageService: LanguageService,
   ) {}
 
   ngOnInit() {
-    this.load();
+    this.searchTerms.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((term) => {
+      this.search.set(term.trim());
+      this.page.set(1);
+      this.loadUsers();
+    });
+    this.loadOptions();
+    this.loadUsers();
   }
 
-  load() {
-    this.userAccessService.load().subscribe({
+  loadOptions() {
+    this.adminUsersService.apiAdminUsersOptionsGet().pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
       next: (data) => {
-        this.accessScopes.set(data.availableScopes);
-        this.homerooms.set(data.availableHomerooms);
-        this.schoolLevels.set(data.availableSchoolLevels);
+        this.roles.set(data.roles);
+        this.accessScopes.set(data.accessScopes);
+        this.homerooms.set(data.homerooms);
+        this.schoolLevels.set(data.schoolLevels);
       },
-      error: () => undefined,
-    });
-    this.adminUsersService.apiAdminUsersRolesGet().subscribe({
-      next: (roles) => this.roles.set(roles),
       error: () => this.error.set(this.languageService.t('accounts.loadError')),
     });
+  }
 
-    this.adminUsersService.apiAdminUsersGet().subscribe({
-      next: (users) => this.users.set(users),
-      error: () => this.error.set(this.languageService.t('accounts.loadError')),
+  loadUsers() {
+    this.usersRequest?.unsubscribe();
+    this.loading.set(true);
+    this.usersRequest = this.adminUsersService.apiAdminUsersGet(
+      this.page(),
+      this.pageSize,
+      this.search(),
+      this.roleFilter(),
+    ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (response) => {
+        this.users.set(response.items);
+        this.page.set(response.page);
+        this.totalCount.set(response.totalCount);
+        this.totalPages.set(response.totalPages);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.error.set(this.languageService.t('accounts.loadError'));
+      },
     });
+  }
+
+  onSearchInput(event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.searchInput.set(value);
+    this.searchTerms.next(value);
+  }
+
+  onRoleFilterChange(event: Event): void {
+    this.roleFilter.set((event.target as HTMLSelectElement).value);
+    this.page.set(1);
+    this.loadUsers();
+  }
+
+  goToPage(nextPage: number): void {
+    if (nextPage < 1 || nextPage > this.totalPages() || nextPage === this.page()) return;
+    this.page.set(nextPage);
+    this.loadUsers();
+  }
+
+  paginationLabel(): string {
+    return this.languageService.t('accounts.paginationSummary')
+      .replace('{page}', String(this.page()))
+      .replace('{pages}', String(this.totalPages()))
+      .replace('{total}', String(this.totalCount()));
   }
 
   startCreate() {
@@ -386,7 +513,7 @@ export class AccountManagementComponent implements OnInit {
     this.adminUsersService.apiAdminUsersIdDelete(user.id).subscribe({
       next: () => {
         this.success.set(this.languageService.t('accounts.deleted'));
-        this.load();
+        this.loadUsers();
       },
       error: (error) => this.handleError(error),
     });
@@ -447,7 +574,7 @@ export class AccountManagementComponent implements OnInit {
     this.closeSheet();
     this.error.set(null);
     this.success.set(message);
-    this.load();
+    this.loadUsers();
   }
 
   private handleError(error: any) {

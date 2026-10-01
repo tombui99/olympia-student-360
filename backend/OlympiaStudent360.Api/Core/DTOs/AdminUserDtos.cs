@@ -16,6 +16,23 @@ public class AdminUserDto
     public DateTime? LastLoginAt { get; set; }
 }
 
+public class AdminUserPageDto
+{
+    public List<AdminUserDto> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+}
+
+public class AdminUserOptionsDto
+{
+    public List<string> Roles { get; set; } = [];
+    public List<string> AccessScopes { get; set; } = [];
+    public List<string> Homerooms { get; set; } = [];
+    public List<string> SchoolLevels { get; set; } = [];
+}
+
 public class CreateAdminUserDto
 {
     [Required]

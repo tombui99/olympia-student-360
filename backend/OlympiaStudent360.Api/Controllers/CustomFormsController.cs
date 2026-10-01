@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.Controllers;
@@ -23,23 +24,28 @@ namespace OlympiaStudent360.Api.Controllers;
 [Authorize]
 public class CustomFormsController : ControllerBase
 {
-    private const string Managers = "Admin,SchoolAdministration,Principal";
     private readonly AppDbContext _context;
+    private readonly UserAccessService _userAccess;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public CustomFormsController(AppDbContext context) => _context = context;
+    public CustomFormsController(AppDbContext context, UserAccessService userAccess)
+    {
+        _context = context;
+        _userAccess = userAccess;
+    }
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<CustomFormSummaryDto>>> List()
     {
-        var canManage = User.IsInRole("Admin") || User.IsInRole("SchoolAdministration") || User.IsInRole("Principal");
-        return Ok(await FormSummaries(false, canManage));
+        return Ok(await FormSummaries(false, _userAccess.Current.CanManageForms));
     }
 
     [HttpGet("archived")]
-    [Authorize(Roles = Managers)]
-    public async Task<ActionResult<IEnumerable<CustomFormSummaryDto>>> Archived() =>
-        Ok(await FormSummaries(true, true));
+    public async Task<ActionResult<IEnumerable<CustomFormSummaryDto>>> Archived()
+    {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
+        return Ok(await FormSummaries(true, true));
+    }
 
     private async Task<List<CustomFormSummaryDto>> FormSummaries(bool archived, bool includeResponseCount) =>
         await _context.CustomForms.AsNoTracking()
@@ -62,9 +68,9 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = Managers)]
     public async Task<ActionResult<CustomFormDetailDto>> Create(SaveCustomFormDto model)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var error = ValidateForm(model);
         if (error != null) return BadRequest(new { Message = error });
         var form = new CustomForm
@@ -83,9 +89,9 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = Managers)]
     public async Task<ActionResult<CustomFormDetailDto>> Update(int id, SaveCustomFormDto model)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var error = ValidateForm(model);
         if (error != null) return BadRequest(new { Message = error });
         var form = await _context.CustomForms.FirstOrDefaultAsync(item => item.Id == id && !item.IsArchived);
@@ -101,9 +107,9 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = Managers)]
     public async Task<IActionResult> Archive(int id)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var form = await _context.CustomForms.FirstOrDefaultAsync(item => item.Id == id && !item.IsArchived);
         if (form == null) return NoContent();
         form.IsArchived = true; form.UpdatedAt = DateTime.UtcNow;
@@ -112,9 +118,9 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpPatch("{id:int}/restore")]
-    [Authorize(Roles = Managers)]
     public async Task<IActionResult> Restore(int id)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var form = await _context.CustomForms.FirstOrDefaultAsync(item => item.Id == id && item.IsArchived);
         if (form == null) return NotFound();
         form.IsArchived = false; form.UpdatedAt = DateTime.UtcNow;
@@ -123,9 +129,9 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpDelete("{id:int}/permanent")]
-    [Authorize(Roles = Managers)]
     public async Task<IActionResult> DeletePermanently(int id)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var form = await _context.CustomForms.FirstOrDefaultAsync(item => item.Id == id);
         if (form == null) return NoContent();
 
@@ -135,9 +141,9 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpGet("{id:int}/responses")]
-    [Authorize(Roles = Managers)]
     public async Task<ActionResult<CustomFormResponsePageDto>> Responses(int id, int page = 1, int pageSize = 20)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         if (!await _context.CustomForms.AnyAsync(item => item.Id == id && !item.IsArchived)) return NotFound();
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 100);
         var query = _context.CustomFormResponses.AsNoTracking().Include(item => item.Student)
@@ -155,18 +161,18 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpGet("{id:int}/responses/{responseId:int}")]
-    [Authorize(Roles = Managers)]
     public async Task<ActionResult<CustomFormResponseDto>> ResponseDetail(int id, int responseId)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var response = await _context.CustomFormResponses.AsNoTracking().Include(item => item.Student)
             .FirstOrDefaultAsync(item => item.Id == responseId && item.CustomFormId == id && !item.IsDeleted);
         return response == null ? NotFound() : Ok(ToResponse(response));
     }
 
     [HttpDelete("{id:int}/responses/{responseId:int}")]
-    [Authorize(Roles = Managers)]
     public async Task<IActionResult> DeleteResponse(int id, int responseId)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var response = await _context.CustomFormResponses
             .FirstOrDefaultAsync(item => item.Id == responseId && item.CustomFormId == id && !item.IsDeleted);
         if (response == null) return NoContent();
@@ -177,9 +183,9 @@ public class CustomFormsController : ControllerBase
     }
 
     [HttpGet("{id:int}/responses/export")]
-    [Authorize(Roles = Managers)]
     public async Task<IActionResult> Export(int id)
     {
+        if (!_userAccess.Current.CanManageForms) return Forbid();
         var form = await _context.CustomForms.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id && !item.IsArchived);
         if (form == null) return NotFound();
         var responses = await _context.CustomFormResponses.AsNoTracking().Include(item => item.Student)

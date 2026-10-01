@@ -18,6 +18,8 @@ public class UserAccessCapabilitiesDto
     public bool CanAccessAtRisk { get; set; }
     public bool CanAccessCommendations { get; set; }
     public bool CanAccessSupport { get; set; }
+    public bool CanAccessForms { get; set; }
+    public bool CanManageForms { get; set; }
 }
 
 public class TeacherAccessUserDto

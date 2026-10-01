@@ -31,28 +31,86 @@ public class AdminUsersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<AdminUserDto>>> GetUsers()
+    public async Task<ActionResult<AdminUserPageDto>> GetUsers(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] string? role = null)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 10, 50);
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var users = await _userManager.Users
-            .Where(user => user.Id != currentUserId)
-            .OrderBy(user => user.FullName)
-            .ThenBy(user => user.UserName)
-            .ToListAsync();
+        var query = _userManager.Users.AsNoTracking()
+            .Where(user => user.Id != currentUserId);
 
-        var userDtos = new List<AdminUserDto>();
-        foreach (var user in users)
+        var searchTerm = search?.Trim();
+        if (!string.IsNullOrWhiteSpace(searchTerm))
         {
-            userDtos.Add(await ToDto(user));
+            if (searchTerm.Length > 100) searchTerm = searchTerm[..100];
+            query = query.Where(user =>
+                user.FullName.Contains(searchTerm) ||
+                (user.UserName != null && user.UserName.Contains(searchTerm)) ||
+                (user.Email != null && user.Email.Contains(searchTerm)));
         }
 
-        return Ok(userDtos);
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            var normalizedRole = ManagedRoles.FirstOrDefault(item =>
+                string.Equals(item, role.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (normalizedRole == null)
+                return BadRequest(new { Message = $"Role '{role}' is not supported." });
+
+            var roleId = await _context.Roles.AsNoTracking()
+                .Where(item => item.Name == normalizedRole)
+                .Select(item => item.Id)
+                .SingleOrDefaultAsync();
+            if (roleId == null)
+                return BadRequest(new { Message = $"Role '{normalizedRole}' does not exist." });
+
+            query = query.Where(user => _context.UserRoles.Any(userRole =>
+                userRole.UserId == user.Id && userRole.RoleId == roleId));
+        }
+
+        var totalCount = await query.CountAsync();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+        page = Math.Min(page, totalPages);
+        var pageQuery = query
+            .OrderBy(user => user.FullName)
+            .ThenBy(user => user.UserName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize);
+
+        return Ok(new AdminUserPageDto
+        {
+            Items = await ToDtos(pageQuery),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = totalPages
+        });
     }
 
     [HttpGet("roles")]
     public ActionResult<List<string>> GetRoles()
     {
         return Ok(ManagedRoles.ToList());
+    }
+
+    [HttpGet("options")]
+    public async Task<ActionResult<AdminUserOptionsDto>> GetOptions()
+    {
+        return Ok(new AdminUserOptionsDto
+        {
+            Roles = ManagedRoles.ToList(),
+            AccessScopes = TeacherAccessScopes.Values.ToList(),
+            SchoolLevels = TeacherSchoolLevels.Values.ToList(),
+            Homerooms = await _context.StudentProfiles.AsNoTracking()
+                .Where(item => item.Homeroom != null && item.Homeroom != "")
+                .Select(item => item.Homeroom!)
+                .Distinct()
+                .OrderBy(item => item)
+                .ToListAsync()
+        });
     }
 
     [HttpPost]
@@ -90,7 +148,7 @@ public class AdminUsersController : ControllerBase
         await _userManager.AddToRoleAsync(user, model.Role);
         await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms, model.SchoolLevels);
 
-        return CreatedAtAction(nameof(GetUsers), new { id = user.Id }, await ToDto(user));
+        return StatusCode(StatusCodes.Status201Created, await ToDto(user));
     }
 
     [HttpPut("{id}")]
@@ -217,6 +275,72 @@ public class AdminUsersController : ControllerBase
             CreatedAt = AsUtc(user.CreatedAt),
             LastLoginAt = user.LastLoginAt.HasValue ? AsUtc(user.LastLoginAt.Value) : null
         };
+    }
+
+    private async Task<List<AdminUserDto>> ToDtos(IQueryable<ApplicationUser> pageQuery)
+    {
+        var users = await pageQuery.ToListAsync();
+        if (users.Count == 0) return [];
+
+        var roleRows = await (
+            from user in pageQuery
+            join userRole in _context.UserRoles.AsNoTracking() on user.Id equals userRole.UserId
+            join role in _context.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            select new { user.Id, Role = role.Name! }
+        ).ToListAsync();
+        var grantRows = await (
+            from user in pageQuery
+            join grant in _context.TeacherAccessGrants.AsNoTracking() on user.Id equals grant.UserId
+            select new { user.Id, grant.Scope }
+        ).ToListAsync();
+        var classRows = await (
+            from user in pageQuery
+            join classAccess in _context.TeacherClassAccesses.AsNoTracking() on user.Id equals classAccess.UserId
+            select new { user.Id, classAccess.Homeroom }
+        ).ToListAsync();
+        var schoolLevelRows = await (
+            from user in pageQuery
+            join schoolLevel in _context.TeacherSchoolLevelAccesses.AsNoTracking()
+                on user.Id equals schoolLevel.UserId
+            select new { user.Id, schoolLevel.SchoolLevel }
+        ).ToListAsync();
+
+        var rolesByUser = roleRows.GroupBy(item => item.Id)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Role).FirstOrDefault());
+        var grantsByUser = grantRows.GroupBy(item => item.Id)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Scope).ToList());
+        var classesByUser = classRows.GroupBy(item => item.Id)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Homeroom)
+                .OrderBy(item => item).ToList());
+        var schoolLevelsByUser = schoolLevelRows.GroupBy(item => item.Id)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.SchoolLevel)
+                .OrderBy(item => item).ToList());
+
+        return users.Select(user =>
+        {
+            var userRole = rolesByUser.GetValueOrDefault(user.Id) ?? "Teacher";
+            var scopes = userRole == "Teacher"
+                ? grantsByUser.GetValueOrDefault(user.Id) ?? []
+                : [];
+            if (userRole == "Teacher" && scopes.Count == 0) scopes = [TeacherAccessScopes.All];
+            return new AdminUserDto
+            {
+                Id = user.Id,
+                Username = user.UserName!,
+                Email = user.Email,
+                FullName = user.FullName,
+                Role = userRole,
+                AccessScopes = scopes,
+                Homerooms = userRole == "Teacher"
+                    ? classesByUser.GetValueOrDefault(user.Id) ?? []
+                    : [],
+                SchoolLevels = userRole == "Teacher"
+                    ? schoolLevelsByUser.GetValueOrDefault(user.Id) ?? []
+                    : [],
+                CreatedAt = AsUtc(user.CreatedAt),
+                LastLoginAt = user.LastLoginAt.HasValue ? AsUtc(user.LastLoginAt.Value) : null
+            };
+        }).ToList();
     }
 
     private async Task<string?> ValidateAccess(
