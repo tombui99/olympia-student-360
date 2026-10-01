@@ -47,7 +47,7 @@ public class SchoolTranscriptGradeDto
     public string GradeLevel { get; set; } = default!;
     public double? AverageScore { get; set; }
     public double? Gpa { get; set; }
-    public List<string> Terms { get; set; } = [];
+    public List<string> ClassOptions { get; set; } = [];
     public List<TranscriptSubjectDto> Subjects { get; set; } = [];
     public int SubjectPage { get; set; }
     public int SubjectPageSize { get; set; }
@@ -58,12 +58,31 @@ public class SchoolTranscriptGradeDto
 public class TranscriptSubjectDto
 {
     public string Subject { get; set; } = default!;
+    public string SubjectCode { get; set; } = default!;
     public List<string> CourseNames { get; set; } = [];
-    public Dictionary<string, double?> TermScores { get; set; } = [];
+    public List<TranscriptClassScoreDto> ClassScores { get; set; } = [];
     public double? Semester1Final { get; set; }
     public double? Semester2Final { get; set; }
     public double? YearAverage { get; set; }
     public double Credit { get; set; } = 1;
+}
+
+public class TranscriptClassScoreDto
+{
+    public long CanvasCourseId { get; set; }
+    public string ClassName { get; set; } = default!;
+    public string CourseName { get; set; } = default!;
+    public double? Semester1Final { get; set; }
+    public double? Semester2Final { get; set; }
+    public double? YearAverage { get; set; }
+    public double Credit { get; set; }
+    public int RecordCount { get; set; }
+}
+
+public class TranscriptSubjectOptionDto
+{
+    public string SubjectCode { get; set; } = default!;
+    public string Subject { get; set; } = default!;
 }
 
 public class SchoolTranscriptGradeDetailDto
@@ -76,8 +95,8 @@ public class SchoolTranscriptGradeDetailDto
     public int TotalSubjects { get; set; }
     public int TotalRecords { get; set; }
     public int MatchingRecords { get; set; }
-    public List<string> Terms { get; set; } = [];
-    public List<string> SubjectOptions { get; set; } = [];
+    public List<string> ClassOptions { get; set; } = [];
+    public List<TranscriptSubjectOptionDto> SubjectOptions { get; set; } = [];
     public List<TranscriptSubjectDto> Subjects { get; set; } = [];
     public int SubjectPage { get; set; }
     public int SubjectPageSize { get; set; }
@@ -97,7 +116,6 @@ public class TranscriptScoreRecordDto
     public int StudentProfileId { get; set; }
     public string SISUserId { get; set; } = default!;
     public string StudentName { get; set; } = default!;
-    public string Subject { get; set; } = default!;
     public string CourseName { get; set; } = default!;
     public string? CourseCode { get; set; }
     public long? EnrollmentTermId { get; set; }
@@ -105,6 +123,6 @@ public class TranscriptScoreRecordDto
     public long? GradingPeriodId { get; set; }
     public string? GradingPeriodTitle { get; set; }
     public string ScoreScope { get; set; } = default!;
-    public double Score { get; set; }
+    public double? Score { get; set; }
     public string ScoreSource { get; set; } = default!;
 }

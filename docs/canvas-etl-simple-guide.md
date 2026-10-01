@@ -1,8 +1,10 @@
 # Canvas ETL: Simple Source-of-Truth Guide
 
 Canvas LMS is the source of truth for Canvas academic data. Olympia Student 360 stores the values
-Canvas returns and calculates reports from them. It does not invent course subjects, academic-year
-labels, grade levels, periods, names, statuses, scores, or IDs that pretend to be Canvas IDs.
+Canvas returns and calculates reports from them. It does not alter Canvas-owned course fields,
+academic-year labels, grade levels, periods, names, statuses, scores, or IDs. Transcripts may attach
+a Student 360-owned canonical reporting subject, but that label is kept separate and is never
+presented as a Canvas field or written back to Canvas.
 
 SIS remains the source of truth for official student identity and demographics.
 
@@ -22,9 +24,10 @@ runs. The watermark advances only after the entire run succeeds.
 
 ## APIs and destinations
 
-This is the current implemented flow. The ETL does not invent an Olympia subject, school year, or
-semester. It derives a reporting grade only from an explicit Canvas grade-account ancestor such as
-`LH_KHOI08`; it never parses a course title to guess a grade.
+This is the current implemented flow. The ETL does not write an Olympia subject, school year, or
+semester into Canvas-owned records. It derives a reporting grade only from an explicit Canvas
+grade-account ancestor such as `LH_KHOI08`; it never parses a course title to guess a grade. The
+canonical subject resolver is a downstream transcript concern, not an ETL mutation.
 
 | Canvas request | What we read | What the ETL actually does | Destination |
 |---|---|---|---|
@@ -62,9 +65,9 @@ full/reconciliation run reads the broader configured course scope without the su
 | `start_at` | `StartAt` | Exact |
 | `end_at` | `EndAt` | Exact |
 
-There are no stored Olympia `ReportingSubject`, `ReportingAcademicYear`, or `ReportingPeriod`
-columns. `CanvasGradeLevel` and its source account ID are derived only from the stored Canvas account
-hierarchy. There is no manual Canvas course mapping file.
+The ETL does not overwrite these fields with a reporting subject. `CanvasGradeLevel` and its source
+account ID are derived only from the stored Canvas account hierarchy. Canonical transcript subjects
+come from separate Student 360 configuration and controlled aliases; they are not Canvas columns.
 
 ### Assignments
 
@@ -143,7 +146,7 @@ They do not replace or redefine a Canvas value.
 
 Reports join the raw relationships at query time:
 
-- course label: Canvas course `name` (or Canvas `course_code` when displaying a missing name);
+- source-course label: exact Canvas course `name` (or Canvas `course_code` when the name is missing);
 - academic-term label: Canvas `term.name`;
 - grading period: Canvas grading-period `title`;
 - grade level: the course's structured Canvas grade account, then official SIS grade, then the
@@ -155,6 +158,64 @@ These are presentation calculations. They are not stored in Canvas tables as inv
 If Canvas does not provide a timestamp for a metric point, Olympia does not substitute the current
 time. Undated course grades may contribute to the current average card but not a fabricated monthly
 trend.
+
+### Canonical transcript subjects
+
+Grade and student transcripts group scores under a Student 360-owned canonical reporting subject.
+This provides a stable `Math` row around class-specific Canvas courses while retaining the exact
+Canvas course name, code, SIS course ID, and Canvas course ID as source detail. It does not turn the
+canonical subject into a Canvas “master course” and does not change any Canvas record.
+
+For every Canvas course, the resolver uses the first match in this order:
+
+1. Explicit Canvas course ID from `TranscriptSubjects:CanvasCourseIds`.
+2. Exact SIS course ID from `TranscriptSubjects:SisCourseIds`.
+3. Exact Canvas course code from `TranscriptSubjects:CourseCodes`.
+4. A controlled, application-owned set of bilingual English/Vietnamese subject aliases.
+5. A per-course unmapped fallback.
+
+The explicit mappings are deliberately higher priority than aliases. This lets an authoritative
+exception override a general label without changing the source course. Alias matching is limited to
+the controlled application list; it is not an unrestricted fuzzy match.
+
+An empty, production-safe configuration is:
+
+```json
+{
+  "TranscriptSubjects": {
+    "CanvasCourseIds": {},
+    "SisCourseIds": {},
+    "CourseCodes": {}
+  }
+}
+```
+
+The following example uses fictitious identifiers and shows all three explicit mapping levels:
+
+```json
+{
+  "TranscriptSubjects": {
+    "CanvasCourseIds": {
+      "123456": "Math"
+    },
+    "SisCourseIds": {
+      "2627-MATH-5H1": "Math"
+    },
+    "CourseCodes": {
+      "MATH-5": "Math"
+    }
+  }
+}
+```
+
+Configuration keys should use authoritative values copied from Canvas or the SIS. Values are the
+canonical subject labels shown on transcripts. A source course still appears by its original Canvas
+name beneath that label and in transcript detail records.
+
+If no configured mapping or controlled alias matches, the transcript uses an unmapped fallback
+whose identity includes that Canvas course's ID. Two unknown courses therefore remain two distinct
+groups even when their displayed names happen to be identical. This fail-safe preserves data and
+makes missing mappings visible instead of silently combining unrelated courses.
 
 The student grade journey groups Canvas `grades.final_score` by the exact Canvas enrollment-term
 name and grading-period title. It does not infer the student's historical grade level from their

@@ -98,6 +98,9 @@ builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
 builder.Services.AddScoped<CanvasReportingPeriodService>();
 builder.Services.AddScoped<UserAccessService>();
 builder.Services.AddScoped<StudentRecordFieldOptionService>();
+builder.Services.Configure<TranscriptSubjectOptions>(
+    builder.Configuration.GetSection("TranscriptSubjects"));
+builder.Services.AddSingleton<TranscriptSubjectResolver>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

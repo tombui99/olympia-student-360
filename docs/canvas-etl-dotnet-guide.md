@@ -211,12 +211,24 @@ Examples:
 - Submission status flags and timestamps are copied directly.
 - Assignment-group names come from the Canvas assignment-groups API.
 - A submission without a Canvas submission ID is skipped rather than assigned a fake Canvas ID.
-- Course names are not parsed into invented subjects, years, semesters, or grade levels.
+- The ETL does not replace course names with inferred subjects, years, semesters, or grade levels.
 
 The only generated score identifier is `WarehouseScoreFactId`. Canvas enrollment grade objects do
 not have their own Canvas ID, so the ETL deterministically creates a warehouse-only key from the
 Canvas enrollment and grading-period identity. It is explicitly named as warehouse metadata and is
 never presented as a Canvas ID.
+
+### Transcript reporting after the ETL
+
+Transcript subject grouping runs downstream from the ETL. It leaves the exact Canvas course ID, SIS
+course ID, course code, and name untouched, then resolves a separate Student 360-owned canonical
+reporting subject. Resolution priority is explicit Canvas course ID, SIS course ID, configured course
+code, controlled bilingual alias, and finally a per-Canvas-course unmapped fallback.
+
+The unmapped identity includes the Canvas course ID, so unknown courses never merge with one another.
+Both grade and student transcripts continue to show original Canvas course names as the source detail
+behind a canonical subject. See `canvas-etl-simple-guide.md` for the `TranscriptSubjects`
+configuration examples and the complete reporting contract.
 
 ## Upserts and transactions
 
@@ -285,15 +297,26 @@ data.
 
 | Workflow | Trigger | .NET mode | Scope |
 |---|---|---|---|
-| `backend/sql/export-local-canvas-for-rds.sh` | Local command, followed by MySQL Workbench | Baseline SQL transfer | Verified local Canvas warehouse plus its successful watermark |
+| `backend/sql/export-local-canvas-for-rds.sh` | Local command, followed by MySQL Workbench | Idempotent SQL transfer | Verified local Canvas warehouse plus its successful watermark |
 | `.github/workflows/sync-canvas.yml` | Manual; daily schedule template is currently commented | `--incremental` | Current configured terms since watermark minus overlap |
 | `.github/workflows/reconcile-canvas.yml` | Manual; weekly schedule template is currently commented | `--reconcile-days=30` | Historical and current configured terms for the previous 30 days |
 
-The generated baseline SQL is stored under `backend/sql/generated/` and is intentionally ignored by
-Git because it contains private Canvas data. Run it with MySQL Workbench's **File > Run SQL Script**
-command rather than opening the large file in an editor tab. Once it succeeds, normal imports use
-the transferred `CanvasSyncStates.LastSuccessfulWatermarkUtc`; the one-time GitHub full-sync
-workflow is not retained.
+After a successful local ETL, generate the transfer with:
+
+```bash
+backend/sql/export-local-canvas-for-rds.sh
+```
+
+The generated SQL is stored under `backend/sql/generated/`, permissioned to the local user, and
+intentionally ignored by Git because it contains private Canvas data. It stages the local snapshot,
+upserts by stable Canvas identity, omits local auto-increment and `StudentProfileId` values, relinks
+students against the target database, and advances the transferred watermark only after merge
+guards pass. It intentionally does not delete rows from RDS.
+
+Run it with MySQL Workbench's **File > Run SQL Script** command rather than opening the large file in
+an editor tab. Once it succeeds, normal imports use the transferred
+`CanvasSyncStates.LastSuccessfulWatermarkUtc`; the one-time GitHub full-sync workflow is not
+retained.
 
 GitHub treats a non-zero console exit code as a failed job. The workflow log includes the backend's
 final record counts but should never include either secret.
@@ -373,4 +396,5 @@ bad configuration from deleting, mislinking, or misreporting warehouse data.
 | `backend/OlympiaStudent360.CanvasEtl/CanvasDtos.cs` | Exact JSON fields read from Canvas |
 | `backend/OlympiaStudent360.CanvasEtl/CanvasSyncService.cs` | Identity linking, validation, course transactions, upserts, pruning |
 | `backend/OlympiaStudent360.CanvasEtl/CanvasEtlOptions.cs` | Configuration parsing and safety validation |
+| `backend/OlympiaStudent360.Api/Core/Services/TranscriptSubjectResolver.cs` | Reporting-only canonical subject resolution with per-course unmapped fallback |
 | `backend/OlympiaStudent360.Api/Data/AppDbContext.cs` | MySQL relationships, constraints, and indexes |

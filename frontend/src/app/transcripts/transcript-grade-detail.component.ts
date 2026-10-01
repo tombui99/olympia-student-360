@@ -66,9 +66,21 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
           </div>
 
           <div class="p-5 lg:p-8">
-            <div class="mb-4">
-              <h3 class="text-xl font-semibold text-[#32124f]">{{ t('transcript.subjectOverview') }}</h3>
-              <p class="mt-1 text-sm text-[#756b7c]">{{ t('transcript.subjectOverviewHelp') }}</p>
+            <div class="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 class="text-xl font-semibold text-[#32124f]">{{ t('transcript.subjectOverview') }}</h3>
+                <p class="mt-1 text-sm text-[#756b7c]">{{ t('transcript.subjectAggregateNote') }}</p>
+              </div>
+              <label class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">
+                {{ t('transcript.classFilter') }}
+                <select class="mt-1 block min-w-48 rounded-md border border-[#d8cede] bg-white px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-[#32124f]"
+                  [value]="selectedClass()" (change)="changeClass($event)">
+                  <option value="">{{ t('transcript.allClasses') }}</option>
+                  @for (className of record.classOptions; track className) {
+                    <option [value]="className">{{ className }}</option>
+                  }
+                </select>
+              </label>
             </div>
             <article class="overflow-hidden rounded-xl border border-[#ded6e3]">
               <header class="flex items-center justify-between gap-3 bg-[#32124f] px-4 py-3 text-white">
@@ -87,19 +99,49 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
                     </tr>
                   </thead>
                   <tbody>
-                    @for (subject of record.subjects; track subject.subject) {
+                    @for (subject of record.subjects; track subject.subjectCode) {
                       <tr class="border-t border-[#ece6ef]">
                         <td class="px-4 py-2.5 text-[#32124f]">
                           <span class="block font-semibold">{{ subject.subject }}</span>
-                          @if (subject.courseNames.length) {
-                            <span class="mt-0.5 block text-xs font-normal leading-snug text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
-                          }
                         </td>
                         <td class="px-3 py-2.5 text-center">{{ score(subject.semester1Final) }}</td>
                         <td class="px-3 py-2.5 text-center">{{ score(subject.semester2Final) }}</td>
                         <td class="bg-[#fcf8fd] px-3 py-2.5 text-center font-bold text-[#32124f]">{{ score(subject.yearAverage) }}</td>
                         <td class="px-3 py-2.5 text-center">{{ formatCredit(subject.credit) }}</td>
                       </tr>
+                      @if (subject.classScores.length) {
+                        <tr class="border-t border-[#ece6ef] bg-[#faf8fb]">
+                          <td colspan="5" class="px-4 py-2.5">
+                            <details>
+                              <summary class="cursor-pointer select-none text-xs font-semibold text-[#6d3a91] marker:text-[#8e69a6]">
+                                {{ classBreakdownLabel(subject.classScores.length) }}
+                              </summary>
+                              <div class="mt-3 overflow-x-auto rounded-lg border border-[#ded6e3] bg-white">
+                                <table class="w-full min-w-[620px] border-collapse text-xs">
+                                  <thead class="bg-[#f1eaf4] text-[#4a3158]"><tr>
+                                    <th class="px-3 py-2 text-left">{{ t('transcript.class') }}</th>
+                                    <th class="px-3 py-2 text-left">{{ t('transcript.course') }}</th>
+                                    <th class="px-3 py-2 text-center">{{ t('transcript.semester1') }}</th>
+                                    <th class="px-3 py-2 text-center">{{ t('transcript.semester2') }}</th>
+                                    <th class="px-3 py-2 text-center">{{ t('transcript.yearResult') }}</th>
+                                  </tr></thead>
+                                  <tbody>
+                                    @for (classScore of subject.classScores; track classScore.canvasCourseId) {
+                                      <tr class="border-t border-[#ece6ef]">
+                                        <td class="px-3 py-2 font-semibold text-[#32124f]">{{ classScore.className || '—' }}</td>
+                                        <td class="px-3 py-2 text-[#65596d]">{{ classScore.courseName }}</td>
+                                        <td class="px-3 py-2 text-center">{{ score(classScore.semester1Final) }}</td>
+                                        <td class="px-3 py-2 text-center">{{ score(classScore.semester2Final) }}</td>
+                                        <td class="px-3 py-2 text-center font-semibold">{{ score(classScore.yearAverage) }}</td>
+                                      </tr>
+                                    }
+                                  </tbody>
+                                </table>
+                              </div>
+                            </details>
+                          </td>
+                        </tr>
+                      }
                     }
                   </tbody>
                 </table>
@@ -131,10 +173,12 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
             </div>
             <div>
               <label class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">
-                {{ t('transcript.course') }}
+                {{ t('transcript.subject') }}
                 <select class="mt-1 block min-w-48 rounded-md border border-[#d8cede] bg-white px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-[#32124f]" [value]="selectedSubject()" (change)="changeSubject($event)">
                   <option value="">{{ t('transcript.all') }}</option>
-                  @for (subject of record.subjectOptions; track subject) { <option [value]="subject">{{ subject }}</option> }
+                  @for (subject of record.subjectOptions; track subject.subjectCode) {
+                    <option [value]="subject.subjectCode">{{ subject.subject }}</option>
+                  }
                 </select>
               </label>
             </div>
@@ -205,6 +249,7 @@ export class TranscriptGradeDetailComponent {
   readonly loading = signal(true);
   readonly error = signal(false);
   readonly selectedSubject = signal('');
+  readonly selectedClass = signal('');
   readonly scoreScale = signal<TranscriptScoreScale>('letter');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
@@ -214,7 +259,7 @@ export class TranscriptGradeDetailComponent {
     this.loading.set(true);
     this.error.set(false);
     this.service.getGradeDetails(this.academicYear, this.gradeLevel, page, 25,
-      this.selectedSubject(), '', subjectPage, 10).subscribe({
+      this.selectedSubject(), '', subjectPage, 10, this.selectedClass()).subscribe({
       next: (record) => {
         this.detail.set(record);
         this.loading.set(false);
@@ -231,6 +276,16 @@ export class TranscriptGradeDetailComponent {
     this.load(1);
   }
 
+  changeClass(event: Event): void {
+    this.selectedClass.set((event.target as HTMLSelectElement).value);
+    this.selectedSubject.set('');
+    this.load(1, 1);
+  }
+
+  classBreakdownLabel(count: number): string {
+    return this.t('transcript.classBreakdown').replace('{count}', String(count));
+  }
+
   pageLabel(record: SchoolTranscriptGradeDetail): string {
     return this.t('transcript.pageSummary')
       .replace('{page}', String(record.page))
@@ -245,7 +300,9 @@ export class TranscriptGradeDetailComponent {
       .replace('{total}', String(record.totalSubjects));
   }
 
-  score(value?: number | null): string { return formatTranscriptScore(value, this.scoreScale()); }
+  score(value?: number | null): string {
+    return value == null ? this.t('transcript.notAvailable') : formatTranscriptScore(value, this.scoreScale());
+  }
   formatGpa(value?: number | null): string { return value == null ? '—' : value.toFixed(2); }
   formatCredit(value: number): string { return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1); }
   date(value: string): string { return new Intl.DateTimeFormat(this.languageService.language() === 'vi' ? 'vi-VN' : 'en-GB', { dateStyle: 'medium' }).format(new Date(value)); }

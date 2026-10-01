@@ -255,11 +255,65 @@ Scheduled daily jobs use `Canvas__EnrollmentTermIds` and limit the account query
 published courses with student enrollments. Full and reconciliation runs additionally include
 completed courses. Canvas warehouse tables preserve Canvas accounts, users, courses, sections,
 enrollments, grades, assignments, and submissions separately from SIS-owned student demographics.
-There is no manual course mapping file. A Canvas grade fallback is derived
-only from the structured Canvas grade-account hierarchy and never by parsing a course title; an
-official SIS grade takes precedence when present. See `docs/canvas-etl-simple-guide.md` for the exact
-field-by-field contract and `docs/canvas-etl-dotnet-guide.md` for the .NET runtime, watermark,
-retry, transaction, and GitHub Actions flow.
+
+After a successful local run, create an idempotent MySQL transfer script with
+`backend/sql/export-local-canvas-for-rds.sh`. The private generated artifact is written under
+`backend/sql/generated/` (ignored by Git) and is intended for MySQL Workbench's **Run SQL Script**
+flow. It upserts by stable Canvas identities and relinks target-owned student IDs; it does not delete
+RDS rows.
+
+The ETL never rewrites a Canvas course's ID, SIS course ID, code, or name. Transcript reporting uses
+a separate Student 360-owned canonical subject resolver so class-specific courses such as
+`2627 Toán/Math 5H1`, `2627 Toán/Math 5H2`, and `2627 Toán/Math 5H3` can appear under one `Math`
+subject while their original Canvas course names remain visible.
+
+The resolver applies the first available match in this order:
+
+1. Explicit Canvas course ID in `TranscriptSubjects:CanvasCourseIds`.
+2. Exact SIS course ID in `TranscriptSubjects:SisCourseIds`.
+3. Exact Canvas course code in `TranscriptSubjects:CourseCodes`.
+4. A controlled, application-owned set of English/Vietnamese subject aliases.
+5. A per-Canvas-course unmapped fallback.
+
+The fallback is keyed by Canvas course ID, not by the displayed course name. Unknown courses are
+therefore kept as separate transcript rows and never merge accidentally. The configuration can be
+left empty when no authoritative mappings are available:
+
+```json
+{
+  "TranscriptSubjects": {
+    "CanvasCourseIds": {},
+    "SisCourseIds": {},
+    "CourseCodes": {}
+  }
+}
+```
+
+An exemplar configuration using fictitious identifiers is:
+
+```json
+{
+  "TranscriptSubjects": {
+    "CanvasCourseIds": {
+      "123456": "Math"
+    },
+    "SisCourseIds": {
+      "2627-MATH-5H1": "Math"
+    },
+    "CourseCodes": {
+      "MATH-5": "Math"
+    }
+  }
+}
+```
+
+Use authoritative identifiers where possible. Do not add a broad or ambiguous mapping merely to
+remove an unmapped state. These settings affect transcript grouping only; they do not write back
+to Canvas or modify the Canvas warehouse fields. A Canvas grade fallback is still derived only from
+the structured Canvas grade-account hierarchy and never by parsing a course title; an official SIS
+grade takes precedence when present. See `docs/canvas-etl-simple-guide.md` for the exact
+field-by-field and transcript-subject contract and `docs/canvas-etl-dotnet-guide.md` for the .NET
+runtime, watermark, retry, transaction, and GitHub Actions flow.
 
 The Canvas GitHub workflows use the optional production environment secret
 `OLYMPIA_RDS_CONNECTION_STRING`, or obtain the deployed App Runner service's existing

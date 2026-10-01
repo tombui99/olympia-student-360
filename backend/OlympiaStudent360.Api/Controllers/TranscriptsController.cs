@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
+using System.Text.RegularExpressions;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
@@ -11,15 +13,30 @@ namespace OlympiaStudent360.Api.Controllers;
 [Route("api/transcripts")]
 [ApiController]
 [Authorize]
-public class TranscriptsController(AppDbContext context, UserAccessService userAccess) : ControllerBase
+public class TranscriptsController(
+    AppDbContext context,
+    UserAccessService userAccess,
+    TranscriptSubjectResolver subjectResolver) : ControllerBase
 {
+    private static readonly Regex ClassNamePattern = new(
+        @"(?<![A-Za-z0-9])(?<class>\d{1,2}[A-Za-z]{1,3}\d{1,2}(?:\.\d+)?)(?![A-Za-z0-9])",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Expression<Func<CanvasCourseScore, bool>> HasUsableTranscriptScore =
+        score => score.EnrollmentOverrideScore != null || score.GradesOverrideScore != null ||
+            score.CurrentScore != null ||
+            score.FinalScore != null && (score.FinalScore != 0 ||
+                score.CurrentGrade != null || score.FinalGrade != null);
+
     private sealed record AggregateRow(
         string AcademicYear,
         string GradeLevel,
+        string SubjectCode,
         string Subject,
+        long CanvasCourseId,
+        string ClassName,
         string CourseName,
         string Term,
-        double Average,
+        double? Average,
         int RecordCount);
 
     [HttpGet("students")]
@@ -158,7 +175,9 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                 score.GradingPeriodEndDate,
                 GradeLevel = score.Enrollment!.Course!.CanvasGradeLevel ??
                     score.Student!.GradeLevel ?? score.Student.CanvasGradeLevel!,
-                Subject = score.Enrollment.Course.Name ?? score.Enrollment.Course.CourseCode ?? "—",
+                score.Enrollment.Course.CanvasCourseId,
+                score.Enrollment.Course.SisCourseId,
+                score.Enrollment.Course.CourseCode,
                 CourseName = score.Enrollment.Course.Name ?? score.Enrollment.Course.CourseCode ?? "—",
                 Term = score.GradingPeriodTitle ?? score.Enrollment.Course.EnrollmentTermName!
             })
@@ -167,32 +186,49 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                 group.Key.AcademicYear,
                 group.Key.GradingPeriodEndDate,
                 group.Key.GradeLevel,
-                group.Key.Subject,
+                group.Key.CanvasCourseId,
+                group.Key.SisCourseId,
+                group.Key.CourseCode,
                 group.Key.CourseName,
                 group.Key.Term,
                 // Canvas current_score excludes ungraded assignments, while final_score treats
                 // them as zero. For a live transcript, prefer the meaningful current result.
                 Average = group.Average(score => score.EnrollmentOverrideScore ?? score.GradesOverrideScore ??
-                    score.CurrentScore ?? score.FinalScore)!.Value,
-                RecordCount = group.Count()
+                    score.CurrentScore ?? (score.FinalScore == 0 && score.CurrentGrade == null &&
+                        score.FinalGrade == null ? null : score.FinalScore)),
+                RecordCount = group.Count(score => score.EnrollmentOverrideScore != null ||
+                    score.GradesOverrideScore != null || score.CurrentScore != null ||
+                    score.FinalScore != null && (score.FinalScore != 0 ||
+                        score.CurrentGrade != null || score.FinalGrade != null))
             })
             .ToListAsync();
 
-        var rows = groupedRows.Select(row => new AggregateRow(
-            DashboardPeriodNormalizer.AcademicYear(row.AcademicYear, row.GradingPeriodEndDate),
-            row.GradeLevel,
-            row.Subject.Trim(),
-            row.CourseName.Trim(),
-            NormalizeTerm(row.Term),
-            row.Average,
-            row.RecordCount))
+        var rows = groupedRows.Select(row =>
+        {
+            var subject = subjectResolver.Resolve(
+                row.CanvasCourseId, row.SisCourseId, row.CourseCode, row.CourseName);
+            return new AggregateRow(
+                DashboardPeriodNormalizer.AcademicYear(row.AcademicYear, row.GradingPeriodEndDate),
+                row.GradeLevel,
+                subject.Code,
+                subject.Name,
+                row.CanvasCourseId,
+                ExtractClassName(row.CourseName, row.CourseCode),
+                row.CourseName.Trim(),
+                NormalizeTerm(row.Term),
+                row.Average,
+                row.RecordCount);
+        })
             .Where(row => DashboardPeriodNormalizer.IsAcademicYear(row.AcademicYear))
             .ToList();
         var derivedRows = rows.Select(row => new
         {
             row.AcademicYear,
             GradeLevel = NormalizeGrade(row.GradeLevel),
+            row.SubjectCode,
             row.Subject,
+            row.CanvasCourseId,
+            row.ClassName,
             row.CourseName,
             row.Term,
             row.Average,
@@ -212,21 +248,49 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                     .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
                     .Select(gradeGroup =>
                     {
-                        var terms = gradeGroup.Select(row => row.Term)
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .OrderBy(TermOrder)
-                            .ThenBy(term => term, StringComparer.OrdinalIgnoreCase)
-                            .ToList();
-                        var subjects = gradeGroup.GroupBy(row => row.Subject, StringComparer.OrdinalIgnoreCase)
-                            .OrderBy(group => SubjectOrder(group.Key))
-                            .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                        var subjects = gradeGroup.GroupBy(row => row.SubjectCode, StringComparer.OrdinalIgnoreCase)
+                            .OrderBy(group => subjectResolver.SortOrder(group.Key))
+                            .ThenBy(group => group.First().Subject, StringComparer.OrdinalIgnoreCase)
                             .Select(subjectGroup =>
                             {
-                                var termScores = terms.ToDictionary(
-                                    term => term,
-                                    term => WeightedAverage(subjectGroup
-                                        .Where(row => string.Equals(row.Term, term, StringComparison.OrdinalIgnoreCase))
-                                        .Select(row => (row.Average, row.RecordCount))));
+                                var classScores = studentId == null
+                                    ? subjectGroup
+                                        .GroupBy(row => new
+                                        {
+                                            row.CanvasCourseId,
+                                            row.ClassName,
+                                            row.CourseName
+                                        })
+                                        .OrderBy(group => group.Key.ClassName, StringComparer.OrdinalIgnoreCase)
+                                        .ThenBy(group => group.Key.CourseName, StringComparer.OrdinalIgnoreCase)
+                                        .Select(courseGroup =>
+                                        {
+                                            var classSemester1 = WeightedAverage(courseGroup
+                                                .Where(row => IsSemester(row.Term, 1))
+                                                .Select(row => (row.Average, row.RecordCount)));
+                                            var classSemester2 = WeightedAverage(courseGroup
+                                                .Where(row => IsSemester(row.Term, 2))
+                                                .Select(row => (row.Average, row.RecordCount)));
+                                            var classYear = WeightedAverage(courseGroup
+                                                .Where(row => IsYear(row.Term))
+                                                .Select(row => (row.Average, row.RecordCount)));
+                                            return new TranscriptClassScoreDto
+                                            {
+                                                CanvasCourseId = courseGroup.Key.CanvasCourseId,
+                                                ClassName = courseGroup.Key.ClassName,
+                                                CourseName = courseGroup.Key.CourseName,
+                                                Semester1Final = classSemester1,
+                                                Semester2Final = classSemester2,
+                                                YearAverage = AnnualAverage(
+                                                    classSemester1, classSemester2, classYear)
+                                                    ?? WeightedAverage(courseGroup.Select(row =>
+                                                        (row.Average, row.RecordCount))),
+                                                Credit = CreditForSubject(
+                                                    classSemester1, classSemester2, classYear),
+                                                RecordCount = courseGroup.Sum(row => row.RecordCount)
+                                            };
+                                        }).ToList()
+                                    : [];
                                 var semester1Final = WeightedAverage(subjectGroup
                                     .Where(row => IsSemester(row.Term, 1))
                                     .Select(row => (row.Average, row.RecordCount)));
@@ -238,13 +302,14 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                                     .Select(row => (row.Average, row.RecordCount)));
                                 return new TranscriptSubjectDto
                                 {
-                                    Subject = subjectGroup.Key,
+                                    SubjectCode = subjectGroup.Key,
+                                    Subject = subjectGroup.First().Subject,
                                     CourseNames = subjectGroup.Select(row => row.CourseName)
                                         .Where(value => !string.IsNullOrWhiteSpace(value))
                                         .Distinct(StringComparer.OrdinalIgnoreCase)
                                         .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
                                         .ToList(),
-                                    TermScores = termScores,
+                                    ClassScores = classScores,
                                     Semester1Final = semester1Final,
                                     Semester2Final = semester2Final,
                                     YearAverage = AnnualAverage(semester1Final, semester2Final, explicitYearFinal)
@@ -261,7 +326,13 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                             GradeLevel = gradeGroup.Key,
                             AverageScore = WeightedAverage(gradeGroup.Select(row => (row.Average, row.RecordCount))),
                             Gpa = WeightedGpa(subjects),
-                            Terms = terms,
+                            ClassOptions = studentId == null
+                                ? gradeGroup.Select(row => row.ClassName)
+                                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                                    .ToList()
+                                : [],
                             Subjects = paginateSubjects
                                 ? subjects.Skip((resolvedSubjectPage - 1) * resolvedSubjectPageSize)
                                     .Take(resolvedSubjectPageSize).ToList()
@@ -274,9 +345,10 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                     }).ToList()
             }).ToList();
 
+        var usableScores = scores.Where(HasUsableTranscriptScore);
         var totalStudents = studentId != null
-            ? await scores.Select(score => score.StudentProfileId).Distinct().CountAsync()
-            : await scores.Select(score => score.Enrollment!.CanvasUserId).Distinct().CountAsync();
+            ? await usableScores.Select(score => score.StudentProfileId).Distinct().CountAsync()
+            : await usableScores.Select(score => score.Enrollment!.CanvasUserId).Distinct().CountAsync();
         return Ok(new SchoolTranscriptDto
         {
             StudentProfileId = selectedStudent?.Id,
@@ -297,7 +369,8 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
             OverallGpa = AcademicGpa(years),
             TotalAcademicYears = years.Count,
             TotalStudents = totalStudents,
-            TotalSubjects = derivedRows.Select(row => row.Subject).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            TotalSubjects = derivedRows.Select(row => row.SubjectCode)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             Years = years
         });
     }
@@ -311,7 +384,8 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
         [FromQuery] int subjectPage = 1,
         [FromQuery] int subjectPageSize = 10,
         [FromQuery] string? subject = null,
-        [FromQuery] string? term = null)
+        [FromQuery] string? term = null,
+        [FromQuery] string? className = null)
     {
         academicYear = academicYear.Trim();
         gradeLevel = gradeLevel.Trim();
@@ -319,11 +393,13 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
         pageSize = Math.Clamp(pageSize, 10, 100);
         subjectPage = Math.Max(subjectPage, 1);
         subjectPageSize = Math.Clamp(subjectPageSize, 5, 50);
+        className = className?.Trim();
 
         // Canvas term names are descriptive labels (for example,
         // "Năm học 25-26 THCS G6-8"), not the former short SIS academic-year code.
         // Keep this in sync with CanvasCourse.EnrollmentTermName's warehouse length.
-        if (academicYear.Length is < 1 or > 100 || gradeLevel.Length is < 1 or > 50)
+        if (academicYear.Length is < 1 or > 100 || gradeLevel.Length is < 1 or > 50 ||
+            className?.Length > 50)
             return BadRequest(new { Message = "Invalid academic year or grade level." });
 
         var academicYearAliases = (await context.CanvasCourses.AsNoTracking()
@@ -354,39 +430,97 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
         var aggregateRows = await baseQuery
             .GroupBy(score => new
             {
-                Subject = score.Enrollment!.Course!.Name ?? score.Enrollment.Course.CourseCode ?? "—",
+                score.Enrollment!.Course!.CanvasCourseId,
+                score.Enrollment.Course.SisCourseId,
+                score.Enrollment.Course.CourseCode,
                 CourseName = score.Enrollment.Course.Name ?? score.Enrollment.Course.CourseCode ?? "—",
                 Term = score.GradingPeriodTitle ?? score.Enrollment.Course.EnrollmentTermName ?? "—"
             })
             .Select(group => new
             {
-                group.Key.Subject,
+                group.Key.CanvasCourseId,
+                group.Key.SisCourseId,
+                group.Key.CourseCode,
                 group.Key.CourseName,
                 group.Key.Term,
                 Average = group.Average(score => score.EnrollmentOverrideScore ?? score.GradesOverrideScore ??
-                    score.CurrentScore ?? score.FinalScore)!.Value,
-                RecordCount = group.Count()
+                    score.CurrentScore ?? (score.FinalScore == 0 && score.CurrentGrade == null &&
+                        score.FinalGrade == null ? null : score.FinalScore)),
+                RecordCount = group.Count(score => score.EnrollmentOverrideScore != null ||
+                    score.GradesOverrideScore != null || score.CurrentScore != null ||
+                    score.FinalScore != null && (score.FinalScore != 0 ||
+                        score.CurrentGrade != null || score.FinalGrade != null))
             })
             .ToListAsync();
 
-        var normalizedAggregateRows = aggregateRows.Select(row => new
+        var normalizedAggregateRows = aggregateRows.Select(row =>
         {
-            Subject = row.Subject.Trim(),
-            CourseName = row.CourseName.Trim(),
-            Term = NormalizeTerm(row.Term),
-            row.Average,
-            row.RecordCount
+            var subject = subjectResolver.Resolve(
+                row.CanvasCourseId, row.SisCourseId, row.CourseCode, row.CourseName);
+            return new
+            {
+                row.CanvasCourseId,
+                SubjectCode = subject.Code,
+                Subject = subject.Name,
+                ClassName = ExtractClassName(row.CourseName, row.CourseCode),
+                CourseName = row.CourseName.Trim(),
+                Term = NormalizeTerm(row.Term),
+                row.Average,
+                row.RecordCount
+            };
         }).ToList();
-        var terms = normalizedAggregateRows.Select(row => row.Term)
+        var classOptions = normalizedAggregateRows.Select(row => row.ClassName)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(TermOrder)
-            .ThenBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var subjects = normalizedAggregateRows
-            .GroupBy(row => row.Subject, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+        long[] selectedClassCourseIds = string.IsNullOrWhiteSpace(className)
+            ? []
+            : normalizedAggregateRows
+                .Where(row => string.Equals(row.ClassName, className, StringComparison.OrdinalIgnoreCase))
+                .Select(row => row.CanvasCourseId)
+                .Distinct()
+                .ToArray();
+        var classFilteredRows = string.IsNullOrWhiteSpace(className)
+            ? normalizedAggregateRows
+            : normalizedAggregateRows
+                .Where(row => selectedClassCourseIds.Contains(row.CanvasCourseId))
+                .ToList();
+        var subjects = classFilteredRows
+            .GroupBy(row => row.SubjectCode, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => subjectResolver.SortOrder(group.Key))
+            .ThenBy(group => group.First().Subject, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
+                var classScores = group
+                    .GroupBy(row => new { row.CanvasCourseId, row.ClassName, row.CourseName })
+                    .OrderBy(classGroup => classGroup.Key.ClassName, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(classGroup => classGroup.Key.CourseName, StringComparer.OrdinalIgnoreCase)
+                    .Select(classGroup =>
+                    {
+                        var classSemester1 = WeightedAverage(classGroup
+                            .Where(row => IsSemester(row.Term, 1))
+                            .Select(row => (row.Average, row.RecordCount)));
+                        var classSemester2 = WeightedAverage(classGroup
+                            .Where(row => IsSemester(row.Term, 2))
+                            .Select(row => (row.Average, row.RecordCount)));
+                        var classYear = WeightedAverage(classGroup
+                            .Where(row => IsYear(row.Term))
+                            .Select(row => (row.Average, row.RecordCount)));
+                        return new TranscriptClassScoreDto
+                        {
+                            CanvasCourseId = classGroup.Key.CanvasCourseId,
+                            ClassName = classGroup.Key.ClassName,
+                            CourseName = classGroup.Key.CourseName,
+                            Semester1Final = classSemester1,
+                            Semester2Final = classSemester2,
+                            YearAverage = AnnualAverage(classSemester1, classSemester2, classYear)
+                                ?? WeightedAverage(classGroup.Select(row =>
+                                    (row.Average, row.RecordCount))),
+                            Credit = CreditForSubject(classSemester1, classSemester2, classYear),
+                            RecordCount = classGroup.Sum(row => row.RecordCount)
+                        };
+                    }).ToList();
                 var semester1Final = WeightedAverage(group.Where(row => IsSemester(row.Term, 1))
                     .Select(row => (row.Average, row.RecordCount)));
                 var semester2Final = WeightedAverage(group.Where(row => IsSemester(row.Term, 2))
@@ -396,17 +530,14 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
 
                 return new TranscriptSubjectDto
                 {
-                    Subject = group.Key,
+                    SubjectCode = group.Key,
+                    Subject = group.First().Subject,
                     CourseNames = group.Select(row => row.CourseName)
                         .Where(value => !string.IsNullOrWhiteSpace(value))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
                         .ToList(),
-                    TermScores = terms.ToDictionary(
-                        item => item,
-                        item => WeightedAverage(group
-                            .Where(row => string.Equals(row.Term, item, StringComparison.OrdinalIgnoreCase))
-                            .Select(row => (row.Average, row.RecordCount)))),
+                    ClassScores = classScores,
                     Semester1Final = semester1Final,
                     Semester2Final = semester2Final,
                     YearAverage = AnnualAverage(semester1Final, semester2Final, explicitYearFinal)
@@ -415,10 +546,32 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                 };
             }).ToList();
 
-        var recordsQuery = baseQuery.Where(score => score.StudentProfileId != null && score.Student != null);
+        var classFilteredQuery = baseQuery;
+        if (!string.IsNullOrWhiteSpace(className))
+        {
+            classFilteredQuery = selectedClassCourseIds.Length == 0
+                ? classFilteredQuery.Where(_ => false)
+                : classFilteredQuery.Where(score =>
+                    selectedClassCourseIds.Contains(score.Enrollment!.CanvasCourseId));
+        }
+
+        var recordsQuery = classFilteredQuery
+            .Where(score => score.StudentProfileId != null && score.Student != null);
         if (!string.IsNullOrWhiteSpace(subject))
-            recordsQuery = recordsQuery.Where(score =>
-                (score.Enrollment!.Course!.Name ?? score.Enrollment.Course.CourseCode) == subject.Trim());
+        {
+            var requestedSubject = subject.Trim();
+            var matchingCourseIds = classFilteredRows
+                .Where(row =>
+                    string.Equals(row.SubjectCode, requestedSubject, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(row.Subject, requestedSubject, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(row.CourseName, requestedSubject, StringComparison.OrdinalIgnoreCase))
+                .Select(row => row.CanvasCourseId)
+                .Distinct()
+                .ToArray();
+            recordsQuery = matchingCourseIds.Length == 0
+                ? recordsQuery.Where(_ => false)
+                : recordsQuery.Where(score => matchingCourseIds.Contains(score.Enrollment!.CanvasCourseId));
+        }
         if (!string.IsNullOrWhiteSpace(term))
         {
             var normalizedTerm = DashboardPeriodNormalizer.Term(term);
@@ -451,18 +604,20 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
                 StudentProfileId = score.StudentProfileId!.Value,
                 score.Student!.SISUserId,
                 StudentName = score.Student.FullName,
-                Subject = score.Enrollment.Course!.Name ?? score.Enrollment.Course.CourseCode ?? "—",
-                CourseName = score.Enrollment.Course.Name ?? score.Enrollment.Course.CourseCode ?? "—",
-                score.Enrollment.Course.CourseCode,
-                score.Enrollment.Course.EnrollmentTermId,
-                score.Enrollment.Course.EnrollmentTermName,
+                CourseName = score.Enrollment.Course!.Name ?? score.Enrollment.Course.CourseCode ?? "—",
+                CourseCode = score.Enrollment.Course!.CourseCode,
+                EnrollmentTermId = score.Enrollment.Course!.EnrollmentTermId,
+                EnrollmentTermName = score.Enrollment.Course!.EnrollmentTermName,
                 score.GradingPeriodId,
                 score.GradingPeriodTitle,
-                Score = (score.EnrollmentOverrideScore ?? score.GradesOverrideScore ??
-                    score.CurrentScore ?? score.FinalScore)!.Value,
+                Score = score.EnrollmentOverrideScore ?? score.GradesOverrideScore ??
+                    score.CurrentScore ?? (score.FinalScore == 0 && score.CurrentGrade == null &&
+                        score.FinalGrade == null ? null : score.FinalScore),
                 ScoreSource = score.EnrollmentOverrideScore != null ? "enrollment_override" :
                     score.GradesOverrideScore != null ? "grades_override" :
-                    score.CurrentScore != null ? "current" : "final"
+                    score.CurrentScore != null ? "current" :
+                    score.FinalScore == 0 && score.CurrentGrade == null && score.FinalGrade == null
+                        ? "unavailable" : "final"
             })
             .ToListAsync();
         var records = rawRecords.Select(score => new TranscriptScoreRecordDto
@@ -474,7 +629,6 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
             StudentProfileId = score.StudentProfileId,
             SISUserId = score.SISUserId,
             StudentName = score.StudentName,
-            Subject = score.Subject,
             CourseName = score.CourseName,
             CourseCode = score.CourseCode,
             EnrollmentTermId = score.EnrollmentTermId,
@@ -486,21 +640,27 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
             ScoreSource = score.ScoreSource
         }).ToList();
 
-        var totalStudents = await baseQuery.Select(score => score.Enrollment!.CanvasUserId).Distinct().CountAsync();
-        var allRecordCount = aggregateRows.Sum(row => row.RecordCount);
+        var totalStudents = await classFilteredQuery.Where(HasUsableTranscriptScore)
+            .Select(score => score.Enrollment!.CanvasUserId)
+            .Distinct().CountAsync();
+        var allRecordCount = classFilteredRows.Sum(row => row.RecordCount);
         var totalSubjects = subjects.Count;
         return Ok(new SchoolTranscriptGradeDetailDto
         {
             AcademicYear = academicYear,
             GradeLevel = gradeLevel,
-            AverageScore = WeightedAverage(normalizedAggregateRows.Select(row => (row.Average, row.RecordCount))),
+            AverageScore = WeightedAverage(classFilteredRows.Select(row => (row.Average, row.RecordCount))),
             Gpa = WeightedGpa(subjects),
             TotalStudents = totalStudents,
             TotalSubjects = totalSubjects,
             TotalRecords = allRecordCount,
             MatchingRecords = totalRecords,
-            Terms = terms,
-            SubjectOptions = subjects.Select(item => item.Subject).ToList(),
+            ClassOptions = classOptions,
+            SubjectOptions = subjects.Select(item => new TranscriptSubjectOptionDto
+            {
+                SubjectCode = item.SubjectCode,
+                Subject = item.Subject
+            }).ToList(),
             Subjects = subjects.Skip((subjectPage - 1) * subjectPageSize).Take(subjectPageSize).ToList(),
             SubjectPage = subjectPage,
             SubjectPageSize = subjectPageSize,
@@ -526,14 +686,16 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
     private static int StartYear(string value) =>
         int.TryParse(value.Split('-', '/', StringSplitOptions.TrimEntries)[0], out var year) ? year : 0;
 
-    private static int TermOrder(string value)
+    private static string ExtractClassName(string? courseName, string? courseCode)
     {
-        var normalized = DashboardPeriodNormalizer.Term(value);
-        if (normalized == "hk1") return 1;
-        if (normalized == "hk2") return 2;
-        if (normalized.Contains('3')) return 3;
-        if (normalized.Contains('4')) return 4;
-        return normalized is "cả năm" or "year" or "full year" ? 9 : 8;
+        foreach (var value in new[] { courseName, courseCode })
+        {
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            var matches = ClassNamePattern.Matches(value);
+            if (matches.Count > 0) return matches[^1].Groups["class"].Value.ToUpperInvariant();
+        }
+
+        return "";
     }
 
     private static bool IsSemester(string value, int semester)
@@ -579,19 +741,6 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
         return explicitYear != null || semester1 != null || semester2 != null ? 1 : 0;
     }
 
-    private static int SubjectOrder(string subject)
-    {
-        var normalized = subject.Trim().ToLowerInvariant();
-        var order = new[]
-        {
-            "math", "physics", "chemistry", "biology", "literature", "history", "geography",
-            "english", "national defense", "economics", "technology", "ict", "music",
-            "volleyball", "piano", "entrepreneurship", "travel and tourism", "psat", "ielts"
-        };
-        var index = Array.FindIndex(order, item => normalized.Contains(item));
-        return index < 0 ? int.MaxValue : index;
-    }
-
     private static double? WeightedGpa(IEnumerable<TranscriptSubjectDto> subjects)
     {
         var values = subjects
@@ -629,11 +778,12 @@ public class TranscriptsController(AppDbContext context, UserAccessService userA
         score >= 45 ? 1.3 :
         score >= 40 ? 1.0 : 0.7;
 
-    private static double? WeightedAverage(IEnumerable<(double Average, int Count)> values)
+    private static double? WeightedAverage(IEnumerable<(double? Average, int Count)> values)
     {
-        var rows = values.Where(value => value.Count > 0).ToList();
+        var rows = values.Where(value => value.Average != null && value.Count > 0).ToList();
         if (rows.Count == 0) return null;
         var count = rows.Sum(value => value.Count);
-        return Math.Round(rows.Sum(value => value.Average * value.Count) / count, 1, MidpointRounding.AwayFromZero);
+        return Math.Round(rows.Sum(value => value.Average!.Value * value.Count) / count, 1,
+            MidpointRounding.AwayFromZero);
     }
 }

@@ -3,9 +3,11 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, debounceTime, distinctUntilChanged, of, Subject, switchMap } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
-import { SchoolTranscript, TranscriptStudent, TranscriptsService } from './transcripts.service';
+import { SchoolTranscript, SchoolTranscriptGrade, TranscriptStudent, TranscriptSubject, TranscriptsService } from './transcripts.service';
 
 type TranscriptType = 'bilingual' | 'international' | 'ib';
+type TranscriptSemester = 'semester1' | 'semester2';
+type TranscriptSemesterFilter = 'all' | TranscriptSemester;
 
 @Component({
   selector: 'app-student-transcript',
@@ -86,6 +88,15 @@ type TranscriptType = 'bilingual' | 'international' | 'ib';
                   }
                 </div>
               </details>
+              <label class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">
+                {{ t('transcript.semesterFilter') }}
+                <select class="mt-1 block min-w-44 rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[#32124f]"
+                  [value]="selectedSemester()" (change)="changeSemester($event)">
+                  <option value="all">{{ t('transcript.allSemesters') }}</option>
+                  <option value="semester1">{{ t('transcript.semester1') }}</option>
+                  <option value="semester2">{{ t('transcript.semester2') }}</option>
+                </select>
+              </label>
             }
             @if (activeTranscriptType() === 'international') {
               <div class="inline-flex rounded-lg border border-[#d8cede] bg-white p-1" role="group" [attr.aria-label]="t('transcript.scoreScale')">
@@ -206,14 +217,16 @@ type TranscriptType = 'bilingual' | 'international' | 'ib';
           }
 
           @if (record.years.length) {
-            <div class="grade-grid grid items-start gap-7 p-6 lg:grid-cols-2 lg:p-9">
+            <div class="transcript-years space-y-7 p-6 lg:p-9">
               @for (year of displayedYears(record); track year.academicYear) {
-                @for (grade of year.grades; track grade.gradeLevel) {
-                  <section class="grade-block break-inside-avoid">
-                    <div class="mb-2 flex items-end justify-between gap-3">
-                      <h2 class="text-base font-bold text-[#24162b]">
-                        {{ gradeLabel(grade.gradeLevel) }} {{ year.academicYear }}
-                      </h2>
+                <section class="year-block overflow-hidden rounded-md border border-[#cfc4d5] break-inside-avoid">
+                  <header class="flex items-center justify-between gap-3 bg-[#f1eaf4] px-4 py-3 text-[#32124f]">
+                    <h2 class="text-base font-bold">{{ t('transcript.schoolYear') }}: {{ year.academicYear }}</h2>
+                    <span class="text-sm font-semibold">{{ t('transcript.yearAverage') }}: {{ typeScore(year.averageScore) }}</span>
+                  </header>
+                  @for (grade of year.grades; track grade.gradeLevel) {
+                    <div class="flex items-center justify-between gap-3 border-t border-[#d8c4bd] bg-[#f6eef8] px-4 py-2.5">
+                      <h3 class="font-bold text-[#32124f]">{{ gradeLabel(grade.gradeLevel) }}</h3>
                       @if (activeTranscriptType() === 'international') {
                         <p class="text-sm font-bold text-[#32124f]">GPA <span class="ml-2">{{ formatGpa(grade.gpa) }}</span></p>
                       } @else if (activeTranscriptType() === 'ib') {
@@ -222,37 +235,57 @@ type TranscriptType = 'bilingual' | 'international' | 'ib';
                         <p class="text-xs font-bold uppercase tracking-wide text-[#32124f]">{{ t('transcript.tenPointScale') }}</p>
                       }
                     </div>
-                    <div class="overflow-hidden rounded-md border border-[#cfc4d5]">
-                      <table class="w-full table-fixed border-collapse text-[0.78rem]">
-                        <thead class="bg-[#eee7f1] text-[#382541]">
-                          <tr>
-                            <th class="w-[52%] px-3 py-2 text-left">{{ activeTranscriptType() === 'bilingual' ? t('transcript.bilingualSubject') : t('transcript.subject') }}</th>
-                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s1fHelp')">{{ activeTranscriptType() === 'bilingual' ? t('transcript.semester1Short') : 'S1F' }}</abbr></th>
-                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.s2fHelp')">{{ activeTranscriptType() === 'bilingual' ? t('transcript.semester2Short') : 'S2F' }}</abbr></th>
-                            <th class="w-[12%] px-1 py-2 text-center"><abbr class="no-underline" [title]="t('transcript.yrHelp')">{{ activeTranscriptType() === 'bilingual' ? t('transcript.fullYearShort') : 'YR' }}</abbr></th>
-                            <th class="w-[12%] px-1 py-2 text-center">{{ activeTranscriptType() === 'international' || (activeTranscriptType() === 'ib' && !isIbGrade(grade.gradeLevel)) ? t('transcript.credit') : (activeTranscriptType() === 'ib' ? t('transcript.ibLevel') : t('transcript.result')) }}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          @for (subject of grade.subjects; track subject.subject) {
-                            <tr class="border-t border-[#e7e0ea]">
-                              <td class="px-3 py-1.5 text-[#35293b]">
-                                <span class="block font-medium">{{ displaySubject(subject.subject) }}</span>
-                                @if (subject.courseNames.length) {
-                                  <span class="mt-0.5 block text-[0.62rem] leading-tight text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
-                                }
-                              </td>
-                              <td class="px-1 py-1.5 text-center">{{ typeScore(subject.semester1Final, subject.subject, grade.gradeLevel) }}</td>
-                              <td class="px-1 py-1.5 text-center">{{ typeScore(subject.semester2Final, subject.subject, grade.gradeLevel) }}</td>
-                              <td class="bg-[#fbf8fc] px-1 py-1.5 text-center font-semibold">{{ typeScore(subject.yearAverage, subject.subject, grade.gradeLevel) }}</td>
-                              <td class="px-1 py-1.5 text-center">{{ trailingValue(subject.credit, subject.yearAverage, subject.subject, grade.gradeLevel) }}</td>
-                            </tr>
-                          }
-                        </tbody>
-                      </table>
-                    </div>
-                  </section>
-                }
+                    @for (semester of visibleSemesters(); track semester) {
+                      <section class="semester-block" [attr.aria-label]="semesterLabel(semester)">
+                        <h4 class="border-b border-[#d8cede] bg-[#eee5f2] px-4 py-2 text-sm font-bold text-[#4a3158]">{{ t('transcript.term') }}: {{ semesterLabel(semester) }}</h4>
+                        <div class="overflow-x-auto">
+                          <table class="w-full min-w-[660px] table-fixed border-collapse text-[0.78rem]">
+                            <thead class="bg-[#51236f] text-white">
+                              <tr>
+                                <th class="w-14 px-2 py-2 text-center">{{ t('transcript.subjectNumber') }}</th>
+                                <th class="px-3 py-2 text-left">{{ activeTranscriptType() === 'bilingual' ? t('transcript.bilingualSubject') : t('transcript.subject') }}</th>
+                                <th class="w-24 px-2 py-2 text-center">{{ t('transcript.semesterScore') }}</th>
+                                <th class="w-24 px-2 py-2 text-center">{{ t('transcript.yearResult') }}</th>
+                                <th class="w-24 px-2 py-2 text-center">{{ activeTranscriptType() === 'international' || (activeTranscriptType() === 'ib' && !isIbGrade(grade.gradeLevel)) ? t('transcript.credit') : (activeTranscriptType() === 'ib' ? t('transcript.ibLevel') : t('transcript.result')) }}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              @for (subject of subjectsForSemester(grade, semester); track subject.subjectCode; let index = $index) {
+                                <tr class="border-t border-[#e7e0ea] even:bg-[#fbfafc]">
+                                  <td class="px-2 py-2 text-center">{{ subjectNumber(grade, index) }}</td>
+                                  <td class="px-3 py-2 text-[#35293b]">
+                                    <span class="block font-medium">{{ displaySubject(subject.subject, subject.subjectCode) }}</span>
+                                    @if (subject.courseNames.length) {
+                                      <span class="mt-0.5 block text-[0.62rem] leading-tight text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
+                                    }
+                                  </td>
+                                  <td class="px-2 py-2 text-center">{{ typeScore(semesterScore(subject, semester), subject.subjectCode, grade.gradeLevel) }}</td>
+                                  <td class="bg-[#fbf8fc] px-2 py-2 text-center font-semibold">{{ typeScore(subject.yearAverage, subject.subjectCode, grade.gradeLevel) }}</td>
+                                  <td class="px-2 py-2 text-center">{{ trailingValue(subject.credit, subject.yearAverage, subject.subjectCode, grade.gradeLevel) }}</td>
+                                </tr>
+                              } @empty {
+                                <tr><td colspan="5" class="px-5 py-8 text-center text-[#766d7d]">{{ t('transcript.noSemesterResults') }}</td></tr>
+                              }
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+                    }
+                    @if (grade.totalSubjectPages > 1) {
+                      <footer class="no-print flex flex-wrap items-center justify-between gap-3 border-t border-[#e8e1eb] px-4 py-3 text-xs text-[#746a7b]">
+                        <span>{{ subjectPageLabel(grade) }}</span>
+                        <div class="flex gap-2">
+                          <button type="button" class="rounded-md border border-[#d8cede] px-3 py-1.5 font-semibold text-[#32124f] disabled:opacity-40"
+                            [disabled]="grade.subjectPage <= 1 || subjectPageLoading(year.academicYear, grade.gradeLevel)"
+                            (click)="loadSubjectPage(year.academicYear, grade.gradeLevel, grade.subjectPage - 1)">{{ t('pagination.previous') }}</button>
+                          <button type="button" class="rounded-md border border-[#d8cede] px-3 py-1.5 font-semibold text-[#32124f] disabled:opacity-40"
+                            [disabled]="grade.subjectPage >= grade.totalSubjectPages || subjectPageLoading(year.academicYear, grade.gradeLevel)"
+                            (click)="loadSubjectPage(year.academicYear, grade.gradeLevel, grade.subjectPage + 1)">{{ t('pagination.next') }}</button>
+                        </div>
+                      </footer>
+                    }
+                  }
+                </section>
               }
             </div>
 
@@ -407,11 +440,11 @@ type TranscriptType = 'bilingual' | 'international' | 'ib';
       .transcript-sheet { width: 100%; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
       .letterhead-content { display: none !important; }
       .transcript-header { padding: 0 0 4mm !important; }
-      .grade-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 7mm !important; padding: 6mm 0 !important; }
-      .grade-block { break-inside: avoid; page-break-inside: avoid; }
-      .grade-block table { font-size: 7.4pt !important; }
-      .grade-block th { padding-top: 1.5mm !important; padding-bottom: 1.5mm !important; }
-      .grade-block td { padding-top: 1mm !important; padding-bottom: 1mm !important; }
+      .transcript-years { padding: 6mm 0 !important; }
+      .year-block { break-inside: avoid; page-break-inside: avoid; }
+      .year-block table { font-size: 7.4pt !important; }
+      .year-block th { padding-top: 1.5mm !important; padding-bottom: 1.5mm !important; }
+      .year-block td { padding-top: 1mm !important; padding-bottom: 1mm !important; }
       .formal-footer { margin: 2mm 0 0 !important; }
       .grading-scale { break-inside: avoid; page-break-inside: avoid; }
       .grading-scale table { font-size: 5.8pt !important; }
@@ -428,6 +461,7 @@ export class StudentTranscriptComponent {
   readonly students = signal<TranscriptStudent[]>([]);
   readonly selectedStudentId = signal<number | null>(null);
   readonly selectedYears = signal<string[]>([]);
+  readonly selectedSemester = signal<TranscriptSemesterFilter>('all');
   readonly activeTranscriptType = signal<TranscriptType>('international');
   readonly transcriptTypes: { id: TranscriptType }[] = [
     { id: 'bilingual' },
@@ -442,6 +476,7 @@ export class StudentTranscriptComponent {
   readonly activeResult = signal(-1);
   readonly loading = signal(false);
   readonly error = signal(false);
+  readonly loadingSubjectPage = signal('');
   readonly directoryStudents = signal<TranscriptStudent[]>([]);
   readonly directoryLoading = signal(false);
   readonly directoryPage = signal(1);
@@ -474,10 +509,28 @@ export class StudentTranscriptComponent {
   private readonly bilingualSubjects: Record<string, string> = {
     math: 'Toán / Math', mathematics: 'Toán / Mathematics',
     physics: 'Vật lý / Physics', chemistry: 'Hóa học / Chemistry', biology: 'Sinh học / Biology',
-    science: 'Khoa học / Science', literature: 'Ngữ văn / Literature',
-    history: 'Lịch sử / History', geography: 'Địa lý / Geography',
-    english: 'Tiếng Anh / English', technology: 'Công nghệ / Technology',
-    music: 'Âm nhạc / Music', 'physical education': 'Giáo dục thể chất / Physical Education',
+    science: 'Khoa học / Science', 'history and geography': 'Lịch sử và Địa lý / History and Geography',
+    literature: 'Ngữ văn / Literature', vietnamese: 'Tiếng Việt / Vietnamese',
+    history: 'Lịch sử / History', geography: 'Địa lý / Geography', english: 'Tiếng Anh / English',
+    chinese: 'Tiếng Trung / Chinese', french: 'Tiếng Pháp / French', spanish: 'Tiếng Tây Ban Nha / Spanish',
+    economics: 'Kinh tế / Economics', business: 'Kinh doanh / Business', technology: 'Công nghệ / Technology',
+    ict: 'Tin học / ICT', 'computer science': 'Khoa học máy tính / Computer Science',
+    'global perspectives': 'Góc nhìn toàn cầu / Global Perspectives', humanities: 'Nhân văn / Humanities',
+    music: 'Âm nhạc / Music', 'fine arts': 'Mỹ thuật / Fine Arts',
+    'physical education': 'Giáo dục thể chất / Physical Education',
+    'civic education': 'Giáo dục công dân / Civic Education',
+    'service learning': 'Học tập phục vụ cộng đồng / Service Learning',
+    'cas and extended essay': 'CAS và Luận văn / CAS and Extended Essay',
+    'theory of knowledge': 'Lý luận tri thức / Theory of Knowledge',
+    'personal development': 'Phát triển con người / Personal Development',
+    'critical thinking': 'Tư duy phản biện / Critical Thinking',
+    basketball: 'Bóng rổ / Basketball', soccer: 'Bóng đá / Soccer', volleyball: 'Bóng chuyền / Volleyball',
+    gym: 'Thể dục / Gym',
+    piano: 'Dương cầm / Piano', guitar: 'Ghi-ta / Guitar', drums: 'Trống / Drums',
+    'traditional musical instruments': 'Nhạc cụ dân tộc / Traditional Musical Instruments',
+    vocal: 'Thanh nhạc / Vocal', 'performing arts': 'Nghệ thuật tổng hợp / Performing Arts',
+    'global studies': 'Quốc tế học / Global Studies',
+    'national defense': 'GDQP-AN / National Defense Education',
     'national defense education': 'GDQP-AN / National Defense Education',
     'economics and law': 'Kinh tế & Pháp luật / Economics & Law',
   };
@@ -516,11 +569,11 @@ export class StudentTranscriptComponent {
   private loadTranscript(studentId: number): void {
     this.loading.set(true);
     this.error.set(false);
-    this.service.getOverall(studentId).subscribe({
+    this.service.getOverall(studentId, 1, 10).subscribe({
       next: (record) => {
         this.transcript.set(record);
         this.searchTerm.set(`${record.studentName || ''} · ${record.sisUserId || ''}`);
-        this.selectedYears.set(record.years.slice(-2).map((year) => year.academicYear));
+        this.selectedYears.set(record.years.slice(-1).map((year) => year.academicYear));
         this.loading.set(false);
       },
       error: () => {
@@ -609,6 +662,71 @@ export class StudentTranscriptComponent {
     });
   }
 
+  changeSemester(event: Event): void {
+    this.selectedSemester.set((event.target as HTMLSelectElement).value as TranscriptSemesterFilter);
+  }
+
+  visibleSemesters(): TranscriptSemester[] {
+    const selected = this.selectedSemester();
+    return selected === 'all' ? ['semester1', 'semester2'] : [selected];
+  }
+
+  semesterLabel(semester: TranscriptSemester): string {
+    return this.t(`transcript.${semester}`);
+  }
+
+  semesterScore(subject: TranscriptSubject, semester: TranscriptSemester): number | null | undefined {
+    return semester === 'semester1' ? subject.semester1Final : subject.semester2Final;
+  }
+
+  subjectsForSemester(grade: SchoolTranscriptGrade, semester: TranscriptSemester): TranscriptSubject[] {
+    return grade.subjects.filter((subject) => this.semesterScore(subject, semester) != null);
+  }
+
+  subjectNumber(grade: SchoolTranscriptGrade, index: number): number {
+    return (grade.subjectPage - 1) * grade.subjectPageSize + index + 1;
+  }
+
+  loadSubjectPage(academicYear: string, gradeLevel: string, page: number): void {
+    const studentId = this.selectedStudentId();
+    if (!studentId) return;
+    const key = this.subjectPageKey(academicYear, gradeLevel);
+    this.loadingSubjectPage.set(key);
+    this.service.getOverall(studentId, page, 10).subscribe({
+      next: (response) => {
+        const updatedGrade = response.years
+          .find((year) => year.academicYear === academicYear)?.grades
+          .find((grade) => grade.gradeLevel === gradeLevel);
+        if (updatedGrade) {
+          this.transcript.update((record) => record ? {
+            ...record,
+            years: record.years.map((year) => year.academicYear !== academicYear ? year : {
+              ...year,
+              grades: year.grades.map((grade) => grade.gradeLevel === gradeLevel ? updatedGrade : grade),
+            }),
+          } : record);
+        }
+        this.loadingSubjectPage.set('');
+      },
+      error: () => this.loadingSubjectPage.set(''),
+    });
+  }
+
+  subjectPageLoading(academicYear: string, gradeLevel: string): boolean {
+    return this.loadingSubjectPage() === this.subjectPageKey(academicYear, gradeLevel);
+  }
+
+  subjectPageLabel(grade: SchoolTranscriptGrade): string {
+    return this.t('pagination.pageOf')
+      .replace('{page}', String(grade.subjectPage))
+      .replace('{pages}', String(grade.totalSubjectPages))
+      .replace('{total}', String(grade.totalSubjects));
+  }
+
+  private subjectPageKey(academicYear: string, gradeLevel: string): string {
+    return `${academicYear}\u0000${gradeLevel}`;
+  }
+
   displayedYears(record: SchoolTranscript) {
     const selected = new Set(this.selectedYears());
     return record.years.filter((year) => selected.has(year.academicYear));
@@ -627,13 +745,34 @@ export class StudentTranscriptComponent {
 
   exportPdf(type: TranscriptType = this.activeTranscriptType()): void {
     this.selectTranscriptType(type);
+    const studentId = this.selectedStudentId();
+    const paginatedRecord = this.transcript();
+    if (!studentId || !paginatedRecord) return;
+    this.loading.set(true);
+    this.service.getOverall(studentId).subscribe({
+      next: (completeRecord) => {
+        this.loading.set(false);
+        this.transcript.set(completeRecord);
+        this.openPrintDialog(type, paginatedRecord);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.openPrintDialog(type);
+      },
+    });
+  }
+
+  private openPrintDialog(type: TranscriptType, restoreRecord?: SchoolTranscript): void {
     const currentTitle = document.title;
     const record = this.transcript();
     document.title = `${record?.sisUserId || 'student'}-${type}-transcript`;
     // Give Angular one frame to render the requested template before opening the print dialog.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       window.print();
-      setTimeout(() => (document.title = currentTitle), 250);
+      setTimeout(() => {
+        document.title = currentTitle;
+        if (restoreRecord) this.transcript.set(restoreRecord);
+      }, 250);
     }));
   }
 
@@ -641,10 +780,10 @@ export class StudentTranscriptComponent {
     return formatTranscriptScore(value, this.scoreScale());
   }
 
-  typeScore(value?: number | null, subject = '', gradeLevel = ''): string {
+  typeScore(value?: number | null, subjectCode = '', gradeLevel = ''): string {
     if (value == null || !Number.isFinite(value)) return '—';
     if (this.activeTranscriptType() === 'bilingual') {
-      if (this.isPassFailSubject(subject)) return value >= 50 ? this.t('transcript.passed') : this.t('transcript.notPassed');
+      if (this.isPassFailSubject(subjectCode)) return value >= 50 ? this.t('transcript.passed') : this.t('transcript.notPassed');
       return this.tenPoint(value);
     }
     if (this.activeTranscriptType() === 'ib') {
@@ -659,18 +798,18 @@ export class StudentTranscriptComponent {
     return converted.toFixed(1);
   }
 
-  trailingValue(credit: number, score?: number | null, subject = '', gradeLevel = ''): string {
+  trailingValue(credit: number, score?: number | null, subjectCode = '', gradeLevel = ''): string {
     if (this.activeTranscriptType() === 'international') return this.formatCredit(credit);
     if (this.activeTranscriptType() === 'ib') return this.isIbGrade(gradeLevel) ? '—' : this.formatCredit(credit);
     if (score == null) return '—';
-    return this.isPassFailSubject(subject)
+    return this.isPassFailSubject(subjectCode)
       ? (score >= 50 ? this.t('transcript.passed') : this.t('transcript.notPassed'))
       : this.t('transcript.graded');
   }
 
-  displaySubject(subject: string): string {
+  displaySubject(subject: string, subjectCode: string): string {
     if (this.activeTranscriptType() !== 'bilingual') return subject;
-    return this.bilingualSubjects[subject.trim().toLowerCase()] ?? subject;
+    return this.bilingualSubjects[this.normalizeSubjectCode(subjectCode)] ?? subject;
   }
 
   isIbGrade(gradeLevel: string): boolean {
@@ -680,7 +819,7 @@ export class StudentTranscriptComponent {
 
   hasScienceMappingIssue(record: SchoolTranscript): boolean {
     return record.years.some((year) => year.grades.some((grade) => grade.subjects.some((subject) =>
-      /^science$/i.test(subject.subject.trim()))));
+      this.normalizeSubjectCode(subject.subjectCode) === 'science')));
   }
 
   private ibPoint(value: number): number {
@@ -693,10 +832,13 @@ export class StudentTranscriptComponent {
     return 1;
   }
 
-  private isPassFailSubject(subject: string): boolean {
-    const normalized = subject.toLowerCase();
-    return ['music', 'physical education', 'fine arts', 'service learning', 'cas']
-      .some((name) => normalized.includes(name));
+  private isPassFailSubject(subjectCode: string): boolean {
+    const normalized = this.normalizeSubjectCode(subjectCode);
+    return ['music', 'physical education', 'fine arts', 'service learning', 'cas'].includes(normalized);
+  }
+
+  private normalizeSubjectCode(subjectCode: string): string {
+    return subjectCode.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
   }
 
   formatGpa(value?: number | null): string {
