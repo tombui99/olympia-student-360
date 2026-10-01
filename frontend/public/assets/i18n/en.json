@@ -1269,8 +1269,6 @@
   "transcript.ibBands.mediocre": "Mediocre",
   "transcript.ibBands.poor": "Poor",
   "transcript.ibBands.veryPoor": "Very poor",
-  "transcript.mappingReviewTitle": "Subject mapping review required.",
-  "transcript.mappingReviewScience": "Canvas “Science” must be mapped to the correct output subjects (Physics, Chemistry, and Biology) before this transcript is issued.",
   "transcript.notAvailable": "Not available",
   "common.loading": "Loading…",
   "forms.eyebrow": "External data collection",

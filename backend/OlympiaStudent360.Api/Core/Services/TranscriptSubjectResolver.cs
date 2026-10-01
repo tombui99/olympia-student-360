@@ -51,7 +51,7 @@ public sealed partial class TranscriptSubjectResolver
             "chemistry", "hóa học", "hoá học", "hoa hoc"),
         new("biology", "Sinh học/Biology", 40,
             "biology", "sinh học", "sinh hoc"),
-        new("science", "Khoa học/Science", 50,
+        new("science", "Khoa học tự nhiên/Natural Sciences", 50,
             "science", "natural science", "natural sciences", "integrated science",
             "khoa học", "khoa hoc", "khoa học tự nhiên", "khoa hoc tu nhien"),
         new("history-and-geography", "Lịch sử và Địa lý/History and Geography", 55,

@@ -172,12 +172,6 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
               </button>
             }
           </div>
-          @if (hasScienceMappingIssue(record)) {
-            <div class="mt-3 flex gap-3 rounded-lg border border-[#e5c97a] bg-[#fffaf0] px-4 py-3 text-sm text-[#6b5318]">
-              <span aria-hidden="true">⚠</span>
-              <p><strong>{{ t('transcript.mappingReviewTitle') }}</strong> {{ t('transcript.mappingReviewScience') }}</p>
-            </div>
-          }
         </section>
         <article class="print-region transcript-sheet mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.07)]">
           <header class="transcript-header border-b border-[#d9cfdf] px-6 py-6 lg:px-9">
@@ -781,11 +775,6 @@ export class StudentTranscriptComponent {
   isIbGrade(gradeLevel: string): boolean {
     const grade = Number(gradeLevel);
     return Number.isFinite(grade) && grade >= 11;
-  }
-
-  hasScienceMappingIssue(record: SchoolTranscript): boolean {
-    return record.years.some((year) => year.grades.some((grade) => grade.subjects.some((subject) =>
-      this.normalizeSubjectCode(subject.subjectCode) === 'science')));
   }
 
   private ibPoint(value: number): number {
