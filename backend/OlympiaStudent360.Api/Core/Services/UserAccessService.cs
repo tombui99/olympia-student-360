@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Data;
@@ -12,8 +13,9 @@ public static class TeacherAccessScopes
     public const string Bus = "Bus";
     public const string Academic = "Academic";
     public const string Class = "Class";
+    public const string SchoolLevel = "SchoolLevel";
 
-    public static readonly string[] Values = [All, Health, Bus, Academic, Class];
+    public static readonly string[] Values = [All, Health, Bus, Academic, Class, SchoolLevel];
 
     public static bool IsValid(string value) =>
         Values.Contains(value, StringComparer.OrdinalIgnoreCase);
@@ -22,26 +24,63 @@ public static class TeacherAccessScopes
         string.Equals(scope, value?.Trim(), StringComparison.OrdinalIgnoreCase));
 }
 
+public static class TeacherSchoolLevels
+{
+    public const string Primary = "Primary";
+    public const string LowerSecondary = "LowerSecondary";
+    public const string UpperSecondary = "UpperSecondary";
+
+    public static readonly string[] Values = [Primary, LowerSecondary, UpperSecondary];
+
+    public static string? Canonical(string? value) => Values.FirstOrDefault(level =>
+        string.Equals(level, value?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    public static IReadOnlyList<string> Grades(string schoolLevel) => schoolLevel switch
+    {
+        Primary => ["5"],
+        LowerSecondary => ["6", "7", "8", "9"],
+        UpperSecondary => ["10", "11", "12"],
+        _ => []
+    };
+
+    public static bool IncludesGrade(string schoolLevel, string? grade) =>
+        !string.IsNullOrWhiteSpace(grade) && Grades(schoolLevel).Contains(grade.Trim());
+}
+
 public sealed record UserAccessSnapshot(
     string? UserId,
     string Role,
     IReadOnlySet<string> Scopes,
-    IReadOnlyList<string> Homerooms)
+    IReadOnlyList<string> Homerooms,
+    IReadOnlyList<string> SchoolLevels)
 {
     public bool IsTeacher => string.Equals(Role, "Teacher", StringComparison.OrdinalIgnoreCase);
     public bool HasAll => !IsTeacher || Scopes.Contains(TeacherAccessScopes.All);
     public bool CanAccessHealth => HasAll || Scopes.Contains(TeacherAccessScopes.Health);
     public bool CanAccessBus => HasAll || Scopes.Contains(TeacherAccessScopes.Bus);
     public bool CanAccessAcademic => HasAll || Scopes.Contains(TeacherAccessScopes.Academic) ||
-        Scopes.Contains(TeacherAccessScopes.Class);
+        Scopes.Contains(TeacherAccessScopes.Class) || Scopes.Contains(TeacherAccessScopes.SchoolLevel);
     public bool CanAccessWorkspace => CanAccessAcademic;
     public bool CanAccessAtRisk => CanAccessAcademic;
     public bool CanAccessCommendations => CanAccessAcademic;
     public bool CanAccessSupport => CanAccessAcademic || CanAccessHealth;
     public bool RestrictsClasses => IsTeacher && !HasAll && Scopes.Contains(TeacherAccessScopes.Class);
+    public bool RestrictsStudents => IsTeacher && !HasAll &&
+        (Scopes.Contains(TeacherAccessScopes.Class) || Scopes.Contains(TeacherAccessScopes.SchoolLevel));
     public string CacheKey => !IsTeacher
         ? $"role:{Role.ToLowerInvariant()}"
-        : $"teacher:{string.Join(',', Scopes.Order())}:{string.Join(',', Homerooms.Order())}";
+        : $"teacher:{string.Join(',', Scopes.Order())}:{string.Join(',', Homerooms.Order())}:" +
+          string.Join(',', SchoolLevels.Order());
+
+    public bool CanAccessStudent(string? homeroom, string? gradeLevel, string? canvasGradeLevel)
+    {
+        if (!RestrictsStudents) return true;
+        if (RestrictsClasses && !string.IsNullOrWhiteSpace(homeroom) &&
+            Homerooms.Contains(homeroom, StringComparer.OrdinalIgnoreCase)) return true;
+        if (!Scopes.Contains(TeacherAccessScopes.SchoolLevel)) return false;
+        var grade = !string.IsNullOrWhiteSpace(gradeLevel) ? gradeLevel : canvasGradeLevel;
+        return SchoolLevels.Any(level => TeacherSchoolLevels.IncludesGrade(level, grade));
+    }
 
     public bool CanAccessModule(string moduleId) => moduleId switch
     {
@@ -77,7 +116,7 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
     public UserAccessSnapshot Current =>
         httpContextAccessor.HttpContext?.Items[HttpContextItemKey] as UserAccessSnapshot
         ?? new UserAccessSnapshot(null, "Teacher",
-            new HashSet<string>([TeacherAccessScopes.All], StringComparer.OrdinalIgnoreCase), []);
+            new HashSet<string>([TeacherAccessScopes.All], StringComparer.OrdinalIgnoreCase), [], []);
 
     public async Task<UserAccessSnapshot> LoadAsync(ClaimsPrincipal principal)
     {
@@ -93,7 +132,7 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
         if (!string.Equals(role, "Teacher", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(userId))
         {
             return new UserAccessSnapshot(userId, role,
-                new HashSet<string>([TeacherAccessScopes.All], StringComparer.OrdinalIgnoreCase), []);
+                new HashSet<string>([TeacherAccessScopes.All], StringComparer.OrdinalIgnoreCase), [], []);
         }
 
         var scopes = await context.TeacherAccessGrants.AsNoTracking()
@@ -110,17 +149,21 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
             .Select(item => item.Homeroom)
             .OrderBy(item => item)
             .ToListAsync();
-        return new UserAccessSnapshot(userId, role, canonicalScopes, homerooms);
+        var schoolLevels = await context.TeacherSchoolLevelAccesses.AsNoTracking()
+            .Where(item => item.UserId == userId)
+            .Select(item => item.SchoolLevel)
+            .OrderBy(item => item)
+            .ToListAsync();
+        return new UserAccessSnapshot(userId, role, canonicalScopes, homerooms, schoolLevels);
     }
 
     public IQueryable<StudentProfile> ApplyStudentScope(IQueryable<StudentProfile> query)
     {
         var access = Current;
-        if (!access.RestrictsClasses) return query;
-        var parameter = System.Linq.Expressions.Expression.Parameter(typeof(StudentProfile), "student");
-        var homeroom = System.Linq.Expressions.Expression.Property(parameter, nameof(StudentProfile.Homeroom));
-        return query.Where(System.Linq.Expressions.Expression.Lambda<Func<StudentProfile, bool>>(
-            HomeroomMatch(homeroom, access.Homerooms), parameter));
+        if (!access.RestrictsStudents) return query;
+        var parameter = Expression.Parameter(typeof(StudentProfile), "student");
+        return query.Where(Expression.Lambda<Func<StudentProfile, bool>>(
+            StudentMatch(parameter, access), parameter));
     }
 
     public IQueryable<T> ApplyStudentScope<T>(
@@ -128,46 +171,84 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
         System.Linq.Expressions.Expression<Func<T, StudentProfile?>> studentSelector)
     {
         var access = Current;
-        if (!access.RestrictsClasses) return query;
+        if (!access.RestrictsStudents) return query;
         var parameter = studentSelector.Parameters[0];
         var student = studentSelector.Body;
-        var homeroom = System.Linq.Expressions.Expression.Property(student, nameof(StudentProfile.Homeroom));
-        var notNull = System.Linq.Expressions.Expression.NotEqual(
-            student, System.Linq.Expressions.Expression.Constant(null, typeof(StudentProfile)));
-        return query.Where(System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(
-            System.Linq.Expressions.Expression.AndAlso(
-                notNull, HomeroomMatch(homeroom, access.Homerooms)), parameter));
+        var notNull = Expression.NotEqual(student, Expression.Constant(null, typeof(StudentProfile)));
+        return query.Where(Expression.Lambda<Func<T, bool>>(
+            Expression.AndAlso(notNull, StudentMatch(student, access)), parameter));
     }
 
-    public IQueryable<T> ApplyHomeroomScope<T>(
+    public IQueryable<T> ApplyStudentOrHomeroomScope<T>(
         IQueryable<T> query,
-        System.Linq.Expressions.Expression<Func<T, string?>> homeroomSelector)
+        Expression<Func<T, StudentProfile?>> studentSelector,
+        Expression<Func<T, string?>> fallbackHomeroomSelector)
     {
         var access = Current;
-        if (!access.RestrictsClasses) return query;
-        return query.Where(System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(
-            HomeroomMatch(homeroomSelector.Body, access.Homerooms),
-            homeroomSelector.Parameters));
+        if (!access.RestrictsStudents) return query;
+        var parameter = studentSelector.Parameters[0];
+        var student = studentSelector.Body;
+        var fallbackHomeroom = new ParameterReplaceVisitor(
+            fallbackHomeroomSelector.Parameters[0], parameter).Visit(fallbackHomeroomSelector.Body)!;
+        var notNull = Expression.NotEqual(student, Expression.Constant(null, typeof(StudentProfile)));
+        Expression match = Expression.AndAlso(notNull, StudentMatch(student, access));
+        if (access.RestrictsClasses)
+        {
+            match = Expression.OrElse(match,
+                HomeroomMatch(fallbackHomeroom, access.Homerooms));
+        }
+        return query.Where(Expression.Lambda<Func<T, bool>>(match, parameter));
     }
 
-    private static System.Linq.Expressions.Expression HomeroomMatch(
-        System.Linq.Expressions.Expression homeroom,
+    private static Expression StudentMatch(Expression student, UserAccessSnapshot access)
+    {
+        Expression? match = null;
+        if (access.RestrictsClasses)
+        {
+            match = HomeroomMatch(Expression.Property(student, nameof(StudentProfile.Homeroom)), access.Homerooms);
+        }
+        if (access.Scopes.Contains(TeacherAccessScopes.SchoolLevel))
+        {
+            var gradeLevel = Expression.Property(student, nameof(StudentProfile.GradeLevel));
+            var canvasGradeLevel = Expression.Property(student, nameof(StudentProfile.CanvasGradeLevel));
+            var effectiveGrade = Expression.Coalesce(gradeLevel, canvasGradeLevel);
+            var gradeMatch = GradeMatch(effectiveGrade, access.SchoolLevels);
+            match = match == null ? gradeMatch : Expression.OrElse(match, gradeMatch);
+        }
+        return match ?? Expression.Constant(false);
+    }
+
+    private static Expression HomeroomMatch(
+        Expression homeroom,
         IReadOnlyList<string> allowedHomerooms)
     {
         // MySQL's EF provider cannot reliably type-map captured primitive collections. Build a
         // normal SQL equality disjunction (Homeroom = '10A' OR Homeroom = '10B') instead of IN
         // over a runtime array. A teacher with no assigned classes safely matches no students.
-        System.Linq.Expressions.Expression? match = null;
+        Expression? match = null;
         foreach (var allowedHomeroom in allowedHomerooms)
         {
-            var equals = System.Linq.Expressions.Expression.Equal(
+            var equals = Expression.Equal(
                 homeroom,
-                System.Linq.Expressions.Expression.Constant(allowedHomeroom, typeof(string)));
+                Expression.Constant(allowedHomeroom, typeof(string)));
             match = match == null
                 ? equals
-                : System.Linq.Expressions.Expression.OrElse(match, equals);
+                : Expression.OrElse(match, equals);
         }
-        return match ?? System.Linq.Expressions.Expression.Constant(false);
+        return match ?? Expression.Constant(false);
+    }
+
+    private static Expression GradeMatch(Expression effectiveGrade, IReadOnlyList<string> allowedSchoolLevels)
+    {
+        Expression? match = null;
+        var grades = allowedSchoolLevels.SelectMany(TeacherSchoolLevels.Grades)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var grade in grades)
+        {
+            var equals = Expression.Equal(effectiveGrade, Expression.Constant(grade, typeof(string)));
+            match = match == null ? equals : Expression.OrElse(match, equals);
+        }
+        return match ?? Expression.Constant(false);
     }
 
     public static List<string> NormalizeScopes(IEnumerable<string>? scopes)
@@ -182,6 +263,17 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
     public static List<string> NormalizeHomerooms(IEnumerable<string>? homerooms) =>
         (homerooms ?? []).Select(item => item.Trim()).Where(item => item.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList();
+
+    public static List<string> NormalizeSchoolLevels(IEnumerable<string>? schoolLevels) =>
+        (schoolLevels ?? []).Select(TeacherSchoolLevels.Canonical).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList();
+
+    private sealed class ParameterReplaceVisitor(ParameterExpression source, ParameterExpression target)
+        : ExpressionVisitor
+    {
+        protected override Expression VisitParameter(ParameterExpression node) =>
+            node == source ? target : base.VisitParameter(node);
+    }
 }
 
 public sealed class UserAccessMiddleware(RequestDelegate next)

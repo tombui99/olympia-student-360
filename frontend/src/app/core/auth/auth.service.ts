@@ -117,7 +117,7 @@ export class AuthenticationService {
       isTeacher: false, hasAll: true, canAccessAcademic: true, canAccessHealth: true,
       canAccessBus: true, canAccessWorkspace: true, canAccessAtRisk: true,
       canAccessCommendations: true, restrictsClasses: false, scopes: ['All'], homerooms: [],
-      canAccessSupport: true,
+      schoolLevels: [], restrictsStudents: false, canAccessSupport: true,
     };
   }
 

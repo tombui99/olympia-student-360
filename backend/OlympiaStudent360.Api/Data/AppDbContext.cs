@@ -13,6 +13,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<StudentProfile> StudentProfiles { get; set; }
     public DbSet<TeacherAccessGrant> TeacherAccessGrants { get; set; }
     public DbSet<TeacherClassAccess> TeacherClassAccesses { get; set; }
+    public DbSet<TeacherSchoolLevelAccess> TeacherSchoolLevelAccesses { get; set; }
     public DbSet<StudentBehaviour> StudentBehaviours { get; set; }
     public DbSet<StudentProject> StudentProjects { get; set; }
     public DbSet<SISStudentParent> SISStudentParents { get; set; }
@@ -69,6 +70,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             access.Property(item => item.Homeroom).HasMaxLength(100);
             access.HasIndex(item => new { item.UserId, item.Homeroom }).IsUnique();
             access.HasOne(item => item.User).WithMany(item => item.ClassAccesses)
+                .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeacherSchoolLevelAccess>(access =>
+        {
+            access.Property(item => item.UserId).HasMaxLength(450);
+            access.Property(item => item.SchoolLevel).HasMaxLength(50);
+            access.HasIndex(item => new { item.UserId, item.SchoolLevel }).IsUnique();
+            access.HasOne(item => item.User).WithMany(item => item.SchoolLevelAccesses)
                 .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

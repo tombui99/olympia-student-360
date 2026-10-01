@@ -392,13 +392,13 @@ public class DashboardController : ControllerBase
         if (field.Equals("subject", StringComparison.OrdinalIgnoreCase))
         {
             var courses = _context.CanvasCourses.AsNoTracking().AsQueryable();
-            if (_userAccess.Current.RestrictsClasses)
+            if (_userAccess.Current.RestrictsStudents)
             {
-                var userId = _userAccess.Current.UserId!;
+                var allowedStudentIds = _userAccess.ApplyStudentScope(
+                    _context.StudentProfiles.AsNoTracking()).Select(student => student.Id);
                 courses = courses.Where(item => item.Enrollments.Any(enrollment =>
-                    enrollment.StudentProfileId != null && enrollment.Student!.Homeroom != null &&
-                    _context.TeacherClassAccesses.Any(access =>
-                        access.UserId == userId && access.Homeroom == enrollment.Student.Homeroom)));
+                    enrollment.StudentProfileId != null &&
+                    allowedStudentIds.Contains(enrollment.StudentProfileId.Value)));
             }
             var values = courses
                 .Where(item => item.Name != null &&

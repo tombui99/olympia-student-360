@@ -69,7 +69,8 @@ public class AdminUsersController : ControllerBase
             return Conflict(new { Message = "User already exists." });
         }
 
-        var accessError = await ValidateAccess(model.Role, model.AccessScopes, model.Homerooms);
+        var accessError = await ValidateAccess(
+            model.Role, model.AccessScopes, model.Homerooms, model.SchoolLevels);
         if (accessError != null) return BadRequest(new { Message = accessError });
 
         var user = new ApplicationUser
@@ -87,7 +88,7 @@ public class AdminUsersController : ControllerBase
         }
 
         await _userManager.AddToRoleAsync(user, model.Role);
-        await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms);
+        await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms, model.SchoolLevels);
 
         return CreatedAtAction(nameof(GetUsers), new { id = user.Id }, await ToDto(user));
     }
@@ -106,7 +107,8 @@ public class AdminUsersController : ControllerBase
             return NotFound();
         }
 
-        var accessError = await ValidateAccess(model.Role, model.AccessScopes, model.Homerooms);
+        var accessError = await ValidateAccess(
+            model.Role, model.AccessScopes, model.Homerooms, model.SchoolLevels);
         if (accessError != null) return BadRequest(new { Message = accessError });
 
         var currentRoles = await _userManager.GetRolesAsync(user);
@@ -131,7 +133,7 @@ public class AdminUsersController : ControllerBase
             await _userManager.RemoveFromRolesAsync(user, currentRoles);
         }
         await _userManager.AddToRoleAsync(user, model.Role);
-        await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms);
+        await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms, model.SchoolLevels);
 
         if (!string.IsNullOrWhiteSpace(model.NewPassword))
         {
@@ -208,34 +210,54 @@ public class AdminUsersController : ControllerBase
                 ? await _context.TeacherClassAccesses.AsNoTracking().Where(item => item.UserId == user.Id)
                     .Select(item => item.Homeroom).OrderBy(item => item).ToListAsync()
                 : [],
+            SchoolLevels = role == "Teacher"
+                ? await _context.TeacherSchoolLevelAccesses.AsNoTracking().Where(item => item.UserId == user.Id)
+                    .Select(item => item.SchoolLevel).OrderBy(item => item).ToListAsync()
+                : [],
             CreatedAt = AsUtc(user.CreatedAt),
             LastLoginAt = user.LastLoginAt.HasValue ? AsUtc(user.LastLoginAt.Value) : null
         };
     }
 
-    private async Task<string?> ValidateAccess(string role, List<string>? requestedScopes, List<string>? requestedHomerooms)
+    private async Task<string?> ValidateAccess(
+        string role,
+        List<string>? requestedScopes,
+        List<string>? requestedHomerooms,
+        List<string>? requestedSchoolLevels)
     {
         if (role != "Teacher") return null;
         var scopes = UserAccessService.NormalizeScopes(requestedScopes);
         if (scopes.Count == 0) scopes.Add(TeacherAccessScopes.All);
         var homerooms = UserAccessService.NormalizeHomerooms(requestedHomerooms);
-        if (!scopes.Contains(TeacherAccessScopes.Class)) return null;
-        if (homerooms.Count == 0)
-            return "Select at least one class for class access.";
-        var availableHomerooms = await _context.StudentProfiles.AsNoTracking()
-            .Where(item => item.Homeroom != null && item.Homeroom != "")
-            .Select(item => item.Homeroom!).Distinct().ToListAsync();
-        return homerooms.Except(availableHomerooms, StringComparer.OrdinalIgnoreCase).Any()
-            ? "One or more selected classes are invalid."
-            : null;
+        if (scopes.Contains(TeacherAccessScopes.Class))
+        {
+            if (homerooms.Count == 0) return "Select at least one class for class access.";
+            var availableHomerooms = await _context.StudentProfiles.AsNoTracking()
+                .Where(item => item.Homeroom != null && item.Homeroom != "")
+                .Select(item => item.Homeroom!).Distinct().ToListAsync();
+            if (homerooms.Except(availableHomerooms, StringComparer.OrdinalIgnoreCase).Any())
+                return "One or more selected classes are invalid.";
+        }
+        if (scopes.Contains(TeacherAccessScopes.SchoolLevel) &&
+            UserAccessService.NormalizeSchoolLevels(requestedSchoolLevels).Count == 0)
+            return "Select at least one school level for school-level access.";
+        return null;
     }
 
-    private async Task SaveAccess(string userId, string role, List<string>? requestedScopes, List<string>? requestedHomerooms)
+    private async Task SaveAccess(
+        string userId,
+        string role,
+        List<string>? requestedScopes,
+        List<string>? requestedHomerooms,
+        List<string>? requestedSchoolLevels)
     {
         var oldGrants = await _context.TeacherAccessGrants.Where(item => item.UserId == userId).ToListAsync();
         var oldClasses = await _context.TeacherClassAccesses.Where(item => item.UserId == userId).ToListAsync();
+        var oldSchoolLevels = await _context.TeacherSchoolLevelAccesses
+            .Where(item => item.UserId == userId).ToListAsync();
         _context.TeacherAccessGrants.RemoveRange(oldGrants);
         _context.TeacherClassAccesses.RemoveRange(oldClasses);
+        _context.TeacherSchoolLevelAccesses.RemoveRange(oldSchoolLevels);
         if (role == "Teacher")
         {
             var scopes = UserAccessService.NormalizeScopes(requestedScopes);
@@ -247,6 +269,12 @@ public class AdminUsersController : ControllerBase
                 _context.TeacherClassAccesses.AddRange(
                     UserAccessService.NormalizeHomerooms(requestedHomerooms).Select(homeroom =>
                         new TeacherClassAccess { UserId = userId, Homeroom = homeroom }));
+            }
+            if (scopes.Contains(TeacherAccessScopes.SchoolLevel))
+            {
+                _context.TeacherSchoolLevelAccesses.AddRange(
+                    UserAccessService.NormalizeSchoolLevels(requestedSchoolLevels).Select(schoolLevel =>
+                        new TeacherSchoolLevelAccess { UserId = userId, SchoolLevel = schoolLevel }));
             }
         }
         await _context.SaveChangesAsync();

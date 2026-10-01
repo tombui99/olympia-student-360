@@ -118,8 +118,8 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
     {
         var query = context.StudentHealthVisits.AsNoTracking()
             .Where(item => item.ExamTime >= start && item.ExamTime < end);
-        query = userAccess.ApplyHomeroomScope(query,
-            item => item.Student != null ? item.Student.Homeroom : item.ClassName);
+        query = userAccess.ApplyStudentOrHomeroomScope(query,
+            item => item.Student, item => item.ClassName);
         return await query
             .Select(item => new HealthVisitSource(
                 item.Id, item.StudentProfileId, item.SISUserId, item.FullName, item.ClassName,

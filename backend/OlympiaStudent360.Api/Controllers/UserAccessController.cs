@@ -27,10 +27,13 @@ public sealed class UserAccessController(
             .ToListAsync();
         var classes = await context.TeacherClassAccesses.AsNoTracking()
             .ToListAsync();
+        var schoolLevels = await context.TeacherSchoolLevelAccesses.AsNoTracking()
+            .ToListAsync();
 
         return Ok(new UserAccessManagementDto
         {
             AvailableScopes = TeacherAccessScopes.Values.ToList(),
+            AvailableSchoolLevels = TeacherSchoolLevels.Values.ToList(),
             AvailableHomerooms = await context.StudentProfiles.AsNoTracking()
                 .Where(item => item.Homeroom != null && item.Homeroom != "")
                 .Select(item => item.Homeroom!)
@@ -43,7 +46,9 @@ public sealed class UserAccessController(
                     Email = user.Email,
                     FullName = user.FullName,
                     Scopes = grants.Where(item => item.UserId == user.Id).Select(item => item.Scope).DefaultIfEmpty(TeacherAccessScopes.All).ToList(),
-                    Homerooms = classes.Where(item => item.UserId == user.Id).Select(item => item.Homeroom).OrderBy(item => item).ToList()
+                    Homerooms = classes.Where(item => item.UserId == user.Id).Select(item => item.Homeroom).OrderBy(item => item).ToList(),
+                    SchoolLevels = schoolLevels.Where(item => item.UserId == user.Id)
+                        .Select(item => item.SchoolLevel).OrderBy(item => item).ToList()
                 }).ToList()
         });
     }
@@ -61,6 +66,7 @@ public sealed class UserAccessController(
             return BadRequest(new { Message = "Select at least one access scope." });
 
         var homerooms = UserAccessService.NormalizeHomerooms(model.Homerooms);
+        var schoolLevels = UserAccessService.NormalizeSchoolLevels(model.SchoolLevels);
         if (scopes.Contains(TeacherAccessScopes.Class) && homerooms.Count == 0)
             return BadRequest(new { Message = "Select at least one class for class access." });
 
@@ -72,11 +78,16 @@ public sealed class UserAccessController(
             if (homerooms.Except(availableHomerooms, StringComparer.OrdinalIgnoreCase).Any())
                 return BadRequest(new { Message = "One or more selected classes are invalid." });
         }
+        if (scopes.Contains(TeacherAccessScopes.SchoolLevel) && schoolLevels.Count == 0)
+            return BadRequest(new { Message = "Select at least one school level for school-level access." });
 
         var existingGrants = await context.TeacherAccessGrants.Where(item => item.UserId == userId).ToListAsync();
         var existingClasses = await context.TeacherClassAccesses.Where(item => item.UserId == userId).ToListAsync();
+        var existingSchoolLevels = await context.TeacherSchoolLevelAccesses
+            .Where(item => item.UserId == userId).ToListAsync();
         context.TeacherAccessGrants.RemoveRange(existingGrants);
         context.TeacherClassAccesses.RemoveRange(existingClasses);
+        context.TeacherSchoolLevelAccesses.RemoveRange(existingSchoolLevels);
         context.TeacherAccessGrants.AddRange(scopes.Select(scope => new TeacherAccessGrant
         {
             UserId = userId,
@@ -90,6 +101,15 @@ public sealed class UserAccessController(
                 Homeroom = homeroom
             }));
         }
+        if (scopes.Contains(TeacherAccessScopes.SchoolLevel))
+        {
+            context.TeacherSchoolLevelAccesses.AddRange(schoolLevels.Select(schoolLevel =>
+                new TeacherSchoolLevelAccess
+                {
+                    UserId = userId,
+                    SchoolLevel = schoolLevel
+                }));
+        }
         await context.SaveChangesAsync();
 
         return Ok(new TeacherAccessUserDto
@@ -99,7 +119,8 @@ public sealed class UserAccessController(
             Email = user.Email,
             FullName = user.FullName,
             Scopes = scopes,
-            Homerooms = scopes.Contains(TeacherAccessScopes.Class) ? homerooms : []
+            Homerooms = scopes.Contains(TeacherAccessScopes.Class) ? homerooms : [],
+            SchoolLevels = scopes.Contains(TeacherAccessScopes.SchoolLevel) ? schoolLevels : []
         });
     }
 }

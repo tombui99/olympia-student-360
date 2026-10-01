@@ -7,8 +7,10 @@ public class UserAccessCapabilitiesDto
     public bool IsTeacher { get; set; }
     public bool HasAll { get; set; }
     public bool RestrictsClasses { get; set; }
+    public bool RestrictsStudents { get; set; }
     public List<string> Scopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
+    public List<string> SchoolLevels { get; set; } = [];
     public bool CanAccessHealth { get; set; }
     public bool CanAccessBus { get; set; }
     public bool CanAccessAcademic { get; set; }
@@ -26,6 +28,7 @@ public class TeacherAccessUserDto
     public string FullName { get; set; } = default!;
     public List<string> Scopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
+    public List<string> SchoolLevels { get; set; } = [];
 }
 
 public class UserAccessManagementDto
@@ -33,6 +36,7 @@ public class UserAccessManagementDto
     public List<TeacherAccessUserDto> Users { get; set; } = [];
     public List<string> AvailableScopes { get; set; } = [];
     public List<string> AvailableHomerooms { get; set; } = [];
+    public List<string> AvailableSchoolLevels { get; set; } = [];
 }
 
 public class UpdateTeacherAccessDto
@@ -40,4 +44,5 @@ public class UpdateTeacherAccessDto
     [Required]
     public List<string> Scopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
+    public List<string> SchoolLevels { get; set; } = [];
 }

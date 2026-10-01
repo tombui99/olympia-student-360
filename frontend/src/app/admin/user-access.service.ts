@@ -10,12 +10,14 @@ export interface TeacherAccessUser {
   fullName: string;
   scopes: string[];
   homerooms: string[];
+  schoolLevels: string[];
 }
 
 export interface UserAccessManagement {
   users: TeacherAccessUser[];
   availableScopes: string[];
   availableHomerooms: string[];
+  availableSchoolLevels: string[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -27,10 +29,11 @@ export class UserAccessService {
     return this.http.get<UserAccessManagement>(`${this.basePath}/api/user-access`);
   }
 
-  update(userId: string, scopes: string[], homerooms: string[]): Observable<TeacherAccessUser> {
+  update(userId: string, scopes: string[], homerooms: string[], schoolLevels: string[]): Observable<TeacherAccessUser> {
     return this.http.put<TeacherAccessUser>(`${this.basePath}/api/user-access/${userId}`, {
       scopes,
       homerooms,
+      schoolLevels,
     });
   }
 }

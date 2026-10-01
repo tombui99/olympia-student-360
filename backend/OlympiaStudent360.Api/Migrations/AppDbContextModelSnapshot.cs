@@ -2495,6 +2495,36 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("TeacherClassAccesses");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherSchoolLevelAccess", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("SchoolLevel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "SchoolLevel")
+                        .IsUnique();
+
+                    b.ToTable("TeacherSchoolLevelAccesses");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.WorkspacePreference", b =>
                 {
                     b.Property<int>("Id")
@@ -2916,6 +2946,17 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherSchoolLevelAccess", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "User")
+                        .WithMany("SchoolLevelAccesses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.WorkspacePreference", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.CustomReport", "CustomReport")
@@ -2932,6 +2973,8 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("AccessGrants");
 
                     b.Navigation("ClassAccesses");
+
+                    b.Navigation("SchoolLevelAccesses");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasAssignment", b =>

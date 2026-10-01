@@ -284,8 +284,8 @@ public sealed class ModuleRecordsController(
     {
         var query = context.StudentHealthVisits.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
-        query = userAccess.ApplyHomeroomScope(query,
-            item => item.Student != null ? item.Student.Homeroom : item.ClassName);
+        query = userAccess.ApplyStudentOrHomeroomScope(query,
+            item => item.Student, item => item.ClassName);
         if (period != null)
             query = query.Where(item => item.ExamTime >= period.Start && item.ExamTime < period.End);
         if (term != null)
@@ -492,23 +492,23 @@ public sealed class ModuleRecordsController(
 
     private async Task<bool> CanAccessRecord(string moduleId, int id)
     {
-        if (!userAccess.Current.RestrictsClasses) return true;
-        var homeroom = moduleId switch
+        if (!userAccess.Current.RestrictsStudents) return true;
+        var accessible = moduleId switch
         {
-            "student-behaviours" => await context.StudentBehaviours.Where(item => item.Id == id)
-                .Select(item => item.Student != null ? item.Student.Homeroom : null).FirstOrDefaultAsync(),
-            "student-projects" => await context.StudentProjects.Where(item => item.Id == id)
-                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
-            "student-mental-health" => await context.StudentMentalHealthRecords.Where(item => item.Id == id)
-                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
-            "student-bus-attendance" => await context.StudentBusAttendanceRecords.Where(item => item.Id == id)
-                .Select(item => item.Student.Homeroom).FirstOrDefaultAsync(),
-            "student-health-visits" => await context.StudentHealthVisits.Where(item => item.Id == id)
-                .Select(item => item.Student != null ? item.Student.Homeroom : item.ClassName).FirstOrDefaultAsync(),
-            _ => null
+            "student-behaviours" => await userAccess.ApplyStudentScope(
+                context.StudentBehaviours.Where(item => item.Id == id), item => item.Student).AnyAsync(),
+            "student-projects" => await userAccess.ApplyStudentScope(
+                context.StudentProjects.Where(item => item.Id == id), item => item.Student).AnyAsync(),
+            "student-mental-health" => await userAccess.ApplyStudentScope(
+                context.StudentMentalHealthRecords.Where(item => item.Id == id), item => item.Student).AnyAsync(),
+            "student-bus-attendance" => await userAccess.ApplyStudentScope(
+                context.StudentBusAttendanceRecords.Where(item => item.Id == id), item => item.Student).AnyAsync(),
+            "student-health-visits" => await userAccess.ApplyStudentOrHomeroomScope(
+                context.StudentHealthVisits.Where(item => item.Id == id),
+                item => item.Student, item => item.ClassName).AnyAsync(),
+            _ => false
         };
-        return homeroom != null && userAccess.Current.Homerooms.Contains(
-            homeroom, StringComparer.OrdinalIgnoreCase);
+        return accessible;
     }
 
     private static ModuleRecordDto Record(

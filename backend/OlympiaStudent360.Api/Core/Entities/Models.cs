@@ -9,6 +9,7 @@ public class ApplicationUser : IdentityUser
     public DateTime? LastLoginAt { get; set; }
     public ICollection<TeacherAccessGrant> AccessGrants { get; set; } = [];
     public ICollection<TeacherClassAccess> ClassAccesses { get; set; } = [];
+    public ICollection<TeacherSchoolLevelAccess> SchoolLevelAccesses { get; set; } = [];
 }
 
 /// <summary>A data-domain permission assigned to a teacher account.</summary>
@@ -25,6 +26,14 @@ public class TeacherClassAccess : BaseEntity
     public string UserId { get; set; } = default!;
     public ApplicationUser User { get; set; } = default!;
     public string Homeroom { get; set; } = default!;
+}
+
+/// <summary>A school-level group whose grades a teacher is allowed to access.</summary>
+public class TeacherSchoolLevelAccess : BaseEntity
+{
+    public string UserId { get; set; } = default!;
+    public ApplicationUser User { get; set; } = default!;
+    public string SchoolLevel { get; set; } = default!;
 }
 
 public abstract class BaseEntity

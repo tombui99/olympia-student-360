@@ -11,6 +11,7 @@ public class AdminUserDto
     public string Role { get; set; } = default!;
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
+    public List<string> SchoolLevels { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 }
@@ -28,6 +29,7 @@ public class CreateAdminUserDto
     public string Role { get; set; } = "Teacher";
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
+    public List<string> SchoolLevels { get; set; } = [];
 }
 
 public class UpdateAdminUserDto
@@ -40,4 +42,5 @@ public class UpdateAdminUserDto
     public string? NewPassword { get; set; }
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
+    public List<string> SchoolLevels { get; set; } = [];
 }

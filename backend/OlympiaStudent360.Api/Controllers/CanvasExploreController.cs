@@ -680,13 +680,12 @@ public class CanvasExploreController : ControllerBase
     private IQueryable<CanvasCourse> ApplyStudentScope(
         IQueryable<CanvasCourse> query, Filters filters)
     {
-        if (_userAccess.Current.RestrictsClasses)
+        if (_userAccess.Current.RestrictsStudents)
         {
-            var userId = _userAccess.Current.UserId!;
+            var allowedStudentIds = _userAccess.ApplyStudentScope(
+                _context.StudentProfiles.AsNoTracking()).Select(student => student.Id);
             query = query.Where(course => course.Enrollments.Any(item =>
-                item.StudentProfileId != null && item.Student!.Homeroom != null &&
-                _context.TeacherClassAccesses.Any(access =>
-                    access.UserId == userId && access.Homeroom == item.Student.Homeroom)));
+                item.StudentProfileId != null && allowedStudentIds.Contains(item.StudentProfileId.Value)));
         }
         if (filters.Has(filters.Campus))
             query = query.Where(course => course.Enrollments.Any(item =>
@@ -713,13 +712,12 @@ public class CanvasExploreController : ControllerBase
     private IQueryable<CanvasAssignment> ApplyStudentScope(
         IQueryable<CanvasAssignment> query, Filters filters)
     {
-        if (_userAccess.Current.RestrictsClasses)
+        if (_userAccess.Current.RestrictsStudents)
         {
-            var userId = _userAccess.Current.UserId!;
+            var allowedStudentIds = _userAccess.ApplyStudentScope(
+                _context.StudentProfiles.AsNoTracking()).Select(student => student.Id);
             query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>
-                item.StudentProfileId != null && item.Student!.Homeroom != null &&
-                _context.TeacherClassAccesses.Any(access =>
-                    access.UserId == userId && access.Homeroom == item.Student.Homeroom)));
+                item.StudentProfileId != null && allowedStudentIds.Contains(item.StudentProfileId.Value)));
         }
         if (filters.Has(filters.Campus))
             query = query.Where(assignment => assignment.Course!.Enrollments.Any(item =>

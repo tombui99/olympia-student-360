@@ -162,6 +162,19 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                       }
                     </div>
                   }
+                  @if (form.accessScopes.includes('SchoolLevel') && !form.accessScopes.includes('All')) {
+                    <p class="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#817389]">{{ languageService.t('access.schoolLevels') }}</p>
+                    <p class="mt-1 text-xs text-[#756a7d]">{{ languageService.t('access.schoolLevelsHint') }}</p>
+                    <div class="mt-2 grid gap-2 sm:grid-cols-2">
+                      @for (schoolLevel of schoolLevels(); track schoolLevel) {
+                        <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#e2dce7] bg-white px-3 py-2 text-sm">
+                          <input type="checkbox" class="h-4 w-4 accent-[#4b2070]" [checked]="form.schoolLevels.includes(schoolLevel)"
+                            (change)="toggleSchoolLevel(schoolLevel)" />
+                          <span>{{ languageService.t('access.schoolLevel.' + schoolLevel + '.title') }}</span>
+                        </label>
+                      }
+                    </div>
+                  }
                 </section>
               }
 
@@ -236,8 +249,9 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
 export class AccountManagementComponent implements OnInit {
   users = signal<AdminUserDto[]>([]);
   roles = signal<string[]>([]);
-  accessScopes = signal<string[]>(['All', 'Health', 'Bus', 'Academic', 'Class']);
+  accessScopes = signal<string[]>(['All', 'Health', 'Bus', 'Academic', 'Class', 'SchoolLevel']);
   homerooms = signal<string[]>([]);
+  schoolLevels = signal<string[]>(['Primary', 'LowerSecondary', 'UpperSecondary']);
   saving = signal(false);
   error = signal<string | null>(null);
   success = signal<string | null>(null);
@@ -263,6 +277,7 @@ export class AccountManagementComponent implements OnInit {
       next: (data) => {
         this.accessScopes.set(data.availableScopes);
         this.homerooms.set(data.availableHomerooms);
+        this.schoolLevels.set(data.availableSchoolLevels);
       },
       error: () => undefined,
     });
@@ -300,6 +315,7 @@ export class AccountManagementComponent implements OnInit {
         ? [...this.accessScopes()]
         : user.accessScopes?.length ? user.accessScopes : [...this.accessScopes()],
       homerooms: user.homerooms || [],
+      schoolLevels: user.schoolLevels || [],
     };
     this.clearMessages();
     this.openSheet();
@@ -333,6 +349,7 @@ export class AccountManagementComponent implements OnInit {
         newPassword: this.passwordValue || null,
         accessScopes: this.form.role === 'Teacher' ? this.normalizedAccessScopes() : [],
         homerooms: this.form.role === 'Teacher' ? this.form.homerooms : [],
+        schoolLevels: this.form.role === 'Teacher' ? this.form.schoolLevels : [],
       };
 
       this.adminUsersService.apiAdminUsersIdPut(editingId, payload).subscribe({
@@ -350,6 +367,7 @@ export class AccountManagementComponent implements OnInit {
       role: this.form.role,
       accessScopes: this.form.role === 'Teacher' ? this.normalizedAccessScopes() : [],
       homerooms: this.form.role === 'Teacher' ? this.form.homerooms : [],
+      schoolLevels: this.form.role === 'Teacher' ? this.form.schoolLevels : [],
     };
 
     this.adminUsersService.apiAdminUsersPost(payload).subscribe({
@@ -411,6 +429,12 @@ export class AccountManagementComponent implements OnInit {
     this.form.homerooms = [...selected];
   }
 
+  toggleSchoolLevel(schoolLevel: string): void {
+    const selected = new Set(this.form.schoolLevels);
+    selected.has(schoolLevel) ? selected.delete(schoolLevel) : selected.add(schoolLevel);
+    this.form.schoolLevels = [...selected];
+  }
+
   private normalizedAccessScopes(): string[] {
     return this.form.accessScopes.includes('All') ? ['All'] : this.form.accessScopes;
   }
@@ -459,7 +483,8 @@ export class AccountManagementComponent implements OnInit {
     }
 
     if (this.form.role === 'Teacher' && (!this.form.accessScopes.length ||
-      (this.form.accessScopes.includes('Class') && !this.form.accessScopes.includes('All') && !this.form.homerooms.length))) {
+      (this.form.accessScopes.includes('Class') && !this.form.accessScopes.includes('All') && !this.form.homerooms.length) ||
+      (this.form.accessScopes.includes('SchoolLevel') && !this.form.accessScopes.includes('All') && !this.form.schoolLevels.length))) {
       return false;
     }
 
@@ -481,6 +506,7 @@ export class AccountManagementComponent implements OnInit {
       newPassword: null,
       accessScopes: [...this.accessScopes()],
       homerooms: [],
+      schoolLevels: [],
     };
   }
 }

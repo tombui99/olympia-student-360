@@ -37,8 +37,10 @@ export interface UserAccessCapabilitiesDto {
   canAccessCommendations: boolean;
   canAccessSupport: boolean;
   restrictsClasses: boolean;
+  restrictsStudents: boolean;
   scopes: string[];
   homerooms: string[];
+  schoolLevels: string[];
 }
 
 export interface MetricCardDto {
@@ -61,6 +63,7 @@ export interface AdminUserDto {
   lastLoginAt?: string | null;
   accessScopes: string[];
   homerooms: string[];
+  schoolLevels: string[];
 }
 
 export interface CreateAdminUserDto {
@@ -71,6 +74,7 @@ export interface CreateAdminUserDto {
   role: string;
   accessScopes: string[];
   homerooms: string[];
+  schoolLevels: string[];
 }
 
 export interface UpdateAdminUserDto {
@@ -80,4 +84,5 @@ export interface UpdateAdminUserDto {
   newPassword?: string | null;
   accessScopes: string[];
   homerooms: string[];
+  schoolLevels: string[];
 }
