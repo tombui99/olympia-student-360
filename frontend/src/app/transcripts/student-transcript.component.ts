@@ -254,7 +254,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                                 <tr class="border-t border-[#e7e0ea] even:bg-[#fbfafc]">
                                   <td class="px-2 py-2 text-center">{{ subjectNumber(grade, index) }}</td>
                                   <td class="px-3 py-2 text-[#35293b]">
-                                    <span class="block font-medium">{{ displaySubject(subject.subject, subject.subjectCode) }}</span>
+                                    <span class="block font-medium">{{ subject.subject }}</span>
                                     @if (subject.courseNames.length) {
                                       <span class="mt-0.5 block text-[0.62rem] leading-tight text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
                                     }
@@ -505,35 +505,6 @@ export class StudentTranscriptComponent {
     { value: 2, label: 'transcript.ibBands.poor' },
     { value: 1, label: 'transcript.ibBands.veryPoor' },
   ];
-
-  private readonly bilingualSubjects: Record<string, string> = {
-    math: 'Toán / Math', mathematics: 'Toán / Mathematics',
-    physics: 'Vật lý / Physics', chemistry: 'Hóa học / Chemistry', biology: 'Sinh học / Biology',
-    science: 'Khoa học / Science', 'history and geography': 'Lịch sử và Địa lý / History and Geography',
-    literature: 'Ngữ văn / Literature', vietnamese: 'Tiếng Việt / Vietnamese',
-    history: 'Lịch sử / History', geography: 'Địa lý / Geography', english: 'Tiếng Anh / English',
-    chinese: 'Tiếng Trung / Chinese', french: 'Tiếng Pháp / French', spanish: 'Tiếng Tây Ban Nha / Spanish',
-    economics: 'Kinh tế / Economics', business: 'Kinh doanh / Business', technology: 'Công nghệ / Technology',
-    ict: 'Tin học / ICT', 'computer science': 'Khoa học máy tính / Computer Science',
-    'global perspectives': 'Góc nhìn toàn cầu / Global Perspectives', humanities: 'Nhân văn / Humanities',
-    music: 'Âm nhạc / Music', 'fine arts': 'Mỹ thuật / Fine Arts',
-    'physical education': 'Giáo dục thể chất / Physical Education',
-    'civic education': 'Giáo dục công dân / Civic Education',
-    'service learning': 'Học tập phục vụ cộng đồng / Service Learning',
-    'cas and extended essay': 'CAS và Luận văn / CAS and Extended Essay',
-    'theory of knowledge': 'Lý luận tri thức / Theory of Knowledge',
-    'personal development': 'Phát triển con người / Personal Development',
-    'critical thinking': 'Tư duy phản biện / Critical Thinking',
-    basketball: 'Bóng rổ / Basketball', soccer: 'Bóng đá / Soccer', volleyball: 'Bóng chuyền / Volleyball',
-    gym: 'Thể dục / Gym',
-    piano: 'Dương cầm / Piano', guitar: 'Ghi-ta / Guitar', drums: 'Trống / Drums',
-    'traditional musical instruments': 'Nhạc cụ dân tộc / Traditional Musical Instruments',
-    vocal: 'Thanh nhạc / Vocal', 'performing arts': 'Nghệ thuật tổng hợp / Performing Arts',
-    'global studies': 'Quốc tế học / Global Studies',
-    'national defense': 'GDQP-AN / National Defense Education',
-    'national defense education': 'GDQP-AN / National Defense Education',
-    'economics and law': 'Kinh tế & Pháp luật / Economics & Law',
-  };
 
   constructor() {
     this.searchTerms.pipe(
@@ -805,11 +776,6 @@ export class StudentTranscriptComponent {
     return this.isPassFailSubject(subjectCode)
       ? (score >= 50 ? this.t('transcript.passed') : this.t('transcript.notPassed'))
       : this.t('transcript.graded');
-  }
-
-  displaySubject(subject: string, subjectCode: string): string {
-    if (this.activeTranscriptType() !== 'bilingual') return subject;
-    return this.bilingualSubjects[this.normalizeSubjectCode(subjectCode)] ?? subject;
   }
 
   isIbGrade(gradeLevel: string): boolean {
