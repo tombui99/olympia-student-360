@@ -26,10 +26,13 @@ jobs:
       Canvas__BaseUrl: ${{ vars.CANVAS_BASE_URL || secrets.CANVAS_BASE_URL || 'https://lms.theolympiaschools.edu.vn' }}
       Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
       Canvas__AccountId: ${{ vars.CANVAS_ACCOUNT_ID || secrets.CANVAS_ACCOUNT_ID || '1' }}
+      # Olympia Canvas enrollment-term IDs for the current 2026-27 school year. Keeping an
+      # explicit allowlist prevents a daily ETL from expanding into an account-wide historical
+      # import. Add the new Canvas term IDs here when the school rolls over to a new academic year.
+      # 333: THPT G9-12; 334: THCS G6-8; 335: Grade 5; 336: THPT extracurricular;
+      # 337: OIS Grade 5; 338: OIS G6-9; 339: OIS academic office; 340: clubs.
       Canvas__EnrollmentTermIds: "333,334,335,336,337,338,339,340"
       Canvas__WatermarkOverlapMinutes: "120"
-      # SIS is the authoritative active-student roster. Unmatched Canvas users are not imported.
-      Canvas__CreateMissingStudentProfiles: "false"
       ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
 
     steps:

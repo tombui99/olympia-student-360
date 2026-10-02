@@ -12,7 +12,6 @@ public sealed class CanvasEtlOptions
     public bool AllowEmptyStudents { get; init; }
     public bool IncludeAllCourses { get; init; }
     public bool IncludeCompletedCourses { get; init; }
-    public bool CreateMissingStudentProfiles { get; init; }
     public IReadOnlyList<long> EnrollmentTermIds { get; init; } = [];
     public IReadOnlyList<long> SyncAllEnrollmentTermIds { get; init; } = [];
     public DateTimeOffset? SinceUtc { get; init; }
@@ -59,9 +58,6 @@ public sealed class CanvasEtlOptions
                 configuration["Canvas:IncludeAllCourses"], out var includeAllCourses) && includeAllCourses,
             IncludeCompletedCourses = bool.TryParse(
                 configuration["Canvas:IncludeCompletedCourses"], out var includeCompletedCourses) && includeCompletedCourses,
-            CreateMissingStudentProfiles = bool.TryParse(
-                configuration["Canvas:CreateMissingStudentProfiles"], out var createMissingStudentProfiles) &&
-                createMissingStudentProfiles,
             EnrollmentTermIds = enrollmentTermIds,
             SyncAllEnrollmentTermIds = syncAllEnrollmentTermIds,
             WatermarkOverlapMinutes = overlapMinutes

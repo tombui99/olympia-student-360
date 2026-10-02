@@ -79,7 +79,6 @@ public sealed class CanvasDirectImportRunner
             AllowEmptyStudents = request.AllowEmptyStudents,
             IncludeAllCourses = request.IncludeAllCourses,
             IncludeCompletedCourses = request.Mode is "sync-all" or "reconcile",
-            CreateMissingStudentProfiles = request.CreateMissingStudentProfiles,
             EnrollmentTermIds = request.EnrollmentTermIds,
             SinceUtc = sinceUtc is null ? null : new DateTimeOffset(sinceUtc.Value, TimeSpan.Zero)
         };
@@ -139,7 +138,6 @@ public sealed record CanvasDirectImportRequest(
     bool AllowEmptyCourses,
     bool AllowEmptyStudents,
     bool IncludeAllCourses,
-    bool CreateMissingStudentProfiles,
     IReadOnlyList<long> EnrollmentTermIds,
     string Mode,
     int OverlapMinutes,

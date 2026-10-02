@@ -26,10 +26,14 @@ jobs:
       Canvas__BaseUrl: ${{ vars.CANVAS_BASE_URL || secrets.CANVAS_BASE_URL || 'https://lms.theolympiaschools.edu.vn' }}
       Canvas__AccessToken: ${{ secrets.CANVAS_ACCESS_TOKEN }}
       Canvas__AccountId: ${{ vars.CANVAS_ACCOUNT_ID || secrets.CANVAS_ACCOUNT_ID || '1' }}
+      # Current 2026-27 terms used by the normal active-year scope.
       Canvas__EnrollmentTermIds: "333,334,335,336,337,338,339,340"
+      # Reconciliation retains active-student history from September 2025 onward, so it includes
+      # both the 2025-26 terms (227-232) and 2026-27 terms (333-340). This is an explicit safety
+      # boundary, not a list of student/class IDs. Append the next academic year's Canvas term IDs
+      # during rollover; remove an older group only when its reporting retention is intentionally
+      # retired. Term details for 333-340 are documented in sync-canvas.yml.
       Canvas__SyncAllEnrollmentTermIds: "227,228,229,230,231,232,333,334,335,336,337,338,339,340"
-      # SIS is the authoritative active-student roster. Unmatched Canvas users are not imported.
-      Canvas__CreateMissingStudentProfiles: "false"
       ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
 
     steps:

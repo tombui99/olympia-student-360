@@ -212,9 +212,13 @@ CANVAS_ACCOUNT_ID               Optional; defaults to Olympia's root account 1
 After the one-time local bootstrap, `.github/workflows/sync-canvas.yml` is the incremental workflow. The importer
 reads the last successful watermark and subtracts the configured two-hour
 overlap. Canvas submissions are queried separately with `submitted_since` and `graded_since`, then
-deduplicated before upsert. The watermark advances to the run's captured start time only after every
-course succeeds. A failed or cancelled run leaves the previous successful watermark unchanged, so
-the next run safely repeats the window. Partial incremental responses never prune older submissions.
+deduplicated before upsert. `StudentProfiles` is the SIS-authoritative active roster: submissions are
+requested only for active students enrolled in each course, courses without an active SIS student are
+skipped, and no new facts are stored for Canvas-only users. Existing historical facts are retained
+when a student later leaves the active SIS roster. The watermark advances to the run's captured start
+time only after every course succeeds. A failed or cancelled run leaves the previous successful
+watermark unchanged, so the next run safely repeats the window. Partial incremental responses never
+prune older submissions.
 
 Canvas does not expose the same updated-since filter for courses, assignments, enrollments, or
 enrollment/course-grade totals. Those dimensions and smaller totals are refreshed for available
@@ -232,7 +236,6 @@ dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:Ac
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:EnrollmentTermIds" "333,334,335,336,337,338,339,340"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:SyncAllEnrollmentTermIds" "227,228,229,230,231,232,333,334,335,336,337,338,339,340"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:WatermarkOverlapMinutes" "120"
-dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "Canvas:CreateMissingStudentProfiles" "false"
 dotnet user-secrets set --project backend/OlympiaStudent360.CanvasEtl "ConnectionStrings:DefaultConnection" "Server=localhost;Port=3306;Database=olympia_student_360;User=root;Password=YOUR_PASSWORD;"
 
 read -s "CANVAS_TOKEN?Canvas token: "; echo
@@ -255,6 +258,10 @@ Scheduled daily jobs use `Canvas__EnrollmentTermIds` and limit the account query
 published courses with student enrollments. Full and reconciliation runs additionally include
 completed courses. Canvas warehouse tables preserve Canvas accounts, users, courses, sections,
 enrollments, grades, assignments, and submissions separately from SIS-owned student demographics.
+New Canvas student facts are fetched only for the current `StudentProfiles` roster; existing history
+is not removed when a student becomes inactive. The explicitly one-time
+`backend/sql/cleanup-inactive-canvas-students.sql` script can remove inactive student facts already
+present in a database, but the recurring ETL never repeats that cleanup.
 
 After a successful local run, create an idempotent MySQL transfer script with
 `backend/sql/export-local-canvas-for-rds.sh`. The private generated artifact is written under

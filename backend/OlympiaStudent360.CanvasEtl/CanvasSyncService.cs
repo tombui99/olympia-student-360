@@ -57,22 +57,39 @@ internal sealed partial class CanvasSyncService
                 "Set Canvas__AllowEmptyCourses=true only when an empty account is intentional.");
         }
 
-        if (replaceExisting)
-        {
-            await ReplaceCanvasWarehouse(cancellationToken);
-        }
-
-        await SaveCanvasDirectory(sourceAccounts, sourceStudents, cancellationToken);
-
         var studentCounts = await LinkSISStudents(sourceStudents, cancellationToken);
         Console.WriteLine(
             $"Existing Canvas/SIS identity linking: {studentCounts.Matched} matched existing SIS profiles, " +
             $"{studentCounts.CanvasLinksCreated} Canvas user links created, " +
             $"{studentCounts.Unmatched} Canvas users unmatched, " +
             $"{studentCounts.MissingSISUserIds} Canvas users missing sis_user_id. " +
-            (_options.CreateMissingStudentProfiles
-                ? "Missing profiles will be represented from exact Canvas identity data as their selected-term enrollments are imported."
-                : "No StudentProfile rows will be created from Canvas-owned profile data."));
+            "StudentProfiles remains authoritative; Canvas-only users are excluded.");
+
+        var activeCanvasUserIds = (await _db.StudentProfiles.AsNoTracking()
+                .Where(student => student.CanvasUserId != null)
+                .Select(student => student.CanvasUserId!.Value)
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
+        if (activeCanvasUserIds.Count < 100 && !_options.AllowEmptyStudents)
+        {
+            throw new InvalidOperationException(
+                $"Only {activeCanvasUserIds.Count} SIS StudentProfiles have a Canvas user id. " +
+                "The active-roster safety check requires at least 100 before Canvas data can be pruned.");
+        }
+        var activeSourceStudents = sourceStudents
+            .Where(student => activeCanvasUserIds.Contains(student.Id))
+            .GroupBy(student => student.Id)
+            .Select(group => group.First())
+            .ToList();
+        Console.WriteLine(
+            $"SIS active roster retained {activeSourceStudents.Count} of {sourceStudents.Count} Canvas student users.");
+
+        if (replaceExisting)
+        {
+            await ReplaceCanvasWarehouse(cancellationToken);
+        }
+
+        await SaveCanvasDirectory(sourceAccounts, activeSourceStudents, cancellationToken);
 
         var relinkedFacts = await RelinkExistingFacts(cancellationToken);
         if (relinkedFacts > 0)
@@ -87,9 +104,14 @@ internal sealed partial class CanvasSyncService
         if (deletedCourseIds.Length > 0)
         {
             var deletedRows = await _db.CanvasCourses
-                .Where(course => deletedCourseIds.Contains(course.CanvasCourseId))
+                .Where(course => deletedCourseIds.Contains(course.CanvasCourseId) &&
+                    !course.Enrollments.Any(enrollment => enrollment.StudentProfileId == null) &&
+                    !course.Assignments.Any(assignment =>
+                        assignment.Submissions.Any(submission => submission.StudentProfileId == null)))
                 .ExecuteDeleteAsync(cancellationToken);
-            Console.WriteLine($"Removed {deletedRows} Canvas courses that Canvas now reports as deleted.");
+            Console.WriteLine(
+                $"Removed {deletedRows} Canvas courses that Canvas now reports as deleted; " +
+                "courses containing inactive-student history were retained.");
         }
 
         courses = courses
@@ -119,6 +141,7 @@ internal sealed partial class CanvasSyncService
                 group => group.Select(student => student.SISUserId!).First());
         var accountsById = sourceAccounts.ToDictionary(account => account.Id);
         var totals = new SyncCounts();
+        var retainedCourseCount = 0;
         // Canvas throttles large bursts heavily. Keep full/reconciliation reads bounded and use an
         // even smaller active-course batch for daily runs. Submission payloads remain watermark
         // filtered in incremental mode; dimensions and enrollment grade totals are refreshed.
@@ -130,9 +153,15 @@ internal sealed partial class CanvasSyncService
                 $"Fetching Canvas course batch starting at {courseBatch[0].Id} " +
                 $"({courseBatch.Length} courses).");
             var courseData = await Task.WhenAll(courseBatch.Select(course =>
-                FetchCourseData(course, cancellationToken)));
+                FetchCourseData(course, activeCanvasUserIds, cancellationToken)));
             foreach (var data in courseData)
             {
+                if (!data.HasActiveStudents)
+                {
+                    continue;
+                }
+
+                retainedCourseCount++;
                 Console.WriteLine($"Syncing Canvas course {data.Course.Id}: {data.Course.Name ?? "(unnamed)"}");
                 var counts = await SaveCourse(
                     data.Course,
@@ -160,7 +189,8 @@ internal sealed partial class CanvasSyncService
             "and were assigned the grade backed by the most course enrollments.");
 
         Console.WriteLine(
-            $"Canvas sync complete: {courses.Count} courses, {totals.Sections} Canvas classes/sections, " +
+            $"Canvas sync complete: {retainedCourseCount} courses with SIS-active students, " +
+            $"{totals.Sections} Canvas classes/sections, " +
             $"{totals.Assignments} assignments, " +
             $"{totals.Enrollments} enrollments, {totals.Scores} course scores, {totals.Submissions} submissions. " +
             $"Unmatched SIS student references: {totals.UnmatchedStudents}; " +
@@ -168,12 +198,12 @@ internal sealed partial class CanvasSyncService
             $"student match rate: {Percent(totals.MatchedStudents, totals.StudentUsers):0.0}%.");
 
         return new CanvasSyncSummary(
-            sourceStudents.Count,
+            activeSourceStudents.Count,
             studentCounts.Matched,
             studentCounts.CanvasLinksCreated,
             studentCounts.Unmatched,
             sourceAccounts.Count,
-            courses.Count,
+            retainedCourseCount,
             totals.Sections,
             totals.Assignments,
             totals.Enrollments,
@@ -186,18 +216,32 @@ internal sealed partial class CanvasSyncService
 
     private async Task<CanvasCourseData> FetchCourseData(
         CanvasCourseDto course,
+        IReadOnlySet<long> activeCanvasUserIds,
         CancellationToken cancellationToken)
     {
-        // Course-scoped reads are independent. CanvasApiClient applies Retry-After/backoff when
-        // Canvas throttles. In daily mode only the submissions calls carry a since cutoff.
+        // Enrollment is read first so courses and submission payloads can be restricted to the
+        // SIS-authoritative active roster before the heavier course-scoped calls are made.
+        var sourceEnrollments = await _canvas.GetEnrollments(course.Id, cancellationToken);
+        var activeEnrollments = sourceEnrollments
+            .Where(enrollment => activeCanvasUserIds.Contains(enrollment.UserId))
+            .ToList();
+        if (activeEnrollments.Count == 0)
+        {
+            return new CanvasCourseData(course, [], [], [], [], [], [], false);
+        }
+
+        // Remaining course-scoped reads are independent. CanvasApiClient applies Retry-After/backoff
+        // when Canvas throttles. In daily mode only the submissions calls carry a since cutoff.
         var assignmentsTask = _canvas.GetAssignments(course.Id, cancellationToken);
         var sectionsTask = _canvas.GetSections(course.Id, cancellationToken);
         var groupsTask = _canvas.GetAssignmentGroups(course.Id, cancellationToken);
         var gradingPeriodsTask = _canvas.GetGradingPeriods(course.Id, cancellationToken);
-        var enrollmentsTask = _canvas.GetEnrollments(course.Id, cancellationToken);
-        var submissionsTask = _canvas.GetSubmissions(course.Id, cancellationToken);
+        var submissionsTask = _canvas.GetSubmissions(
+            course.Id,
+            activeEnrollments.Select(enrollment => enrollment.UserId).Distinct().ToArray(),
+            cancellationToken);
         await Task.WhenAll(
-            assignmentsTask, sectionsTask, groupsTask, gradingPeriodsTask, enrollmentsTask, submissionsTask);
+            assignmentsTask, sectionsTask, groupsTask, gradingPeriodsTask, submissionsTask);
 
         var gradingPeriods = (await gradingPeriodsTask)
             .Where(period => GradingPeriodOverlapsCourseTerm(period, course))
@@ -213,9 +257,10 @@ internal sealed partial class CanvasSyncService
             await sectionsTask,
             await assignmentsTask,
             await groupsTask,
-            await enrollmentsTask,
+            activeEnrollments,
             (await Task.WhenAll(gradingPeriodTasks)).ToList(),
-            await submissionsTask);
+            await submissionsTask,
+            true);
     }
 
     private async Task<SyncCounts> SaveCourse(
@@ -297,7 +342,11 @@ internal sealed partial class CanvasSyncService
             section.Name = source.Name;
             section.StartAt = source.StartAt;
             section.EndAt = source.EndAt;
-            section.TotalStudents = source.TotalStudents;
+            section.TotalStudents = sourceEnrollments
+                .Where(enrollment => enrollment.CourseSectionId == source.Id)
+                .Select(enrollment => enrollment.UserId)
+                .Distinct()
+                .Count();
             section.RestrictEnrollmentsToSectionDates = source.RestrictEnrollmentsToSectionDates;
         }
 
@@ -590,15 +639,23 @@ internal sealed partial class CanvasSyncService
             if (pruneMissingSubmissions)
             {
                 _db.CanvasSubmissions.RemoveRange(existingSubmissions.Values
-                    .Where(item => !currentSubmissionIds.Contains(item.CanvasSubmissionId)));
+                    .Where(item => item.StudentProfileId != null &&
+                        !currentSubmissionIds.Contains(item.CanvasSubmissionId)));
             }
+            var assignmentsWithInactiveHistory = existingSubmissions.Values
+                .Where(submission => submission.StudentProfileId == null)
+                .Select(submission => submission.CanvasAssignmentId)
+                .ToHashSet();
             _db.CanvasAssignments.RemoveRange(assignments.Values
-                .Where(item => !assignmentIds.Contains(item.CanvasAssignmentId)));
+                .Where(item => !assignmentIds.Contains(item.CanvasAssignmentId) &&
+                    !assignmentsWithInactiveHistory.Contains(item.CanvasAssignmentId)));
         }
         _db.CanvasCourseScores.RemoveRange(existingScores.Values
-            .Where(item => !currentScoreIds.Contains(item.WarehouseScoreFactId)));
+            .Where(item => item.StudentProfileId != null &&
+                !currentScoreIds.Contains(item.WarehouseScoreFactId)));
         _db.CanvasEnrollments.RemoveRange(enrollments.Values
-            .Where(item => !enrollmentIds.Contains(item.CanvasEnrollmentId)));
+            .Where(item => item.StudentProfileId != null &&
+                !enrollmentIds.Contains(item.CanvasEnrollmentId)));
         _db.CanvasCourseSections.RemoveRange(sections.Values
             .Where(item => !sectionIds.Contains(item.CanvasSectionId)));
 
@@ -872,26 +929,6 @@ internal sealed partial class CanvasSyncService
             return sisStudent;
         }
 
-        if (_options.CreateMissingStudentProfiles)
-        {
-            var storedSisUserId = Limit(sisUserId, 100) ?? $"canvas-user-{canvasUserId}";
-            var student = new StudentProfile
-            {
-                CanvasUserId = canvasUserId,
-                // StudentProfile requires an SIS key. Canvas accounts without one get an explicit,
-                // collision-free placeholder; it is never presented as real SIS data.
-                SISUserId = storedSisUserId,
-                // Until the SIS profile import supplies the real name, display the exact identity
-                // key instead of guessing a name from another source.
-                FullName = storedSisUserId,
-                CreatedAt = DateTime.UtcNow
-            };
-            _db.StudentProfiles.Add(student);
-            studentsByCanvasId.Add(canvasUserId, student);
-            studentsByCode.Add(student.SISUserId, student);
-            return student;
-        }
-
         unmatchedStudentIds.Add(sisUserId ?? $"canvas-user:{canvasUserId}");
         return null;
     }
@@ -996,7 +1033,8 @@ internal sealed partial class CanvasSyncService
         List<CanvasAssignmentGroupDto> Groups,
         List<CanvasEnrollmentDto> Enrollments,
         List<GradingPeriodEnrollments> GradingPeriodEnrollments,
-        List<CanvasSubmissionDto> Submissions);
+        List<CanvasSubmissionDto> Submissions,
+        bool HasActiveStudents);
 
     private sealed record CanvasGrade(string GradeLevel, long AccountId);
 

@@ -132,26 +132,42 @@ internal sealed partial class CanvasApiClient
 
     public async Task<List<CanvasSubmissionDto>> GetSubmissions(
         long courseId,
+        IReadOnlyCollection<long> studentIds,
         CancellationToken cancellationToken)
     {
-        var path = $"api/v1/courses/{courseId}/students/submissions?per_page={_options.PerPage}" +
-            "&student_ids[]=all&include[]=user&state_based_on_date=false";
-        if (_options.SinceUtc is null)
+        if (studentIds.Count == 0)
         {
-            return await GetAll<CanvasSubmissionDto>(path, cancellationToken);
+            return [];
         }
 
-        // Canvas applies submitted_since and graded_since as separate filters. Query both so a
-        // newly submitted attempt and a grade changed on an older attempt are both captured.
-        var cutoffValue = _options.SinceUtc.Value.UtcDateTime.ToString(
-            "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
-        var cutoff = Uri.EscapeDataString(cutoffValue);
-        var submittedTask = GetAll<CanvasSubmissionDto>($"{path}&submitted_since={cutoff}", cancellationToken);
-        var gradedTask = GetAll<CanvasSubmissionDto>($"{path}&graded_since={cutoff}", cancellationToken);
-        await Task.WhenAll(submittedTask, gradedTask);
+        var submissions = new List<CanvasSubmissionDto>();
+        // Keep URLs bounded while ensuring Canvas never returns records for former students.
+        foreach (var studentBatch in studentIds.Distinct().Order().Chunk(50))
+        {
+            var studentFilter = string.Concat(studentBatch.Select(id => $"&student_ids[]={id}"));
+            var path = $"api/v1/courses/{courseId}/students/submissions?per_page={_options.PerPage}" +
+                $"{studentFilter}&include[]=user&state_based_on_date=false";
+            if (_options.SinceUtc is null)
+            {
+                submissions.AddRange(await GetAll<CanvasSubmissionDto>(path, cancellationToken));
+                continue;
+            }
 
-        return (await submittedTask)
-            .Concat(await gradedTask)
+            // Canvas applies submitted_since and graded_since as separate filters. Query both so a
+            // newly submitted attempt and a grade changed on an older attempt are both captured.
+            var cutoffValue = _options.SinceUtc.Value.UtcDateTime.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+            var cutoff = Uri.EscapeDataString(cutoffValue);
+            var submittedTask = GetAll<CanvasSubmissionDto>(
+                $"{path}&submitted_since={cutoff}", cancellationToken);
+            var gradedTask = GetAll<CanvasSubmissionDto>(
+                $"{path}&graded_since={cutoff}", cancellationToken);
+            await Task.WhenAll(submittedTask, gradedTask);
+            submissions.AddRange(await submittedTask);
+            submissions.AddRange(await gradedTask);
+        }
+
+        return submissions
             .GroupBy(SubmissionKey)
             .Select(group => group.OrderByDescending(item => item.GradedAt ?? item.SubmittedAt).First())
             .ToList();

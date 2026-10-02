@@ -93,7 +93,6 @@ try
             canvasOptions.AllowEmptyCourses,
             canvasOptions.AllowEmptyStudents,
             syncAll || canvasOptions.IncludeAllCourses,
-            canvasOptions.CreateMissingStudentProfiles,
             selectedTermIds,
             mode,
             canvasOptions.WatermarkOverlapMinutes,
