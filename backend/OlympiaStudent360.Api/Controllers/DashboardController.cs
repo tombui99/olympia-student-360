@@ -1712,11 +1712,161 @@ public class DashboardController : ControllerBase
     ];
 
     /// <summary>
-    /// Metrics derived live from the Canvas warehouse tables (grades and assignments).
-    /// These replace the retired Canvas "assumption" demo metrics. They honour the same
-    /// visibility and dashboard filters as the other imported sources.
+    /// Canvas grade and assignment metrics. The normal path reads ETL-materialized monthly rows;
+    /// the raw warehouse calculation remains as a first-deployment fallback. Both paths honour
+    /// the same visibility and dashboard filters as the other imported sources.
     /// </summary>
     private async Task<List<DashboardMetricDto>> CanvasDataMetrics(
+        string? year, string? term, string? cycle, string? campus, string? level, string? grade,
+        string? homeroom, int? studentId, string? program, string? subject,
+        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
+        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
+    {
+        // A migration can be deployed before the first post-deploy Canvas run. Keep the existing
+        // raw calculation as a correctness fallback until ETL has materialized the summary table.
+        if (await _context.CanvasDashboardMetricAggregates.AsNoTracking()
+            .AnyAsync(cancellationToken))
+        {
+            return await CanvasAggregateMetrics(
+                year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
+                requestedMetricIds, cancellationToken);
+        }
+
+        return await RawCanvasDataMetrics(
+            year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
+            yearAliases, termAliases, requestedMetricIds, cancellationToken);
+    }
+
+    private async Task<List<DashboardMetricDto>> CanvasAggregateMetrics(
+        string? year, string? term, string? cycle, string? campus, string? level, string? grade,
+        string? homeroom, int? studentId, string? program, string? subject,
+        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
+    {
+        if (HasFilter(cycle)) return [];
+
+        var catalog = CanvasMetricCatalog()
+            .Where(metric => WantsMetric(requestedMetricIds, metric.Id))
+            .ToDictionary(metric => metric.Id, StringComparer.Ordinal);
+        if (catalog.Count == 0) return [];
+        var requestedCanvasMetricIds = catalog.Keys.ToArray();
+
+        var query = _context.CanvasDashboardMetricAggregates.AsNoTracking().AsQueryable();
+        query = _userAccess.ApplyStudentScope(query, item => item.Student);
+        query = query.WhereMatchesAny(item => item.MetricKey, requestedCanvasMetricIds);
+
+        if (studentId.HasValue) query = query.Where(item => item.StudentProfileId == studentId.Value);
+        if (HasFilter(campus)) query = query.Where(item => item.Student.Campus == campus);
+        if (HasFilter(level)) query = query.Where(item => item.Student.EducationLevel == level);
+        if (HasFilter(grade))
+        {
+            query = query.Where(item =>
+                (item.Course.CanvasGradeLevel ?? item.Student.GradeLevel ??
+                 item.Student.CanvasGradeLevel) == grade);
+        }
+        if (HasFilter(homeroom)) query = query.Where(item => item.Student.Homeroom == homeroom);
+        if (HasFilter(program)) query = query.Where(item => item.Student.Program == program);
+        if (HasFilter(subject))
+        {
+            var normalizedSubject = subject!.Trim();
+            query = query.Where(item => item.Course.Name != null &&
+                item.Course.Name.Trim() == normalizedSubject);
+        }
+
+        var hasYear = HasFilter(year);
+        if (hasYear)
+        {
+            var academicYear = DashboardPeriodNormalizer.AcademicYear(year!);
+            query = query.Where(item => item.AcademicYear == academicYear);
+            // The raw implementation excludes an event outside the selected year unless a due
+            // date supplies an in-year reporting month. Missing rows are the one exception: an
+            // undated missing item still contributes to the total when its course term matches.
+            query = query.Where(item =>
+                item.MetricKey == CanvasDashboardAggregateService.AssignmentsMissing ||
+                item.AcademicPeriodStart != null);
+        }
+        else
+        {
+            // These raw metrics historically require submitted_at for both their total and series.
+            query = query.Where(item =>
+                item.MetricKey != CanvasDashboardAggregateService.AssignmentsSubmitted &&
+                item.MetricKey != CanvasDashboardAggregateService.SubmittedAssignmentsGraded &&
+                item.MetricKey != CanvasDashboardAggregateService.AssignmentsLate ||
+                item.PeriodStart != null);
+        }
+        if (HasFilter(term))
+        {
+            var normalizedTerm = DashboardPeriodNormalizer.Term(term!);
+            query = query.Where(item => item.Term == normalizedTerm);
+            if (!hasYear)
+            {
+                // Match the legacy raw path: a semester without an explicit school year means the
+                // latest configured occurrence of that semester, not that semester in every year.
+                var resolvedPeriod = await ResolvePeriod(null, term, DateTime.UtcNow);
+                query = query.Where(item => item.AcademicYear == resolvedPeriod.Year);
+            }
+        }
+
+        var grouped = await query
+            .Select(item => new
+            {
+                item.MetricKey,
+                ReportingMonth = hasYear ? item.AcademicPeriodStart : item.PeriodStart,
+                item.ValueSum,
+                item.SampleCount
+            })
+            .GroupBy(item => new { item.MetricKey, item.ReportingMonth })
+            .Select(group => new
+            {
+                group.Key.MetricKey,
+                group.Key.ReportingMonth,
+                ValueSum = group.Sum(item => item.ValueSum),
+                SampleCount = group.Sum(item => item.SampleCount)
+            })
+            .ToListAsync(cancellationToken);
+
+        var averageMetrics = new HashSet<string>(StringComparer.Ordinal)
+        {
+            CanvasDashboardAggregateService.FinalScoreAverage,
+            CanvasDashboardAggregateService.CurrentScoreAverage,
+            CanvasDashboardAggregateService.SubmissionScoreAverage
+        };
+        var results = new List<DashboardMetricDto>(catalog.Count);
+        foreach (var definition in catalog.Values)
+        {
+            var rows = grouped.Where(item => item.MetricKey == definition.Id).ToList();
+            var isAverage = averageMetrics.Contains(definition.Id);
+            var datedRows = rows.Where(item => item.ReportingMonth != null)
+                .OrderBy(item => item.ReportingMonth)
+                .ToList();
+            definition.Series = datedRows.Select(item => new DashboardMetricPointDto
+            {
+                PeriodStart = item.ReportingMonth!.Value,
+                Value = isAverage
+                    ? item.SampleCount == 0
+                        ? 0
+                        : Math.Round((decimal)(item.ValueSum / item.SampleCount), 1)
+                    : (decimal)item.ValueSum
+            }).ToList();
+            if (isAverage)
+            {
+                var sampleCount = rows.Sum(item => item.SampleCount);
+                definition.Value = sampleCount == 0
+                    ? null
+                    : Math.Round((decimal)(rows.Sum(item => item.ValueSum) / sampleCount), 1);
+            }
+            else
+            {
+                definition.Value = (decimal)rows.Sum(item => item.ValueSum);
+            }
+            definition.Trend = definition.Series.Count > 1
+                ? definition.Series[^1].Value - definition.Series[^2].Value
+                : null;
+            results.Add(definition);
+        }
+        return results;
+    }
+
+    private async Task<List<DashboardMetricDto>> RawCanvasDataMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
         string? homeroom, int? studentId, string? program, string? subject,
         IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,

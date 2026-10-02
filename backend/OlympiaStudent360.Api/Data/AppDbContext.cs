@@ -43,6 +43,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CanvasEnrollment> CanvasEnrollments { get; set; }
     public DbSet<CanvasCourseScore> CanvasCourseScores { get; set; }
     public DbSet<CanvasSubmission> CanvasSubmissions { get; set; }
+    public DbSet<CanvasDashboardMetricAggregate> CanvasDashboardMetricAggregates { get; set; }
     public DbSet<CanvasSyncState> CanvasSyncStates { get; set; }
     public DbSet<CanvasSyncRun> CanvasSyncRuns { get; set; }
     public DbSet<StudentClassificationSetting> StudentClassificationSettings { get; set; }
@@ -682,6 +683,30 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             submission.HasOne(s => s.Student).WithMany()
                 .HasForeignKey(s => s.StudentProfileId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CanvasDashboardMetricAggregate>(aggregate =>
+        {
+            aggregate.Property(item => item.MetricKey).HasMaxLength(80);
+            aggregate.Property(item => item.AcademicYear).HasMaxLength(20);
+            aggregate.Property(item => item.Term).HasMaxLength(20);
+            aggregate.HasIndex(item => new
+            {
+                item.MetricKey,
+                item.AcademicYear,
+                item.Term,
+                item.AcademicPeriodStart
+            });
+            aggregate.HasIndex(item => new { item.MetricKey, item.PeriodStart });
+            aggregate.HasIndex(item => item.StudentProfileId);
+            aggregate.HasIndex(item => item.CanvasCourseId);
+            aggregate.HasOne(item => item.Student).WithMany()
+                .HasForeignKey(item => item.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            aggregate.HasOne(item => item.Course).WithMany()
+                .HasForeignKey(item => item.CanvasCourseId)
+                .HasPrincipalKey(item => item.CanvasCourseId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<CanvasSyncState>(state =>

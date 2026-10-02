@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using OlympiaStudent360.Api.Data;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.CanvasEtl;
 
 try
@@ -10,6 +11,8 @@ try
     var replaceExisting = args.Contains("--replace", StringComparer.OrdinalIgnoreCase);
     var syncAll = args.Contains("--sync-all", StringComparer.OrdinalIgnoreCase);
     var incremental = args.Contains("--incremental", StringComparer.OrdinalIgnoreCase);
+    var rebuildAggregatesOnly = args.Contains(
+        "--rebuild-dashboard-aggregates-only", StringComparer.OrdinalIgnoreCase);
     var reconciliationArgument = args.SingleOrDefault(arg =>
         arg.StartsWith("--reconcile-days=", StringComparison.OrdinalIgnoreCase));
     var reconciliationDays = reconciliationArgument is null
@@ -19,6 +22,7 @@ try
         !arg.Equals("--replace", StringComparison.OrdinalIgnoreCase) &&
         !arg.Equals("--sync-all", StringComparison.OrdinalIgnoreCase) &&
         !arg.Equals("--incremental", StringComparison.OrdinalIgnoreCase) &&
+        !arg.Equals("--rebuild-dashboard-aggregates-only", StringComparison.OrdinalIgnoreCase) &&
         !arg.StartsWith("--reconcile-days=", StringComparison.OrdinalIgnoreCase)).ToArray();
     if (unexpected.Length > 0)
     {
@@ -32,7 +36,12 @@ try
         throw new InvalidOperationException(
             "Use exactly one Canvas sync mode: --sync-all, --incremental, or --reconcile-days=N.");
     }
-    if (selectedModes == 0)
+    if (rebuildAggregatesOnly && (selectedModes > 0 || replaceExisting))
+    {
+        throw new InvalidOperationException(
+            "--rebuild-dashboard-aggregates-only cannot be combined with a Canvas sync mode or --replace.");
+    }
+    if (selectedModes == 0 && !rebuildAggregatesOnly)
     {
         incremental = true;
     }
@@ -46,6 +55,20 @@ try
         .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
         .AddEnvironmentVariables()
         .Build();
+    var connectionString = Required(configuration, "ConnectionStrings:DefaultConnection");
+    var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
+        .UseMySQL(connectionString)
+        .Options;
+    if (rebuildAggregatesOnly)
+    {
+        await using var aggregateDb = new AppDbContext(dbOptions);
+        await aggregateDb.Database.MigrateAsync();
+        var rowCount = await new CanvasDashboardAggregateService(aggregateDb)
+            .RebuildAsync(CancellationToken.None);
+        Console.WriteLine($"Rebuilt {rowCount} pre-calculated Canvas dashboard metric rows.");
+        return 0;
+    }
+
     var canvasOptions = CanvasEtlOptions.FromConfiguration(configuration);
     var selectedTermIds = syncAll
         ? canvasOptions.SyncAllEnrollmentTermIds
@@ -62,11 +85,6 @@ try
         throw new InvalidOperationException(
             "Incremental and reconciliation modes require configured Canvas enrollment term ids.");
     }
-
-    var connectionString = Required(configuration, "ConnectionStrings:DefaultConnection");
-    var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
-        .UseMySQL(connectionString)
-        .Options;
 
     using var shutdown = new CancellationTokenSource();
     Console.CancelKeyPress += (_, eventArgs) =>

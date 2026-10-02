@@ -263,6 +263,13 @@ is not removed when a student becomes inactive. The explicitly one-time
 `backend/sql/cleanup-inactive-canvas-students.sql` script can remove inactive student facts already
 present in a database, but the recurring ETL never repeats that cleanup.
 
+Each successful Canvas ETL also rebuilds `CanvasDashboardMetricAggregates` from the raw score and
+submission facts. The table stores student/course/month summaries used by `/api/dashboard/metrics`;
+raw Canvas rows remain the source for drill-down and audit. Immediately after the migration, the API
+temporarily falls back to the original raw calculation until the first ETL populates the summaries.
+For a backfill or repair without calling Canvas, run the ETL CLI with
+`-- --rebuild-dashboard-aggregates-only`.
+
 After a successful local run, create an idempotent MySQL transfer script with
 `backend/sql/export-local-canvas-for-rds.sh`. The private generated artifact is written under
 `backend/sql/generated/` (ignored by Git) and is intended for MySQL Workbench's **Run SQL Script**

@@ -606,6 +606,64 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("CanvasCourseSections");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasDashboardMetricAggregate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("AcademicPeriodStart")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("AcademicYear")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<long>("CanvasCourseId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("MetricKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)");
+
+                    b.Property<DateTime?>("PeriodStart")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<double>("ValueSum")
+                        .HasColumnType("double");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CanvasCourseId");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("MetricKey", "PeriodStart");
+
+                    b.HasIndex("MetricKey", "AcademicYear", "Term", "AcademicPeriodStart");
+
+                    b.ToTable("CanvasDashboardMetricAggregates");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasEnrollment", b =>
                 {
                     b.Property<int>("Id")
@@ -2688,6 +2746,26 @@ namespace OlympiaStudent360.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Course");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasDashboardMetricAggregate", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.CanvasCourse", "Course")
+                        .WithMany()
+                        .HasForeignKey("CanvasCourseId")
+                        .HasPrincipalKey("CanvasCourseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Course");
+
+                    b.Navigation("Student");
                 });
 
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasEnrollment", b =>

@@ -188,6 +188,13 @@ internal sealed partial class CanvasSyncService
             $"{canvasGradeCounts.StudentsWithMultipleGrades} had memberships under multiple grade accounts " +
             "and were assigned the grade backed by the most course enrollments.");
 
+        // ETL completion is the materialization trigger. Calculate once here and persist compact
+        // student/course/month facts; dashboard requests then avoid scanning the raw warehouse.
+        var dashboardAggregateCount = await new CanvasDashboardAggregateService(_db)
+            .RebuildAsync(cancellationToken);
+        Console.WriteLine(
+            $"Rebuilt {dashboardAggregateCount} pre-calculated Canvas dashboard metric rows.");
+
         Console.WriteLine(
             $"Canvas sync complete: {retainedCourseCount} courses with SIS-active students, " +
             $"{totals.Sections} Canvas classes/sections, " +

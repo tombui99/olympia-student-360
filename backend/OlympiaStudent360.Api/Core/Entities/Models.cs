@@ -572,6 +572,29 @@ public class CanvasSubmission : BaseEntity
     public string? LatePolicyStatus { get; set; }
 }
 
+/// <summary>
+/// A monthly, student-and-course-grained Canvas dashboard fact. The Canvas ETL rebuilds these
+/// rows after it commits raw submissions and scores, so dashboard requests do not have to scan
+/// the warehouse fact tables. ValueSum/SampleCount preserve weighted averages after filtering.
+/// </summary>
+public class CanvasDashboardMetricAggregate : BaseEntity
+{
+    public string MetricKey { get; set; } = default!;
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public long CanvasCourseId { get; set; }
+    public CanvasCourse Course { get; set; } = default!;
+    public string AcademicYear { get; set; } = default!;
+    public string Term { get; set; } = "";
+    /// <summary>Natural Canvas event month, used when no academic year is selected.</summary>
+    public DateTime? PeriodStart { get; set; }
+    /// <summary>Event month adjusted to the row's reporting year, used by year-scoped reports.</summary>
+    public DateTime? AcademicPeriodStart { get; set; }
+    public double ValueSum { get; set; }
+    /// <summary>Denominator for average metrics; zero for additive count metrics.</summary>
+    public int SampleCount { get; set; }
+}
+
 /// <summary>Durable high-water mark and last-run status for one Canvas account.</summary>
 public class CanvasSyncState : BaseEntity
 {
