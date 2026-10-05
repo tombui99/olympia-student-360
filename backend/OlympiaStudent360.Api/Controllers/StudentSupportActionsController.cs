@@ -95,6 +95,7 @@ public class StudentSupportActionsController(AppDbContext context, UserAccessSer
     public async Task<ActionResult<StudentSupportJourneyPageDto>> ForStudent(
         int studentId,
         [FromQuery] string? academicYear = null,
+        [FromQuery] string? term = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 5)
     {
@@ -106,6 +107,14 @@ public class StudentSupportActionsController(AppDbContext context, UserAccessSer
         {
             var year = DashboardPeriodNormalizer.AcademicYear(academicYear);
             query = query.Where(item => item.AcademicYear == year);
+        }
+        if (!string.IsNullOrWhiteSpace(term) && term != "all")
+        {
+            var normalizedTerm = DashboardPeriodNormalizer.Term(term);
+            if (normalizedTerm is "hk1" or "hk2")
+            {
+                query = query.Where(item => item.Term == normalizedTerm);
+            }
         }
 
         var total = await query.CountAsync();

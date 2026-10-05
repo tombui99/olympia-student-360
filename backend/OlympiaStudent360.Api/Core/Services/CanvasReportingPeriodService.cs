@@ -29,6 +29,7 @@ public sealed class CanvasReportingPeriodService
         DateTime? asOf = null)
     {
         var now = asOf ?? DateTime.UtcNow;
+        var allTerms = string.Equals(requestedTerm?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
         var year = string.IsNullOrWhiteSpace(requestedYear) || requestedYear == "all"
             ? null
             : DashboardPeriodNormalizer.AcademicYear(requestedYear.Trim());
@@ -72,6 +73,18 @@ public sealed class CanvasReportingPeriodService
                 group.Min(row => row.Start),
                 group.Max(row => row.End)))
             .ToList();
+
+        if (allTerms)
+        {
+            var fullYear = year
+                ?? periods.OrderByDescending(period =>
+                        DashboardPeriodNormalizer.AcademicYearStart(period.AcademicYear))
+                    .Select(period => period.AcademicYear)
+                    .FirstOrDefault()
+                ?? DashboardPeriodNormalizer.AcademicYear(now);
+            var (fullYearStart, fullYearEnd) = DashboardPeriodNormalizer.AcademicYearRange(fullYear);
+            return new CanvasReportingPeriod(fullYear, "all", fullYearStart, fullYearEnd);
+        }
 
         var candidates = year is null
             ? periods

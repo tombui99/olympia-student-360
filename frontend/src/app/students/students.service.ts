@@ -375,8 +375,10 @@ export class StudentsService {
     );
   }
 
-  get(id: number, academicYear?: string): Observable<StudentProfileDetail> {
-    const params = academicYear ? new HttpParams().set('academicYear', academicYear) : undefined;
+  get(id: number, academicYear?: string, term?: string): Observable<StudentProfileDetail> {
+    let params = new HttpParams();
+    if (academicYear) params = params.set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
     return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
   }
 

@@ -104,11 +104,13 @@ export class SupportActionsService {
   forStudent(
     studentId: number,
     academicYear = '',
+    term = 'all',
     page = 1,
     pageSize = 5,
   ): Observable<StudentSupportJourneyPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (academicYear) params = params.set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
     return this.http.get<StudentSupportJourneyPage>(
       `${this.basePath}/api/support-actions/student/${studentId}`,
       { params },

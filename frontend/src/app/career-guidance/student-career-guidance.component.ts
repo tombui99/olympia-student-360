@@ -169,6 +169,7 @@ export class StudentCareerGuidanceComponent implements OnInit, OnChanges {
   @Input() gradeLevel: string | null = null;
   @Input() homeroom: string | null = null;
   @Input() academicYear = '';
+  @Input() term = 'all';
 
   private readonly service = inject(CareerGuidanceService);
   private readonly language = inject(LanguageService);
@@ -186,7 +187,7 @@ export class StudentCareerGuidanceComponent implements OnInit, OnChanges {
 
   ngOnInit(): void { this.load(); }
   ngOnChanges(changes: SimpleChanges): void {
-    if ((changes['studentId'] && !changes['studentId'].firstChange) || (changes['academicYear'] && !changes['academicYear'].firstChange)) { this.page = 1; this.load(); }
+    if ((changes['studentId'] && !changes['studentId'].firstChange) || (changes['academicYear'] && !changes['academicYear'].firstChange) || (changes['term'] && !changes['term'].firstChange)) { this.page = 1; this.load(); }
   }
   text(en: string, vi: string): string { return this.language.language() === 'vi' ? vi : en; }
   openCreate(): void { this.editing.set(null); this.formOpen.set(true); }
@@ -211,6 +212,6 @@ export class StudentCareerGuidanceComponent implements OnInit, OnChanges {
   load(): void {
     if (!this.studentId) return;
     this.loading.set(true); this.loadError.set(false);
-    this.service.forStudent(this.studentId, this.academicYear, this.page, this.pageSize).subscribe({ next: (data) => { this.data.set(data); this.page = data.page; this.loading.set(false); }, error: () => { this.loading.set(false); this.loadError.set(true); } });
+    this.service.forStudent(this.studentId, this.academicYear, this.term, this.page, this.pageSize).subscribe({ next: (data) => { this.data.set(data); this.page = data.page; this.loading.set(false); }, error: () => { this.loading.set(false); this.loadError.set(true); } });
   }
 }

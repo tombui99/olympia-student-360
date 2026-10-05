@@ -100,9 +100,10 @@ export class CareerGuidanceService {
     return this.http.get<CareerGuidancePage>(`${this.basePath}/api/career-guidance`, { params });
   }
 
-  forStudent(studentId: number, academicYear = '', page = 1, pageSize = 5): Observable<CareerGuidancePage> {
+  forStudent(studentId: number, academicYear = '', term = 'all', page = 1, pageSize = 5): Observable<CareerGuidancePage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (academicYear) params = params.set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
     return this.http.get<CareerGuidancePage>(`${this.basePath}/api/career-guidance/student/${studentId}`, { params });
   }
 

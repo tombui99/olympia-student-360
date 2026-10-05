@@ -723,7 +723,10 @@ public class StudentsController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
-    public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(int id, [FromQuery] string? academicYear)
+    public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(
+        int id,
+        [FromQuery] string? academicYear,
+        [FromQuery] string? term)
     {
         var access = _userAccess.Current;
         var hasYearFilter = !string.IsNullOrWhiteSpace(academicYear) && academicYear != "all";
@@ -745,38 +748,42 @@ public class StudentsController : ControllerBase
 
         var now = DateTime.UtcNow;
         var last30Days = now.AddDays(-30);
-        // Behaviour and bus signals use their configured recent windows. Canvas risk uses
-        // the current semester (or the active semester in the selected school year).
+        var behaviourItems = FilterByAcademicPeriod(student.Behaviours, hasYearFilter, academicYear, term,
+            behaviour => behaviour.AcademicYear, behaviour => behaviour.Term, behaviour => behaviour.IncidentDate);
+        var projectItems = FilterByAcademicPeriod(student.Projects, hasYearFilter, academicYear, term,
+            project => project.AcademicYear, project => project.Term, project => project.ActivityDate ?? project.CreatedAt);
+        var busAttendanceItems = FilterByAcademicPeriod(
+            student.BusAttendanceRecords, hasYearFilter, academicYear, term,
+            record => record.AcademicYear, record => record.Term, record => record.AttendanceDate);
+        var mentalHealthItems = FilterByAcademicPeriod(
+            student.MentalHealthRecords, hasYearFilter, academicYear, term,
+            record => record.AcademicYear, _ => null, record => record.RecordDate);
+        var healthVisitItems = FilterByAcademicPeriod(
+            student.HealthVisits, hasYearFilter, academicYear, term,
+            _ => null, _ => null, visit => visit.ExamTime);
+
+        // Behaviour and bus signals use their configured recent windows. Canvas risk follows
+        // the reporting period selected by the page-level year and semester filters.
         var settings = await ClassificationSettings();
         var riskSince = now.AddDays(-settings.RiskWindowDays);
         var commendationSince = now.AddDays(-settings.CommendationWindowDays);
         var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(
-            hasYearFilter ? academicYear : null);
+            hasYearFilter ? academicYear : null, term);
         decimal? canvasAverage = access.CanAccessAcademic
             ? (await CanvasAverages([student.Id], canvasPeriod)).GetValueOrDefault(student.Id)
             : null;
         var risk = StudentClassificationService.ClassifyRisk(
             new StudentSignalSummary(
-                student.Behaviours.Count(behaviour => behaviour.IncidentDate >= riskSince
+                behaviourItems.Count(behaviour => behaviour.IncidentDate >= riskSince
                     && StudentClassificationService.IsConcerningBehaviour(behaviour)),
-                student.Behaviours.Count(behaviour => behaviour.IncidentDate >= commendationSince
+                behaviourItems.Count(behaviour => behaviour.IncidentDate >= commendationSince
                     && StudentClassificationService.IsCommendationBehaviour(behaviour)),
                 canvasAverage,
                 access.CanAccessBus
-                    ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince) : 0,
+                    ? busAttendanceItems.Count(record => record.AttendanceDate >= riskSince) : 0,
                 access.CanAccessBus
-                    ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince) : 0),
+                    ? busAttendanceItems.Count(record => record.AttendanceDate >= commendationSince) : 0),
             settings);
-
-        // Behaviours and projects re-scope to the selected school year (records carry an
-        // academic year; older ones fall back to their date within the September-based range).
-        var behaviourItems = FilterByAcademicYear(student.Behaviours, hasYearFilter, academicYear,
-            behaviour => behaviour.AcademicYear, behaviour => behaviour.IncidentDate);
-        var projectItems = FilterByAcademicYear(student.Projects, hasYearFilter, academicYear,
-            project => project.AcademicYear, project => project.ActivityDate ?? project.CreatedAt);
-        var busAttendanceItems = FilterByAcademicYear(
-            student.BusAttendanceRecords, hasYearFilter, academicYear,
-            record => record.AcademicYear, record => record.AttendanceDate);
 
         var detail = new StudentProfileDetailDto
         {
@@ -867,9 +874,7 @@ public class StudentsController : ControllerBase
                     NotesUpdatedByName = parent.ContactNote == null ? null : parent.ContactNote.UpdatedByName
                 })
                 .ToList(),
-            MentalHealthRecords = (access.CanAccessHealth ? student.MentalHealthRecords : [])
-                .Where(record => !hasYearFilter || DashboardPeriodNormalizer.AcademicYear(record.AcademicYear)
-                    == academicYear)
+            MentalHealthRecords = (access.CanAccessHealth ? mentalHealthItems : [])
                 .OrderByDescending(record => record.RecordDate)
                 .Select(ToMentalHealthDto)
                 .ToList(),
@@ -877,14 +882,12 @@ public class StudentsController : ControllerBase
                 .OrderByDescending(record => record.AttendanceDate)
                 .Select(ToBusAttendanceDto)
                 .ToList(),
-            HealthVisits = (access.CanAccessHealth ? FilterByAcademicYear(student.HealthVisits, hasYearFilter, academicYear,
-                    _ => null, visit => visit.ExamTime)
-                : [])
+            HealthVisits = (access.CanAccessHealth ? healthVisitItems : [])
                 .OrderByDescending(visit => visit.ExamTime)
                 .Select(ToHealthVisitDto)
                 .ToList(),
             Canvas = access.CanAccessAcademic
-                ? await BuildCanvasSummary(student.Id, hasYearFilter ? academicYear : null)
+                ? await BuildCanvasSummary(student.Id, hasYearFilter ? academicYear : null, term)
                 : new StudentCanvasDto()
         };
 
@@ -1110,7 +1113,8 @@ public class StudentsController : ControllerBase
             .OrderBy(term => term == "hk1" ? 1 : 2)
             .ToList();
         var period = year is null ? null : await _canvasReportingPeriods.ResolveAsync(year, focusTerm);
-        if (period is not null && !availableTerms.Contains(period.Term, StringComparer.OrdinalIgnoreCase))
+        if (period?.Term is "hk1" or "hk2" &&
+            !availableTerms.Contains(period.Term, StringComparer.OrdinalIgnoreCase))
         {
             availableTerms.Add(period.Term);
             availableTerms = availableTerms.OrderBy(term => term == "hk1" ? 1 : 2).ToList();
@@ -1519,20 +1523,42 @@ public class StudentsController : ControllerBase
     private static string? Canonical(IReadOnlyList<string> options, string value) =>
         options.FirstOrDefault(option => string.Equals(option, value, StringComparison.OrdinalIgnoreCase));
 
-    private static List<T> FilterByAcademicYear<T>(
-        IEnumerable<T> items, bool apply, string? academicYear,
-        Func<T, string?> yearSelector, Func<T, DateTime> dateSelector)
+    private static List<T> FilterByAcademicPeriod<T>(
+        IEnumerable<T> items,
+        bool applyYear,
+        string? academicYear,
+        string? term,
+        Func<T, string?> yearSelector,
+        Func<T, string?> termSelector,
+        Func<T, DateTime> dateSelector)
     {
-        if (!apply || string.IsNullOrWhiteSpace(academicYear))
-        {
-            return items.ToList();
-        }
-        var (start, end) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
+        var normalizedYear = !applyYear || string.IsNullOrWhiteSpace(academicYear)
+            ? null
+            : DashboardPeriodNormalizer.AcademicYear(academicYear);
+        var normalizedTerm = string.IsNullOrWhiteSpace(term) || term == "all"
+            ? null
+            : DashboardPeriodNormalizer.Term(term);
+        if (normalizedTerm is not ("hk1" or "hk2")) normalizedTerm = null;
+
         return items.Where(item =>
-            (!string.IsNullOrWhiteSpace(yearSelector(item)) &&
-                DashboardPeriodNormalizer.AcademicYear(yearSelector(item)!) == academicYear)
-            || (yearSelector(item) == null && dateSelector(item) >= start && dateSelector(item) < end))
-            .ToList();
+        {
+            var date = dateSelector(item);
+            var sourceYear = yearSelector(item);
+            var itemYear = string.IsNullOrWhiteSpace(sourceYear)
+                ? DashboardPeriodNormalizer.AcademicYear(date)
+                : DashboardPeriodNormalizer.AcademicYear(sourceYear);
+            if (normalizedYear is not null && itemYear != normalizedYear) return false;
+            if (normalizedTerm is null) return true;
+
+            var sourceTerm = termSelector(item);
+            var itemTerm = string.IsNullOrWhiteSpace(sourceTerm)
+                ? null
+                : DashboardPeriodNormalizer.Term(sourceTerm);
+            if (itemTerm is "hk1" or "hk2") return itemTerm == normalizedTerm;
+
+            var (start, end) = DashboardPeriodNormalizer.PeriodRange(itemYear, normalizedTerm);
+            return date >= start && date < end;
+        }).ToList();
     }
 
     private static StudentMentalHealthRecordDto ToMentalHealthDto(StudentMentalHealthRecord record) => new()

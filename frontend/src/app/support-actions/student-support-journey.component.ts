@@ -146,6 +146,7 @@ export class StudentSupportJourneyComponent implements OnInit, OnChanges {
   @Input() gradeLevel: string | null = null;
   @Input() homeroom: string | null = null;
   @Input() academicYear = '';
+  @Input() term = 'all';
 
   private readonly service = inject(SupportActionsService);
   private readonly language = inject(LanguageService);
@@ -164,7 +165,8 @@ export class StudentSupportJourneyComponent implements OnInit, OnChanges {
   ngOnChanges(changes: SimpleChanges): void {
     const studentChanged = changes['studentId'] && !changes['studentId'].firstChange;
     const yearChanged = changes['academicYear'] && !changes['academicYear'].firstChange;
-    if (studentChanged || yearChanged) {
+    const termChanged = changes['term'] && !changes['term'].firstChange;
+    if (studentChanged || yearChanged || termChanged) {
       this.page = 1;
       this.load();
     }
@@ -203,7 +205,7 @@ export class StudentSupportJourneyComponent implements OnInit, OnChanges {
     if (!this.studentId) return;
     this.loading.set(true);
     this.loadError.set(false);
-    this.service.forStudent(this.studentId, this.academicYear, this.page, this.pageSize).subscribe({
+    this.service.forStudent(this.studentId, this.academicYear, this.term, this.page, this.pageSize).subscribe({
       next: (data) => {
         this.pageData.set(data);
         this.page = data.page;

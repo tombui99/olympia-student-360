@@ -109,25 +109,41 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
           </dl>
         </div>
 
-        @if (yearOptions().length > 1) {
+        @if (yearOptions().length) {
           <div class="flex flex-wrap items-center gap-3 rounded-lg border border-[#ebe6ef] bg-white px-5 py-4 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <div class="min-w-0">
               <p class="text-sm font-semibold text-[#32124f]">{{ languageService.t('studentProfile.year.title') }}</p>
               <p class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.year.hint') }}</p>
             </div>
-            <label class="ml-auto flex items-center gap-2 text-sm text-[#34243d]">
-              <span class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.year.label') }}</span>
-              <select
-                class="rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none"
-                [ngModel]="selectedYear()"
-                (ngModelChange)="onYearChange($event)"
-              >
-                <option value="">{{ languageService.t('studentProfile.year.all') }}</option>
-                @for (option of yearOptions(); track option.value) {
-                  <option [value]="option.value">{{ option.label }}</option>
-                }
-              </select>
-            </label>
+            <div class="ml-auto flex flex-wrap items-center gap-3">
+              <label class="flex items-center gap-2 text-sm text-[#34243d]">
+                <span class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.year.label') }}</span>
+                <select
+                  class="rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none disabled:cursor-wait disabled:opacity-60"
+                  [disabled]="periodLoading()"
+                  [ngModel]="selectedYear()"
+                  (ngModelChange)="onYearChange($event)"
+                >
+                  <option value="">{{ languageService.t('studentProfile.year.all') }}</option>
+                  @for (option of yearOptions(); track option.value) {
+                    <option [value]="option.value">{{ option.label }}</option>
+                  }
+                </select>
+              </label>
+              <label class="flex items-center gap-2 text-sm text-[#34243d]">
+                <span class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('dashboard.period.term') }}</span>
+                <select
+                  class="rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 outline-none disabled:cursor-wait disabled:opacity-60"
+                  [disabled]="periodLoading()"
+                  [ngModel]="selectedTerm()"
+                  (ngModelChange)="onTermChange($event)"
+                >
+                  <option value="all">{{ languageService.t('studentProfile.term.all') }}</option>
+                  <option value="hk1">{{ languageService.t('dashboard.period.term.hk1') }}</option>
+                  <option value="hk2">{{ languageService.t('dashboard.period.term.hk2') }}</option>
+                </select>
+              </label>
+            </div>
           </div>
         }
 
@@ -258,6 +274,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
             [gradeLevel]="profile.gradeLevel ?? null"
             [homeroom]="profile.homeroom ?? null"
             [academicYear]="selectedYear()"
+            [term]="selectedTerm()"
           />
         }
 
@@ -269,6 +286,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
             [gradeLevel]="profile.gradeLevel ?? null"
             [homeroom]="profile.homeroom ?? null"
             [academicYear]="selectedYear()"
+            [term]="selectedTerm()"
           />
         }
 
@@ -363,7 +381,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
                 <p class="mt-2 text-3xl font-semibold text-[#32124f]">{{ profile.canvas.assignmentsGraded }}</p>
               </div>
             </div>
-            @if (profile.canvas.journey.length > 1) {
+            @if (filteredCanvasJourney().length) {
               <div class="border-t border-[#ebe6ef] p-6">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
                   <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#32124f]">
@@ -731,7 +749,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
           </div>
 
           @if (profile.canvas.hasData) {
-            @if (profile.canvas.journey.length > 1) {
+            @if (filteredCanvasJourney().length) {
               <div class="border-b border-[#ebe6ef] p-6">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
                   <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#32124f]">
@@ -742,42 +760,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
                 <div echarts class="mt-4 h-64 w-full" [options]="canvasJourneyOptions()" role="img"></div>
               </div>
             }
-            <div class="flex flex-wrap items-center gap-3 px-6 pt-5">
-              <label class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6811]">
-                <span>{{ languageService.t('studentProfile.canvas.currentYear') }}</span>
-                <select
-                  class="rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-[#32124f] outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10 disabled:cursor-wait disabled:opacity-60"
-                  [attr.aria-label]="languageService.t('studentProfile.canvas.yearSelectLabel')"
-                  [disabled]="canvasYearLoading()"
-                  [ngModel]="selectedCanvasYear()"
-                  (ngModelChange)="onCanvasYearChange($event)"
-                >
-                  @for (year of canvasYearOptions(); track year) {
-                    <option [value]="year">{{ year }}</option>
-                  }
-                </select>
-              </label>
-              @if (canvasTermOptions().length) {
-                <label class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6811]">
-                  <span>{{ languageService.t('studentProfile.canvas.currentSemester') }}</span>
-                  <select
-                    class="rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-[#32124f] outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10 disabled:cursor-wait disabled:opacity-60"
-                    [attr.aria-label]="languageService.t('studentProfile.canvas.semesterSelectLabel')"
-                    [disabled]="canvasYearLoading()"
-                    [ngModel]="selectedCanvasTerm()"
-                    (ngModelChange)="onCanvasTermChange($event)"
-                  >
-                    @for (term of canvasTermOptions(); track term) {
-                      <option [value]="term">{{ canvasTermLabel(term) }}</option>
-                    }
-                  </select>
-                </label>
-              }
-              @if (canvasYearLoading()) {
-                <span class="text-xs text-[#7c7284]">{{ languageService.t('studentProfile.canvas.loadingPeriod') }}</span>
-              }
-            </div>
-            <div class="grid gap-4 px-6 pb-6 pt-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="grid gap-4 px-6 pb-6 pt-6 sm:grid-cols-2 xl:grid-cols-4">
               <div class="rounded-md border border-[#ebe6ef] bg-[#faf9f6] p-4">
                 <p class="text-xs uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.avgCourseGrade') }}</p>
                 @if (profile.canvas.averageCourseGrade != null) {
@@ -1149,7 +1132,7 @@ export class StudentProfileComponent implements OnInit {
   readonly courseGradesLoading = signal(false);
   readonly recentSubmissionsLoading = signal(false);
   readonly learningTableTab = signal<LearningTableTab>('courseGrades');
-  readonly canvasYearLoading = signal(false);
+  readonly periodLoading = signal(false);
   readonly canvasSheetKind = signal<CanvasSubmissionSheetKind | null>(null);
   readonly activeSection = signal<ProfileSection>('overview');
   private readonly parentNoteModalParentId = signal<number | null>(null);
@@ -1262,7 +1245,7 @@ export class StudentProfileComponent implements OnInit {
   });
 
   readonly canvasJourneyOptions = computed<EChartsCoreOption>(() => {
-    const journey = this.student()?.canvas.journey ?? [];
+    const journey = this.filteredCanvasJourney();
     const labels = journey.map((point) => this.canvasJourneyLabel(point));
     return {
       color: ['#32124f'],
@@ -1297,12 +1280,6 @@ export class StudentProfileComponent implements OnInit {
           data: journey.map((point) => point.averageGrade ?? null),
           lineStyle: { width: 3 },
           areaStyle: { opacity: 0.08 },
-          markLine: {
-            symbol: 'none',
-            silent: true,
-            lineStyle: { color: '#b38116', type: 'dashed' },
-            data: [{ yAxis: 50 }],
-          },
         },
       ],
     };
@@ -1320,39 +1297,15 @@ export class StudentProfileComponent implements OnInit {
 
   private studentId = 0;
   readonly selectedYear = signal<string>('');
-  readonly selectedCanvasYear = signal<string>('');
-  readonly selectedCanvasTerm = signal<string>('');
+  readonly selectedTerm = signal<string>('all');
   private readonly knownYears = signal<string[]>([]);
 
-  /**
-   * Prefer the API's explicit Canvas-year list, but remain compatible with a backend that has
-   * not restarted onto the latest contract by deriving years from the journey/current year.
-   */
-  readonly canvasYearOptions = computed<string[]>(() => {
-    const canvas = this.student()?.canvas;
-    if (!canvas) return [];
-
-    const years = new Set(canvas.academicYears ?? []);
-    for (const point of canvas.journey ?? []) years.add(point.academicYear);
-    if (canvas.academicYear) years.add(canvas.academicYear);
-    return Array.from(years).sort((a, b) => b.localeCompare(a));
-  });
-
-  readonly canvasTermOptions = computed<string[]>(() => {
-    const canvas = this.student()?.canvas;
-    const selectedYear = canvas?.academicYear ?? this.selectedCanvasYear();
-    const availableTerms = new Set<string>((canvas?.availableTerms ?? [])
-      .map((term) => term.toLowerCase())
-      .filter((term) => term === 'hk1' || term === 'hk2'));
-    for (const term of (canvas?.journey ?? [])
-      .filter((point) => point.academicYear === selectedYear && point.averageGrade != null)
-      .map((point) => point.term?.toLowerCase())
-      .filter((term): term is string => term === 'hk1' || term === 'hk2')) {
-      availableTerms.add(term);
-    }
-    const explicitTerm = canvas?.term?.toLowerCase();
-    if (explicitTerm === 'hk1' || explicitTerm === 'hk2') availableTerms.add(explicitTerm);
-    return Array.from(availableTerms).sort((a, b) => a === b ? 0 : a === 'hk1' ? -1 : 1);
+  readonly filteredCanvasJourney = computed(() => {
+    const year = this.selectedYear();
+    const term = this.selectedTerm();
+    return (this.student()?.canvas.journey ?? []).filter((point) =>
+      (!year || point.academicYear === year) &&
+      (term === 'all' || point.term?.toLowerCase() === term));
   });
 
   /** Distinct academic years represented anywhere on the student profile, labelled by grade when known. */
@@ -1405,57 +1358,17 @@ export class StudentProfileComponent implements OnInit {
   }
 
   onYearChange(year: string): void {
+    if (year === this.selectedYear() || this.periodLoading()) return;
     this.selectedYear.set(year);
+    this.closeCanvasSubmissionSheet();
     this.loadStudent();
   }
 
-  onCanvasYearChange(year: string): void {
-    const profile = this.student();
-    if (!profile || !year || year === profile.canvas.academicYear || this.canvasYearLoading()) return;
-
-    const previousYear = profile.canvas.academicYear ?? '';
-    const previousTerm = profile.canvas.term ?? this.selectedCanvasTerm();
-    this.selectedCanvasYear.set(year);
-    this.canvasYearLoading.set(true);
+  onTermChange(term: string): void {
+    if (!['all', 'hk1', 'hk2'].includes(term) || term === this.selectedTerm() || this.periodLoading()) return;
+    this.selectedTerm.set(term);
     this.closeCanvasSubmissionSheet();
-    this.studentsService.canvasSummary(this.studentId, year).subscribe({
-      next: (canvas) => {
-        this.student.update((current) => current ? { ...current, canvas } : current);
-        this.selectedCanvasYear.set(canvas.academicYear ?? year);
-        this.selectedCanvasTerm.set(canvas.term ?? '');
-        this.rememberCanvasAcademicYears(canvas.academicYears ?? this.canvasYearOptions());
-        this.canvasYearLoading.set(false);
-      },
-      error: () => {
-        this.selectedCanvasYear.set(previousYear);
-        this.selectedCanvasTerm.set(previousTerm);
-        this.canvasYearLoading.set(false);
-      },
-    });
-  }
-
-  onCanvasTermChange(term: string): void {
-    const profile = this.student();
-    const year = profile?.canvas.academicYear ?? this.selectedCanvasYear();
-    if (!profile || !year || !term || term === profile.canvas.term || this.canvasYearLoading()) return;
-
-    const previousTerm = profile.canvas.term ?? this.selectedCanvasTerm();
-    this.selectedCanvasTerm.set(term);
-    this.canvasYearLoading.set(true);
-    this.closeCanvasSubmissionSheet();
-    this.studentsService.canvasSummary(this.studentId, year, term).subscribe({
-      next: (canvas) => {
-        this.student.update((current) => current ? { ...current, canvas } : current);
-        this.selectedCanvasYear.set(canvas.academicYear ?? year);
-        this.selectedCanvasTerm.set(canvas.term ?? term);
-        this.rememberCanvasAcademicYears(canvas.academicYears ?? this.canvasYearOptions());
-        this.canvasYearLoading.set(false);
-      },
-      error: () => {
-        this.selectedCanvasTerm.set(previousTerm);
-        this.canvasYearLoading.set(false);
-      },
-    });
+    this.loadStudent();
   }
 
   loadCourseGradesPage(page: number): void {
@@ -1525,6 +1438,7 @@ export class StudentProfileComponent implements OnInit {
   }
 
   canvasTermLabel(term: string): string {
+    if (term.toLowerCase() === 'all') return this.languageService.t('studentProfile.term.all');
     return this.languageService.t(`studentProfile.canvas.journeyTerm.${term.toLowerCase()}`);
   }
 
@@ -1550,18 +1464,23 @@ export class StudentProfileComponent implements OnInit {
   }
 
   private loadStudent(): void {
-    this.studentsService.get(this.studentId, this.selectedYear() || undefined).subscribe({
+    this.periodLoading.set(true);
+    this.studentsService.get(
+      this.studentId,
+      this.selectedYear() || undefined,
+      this.selectedTerm(),
+    ).subscribe({
       next: (profile) => {
         this.rememberAcademicYears(profile);
         this.student.set(profile);
         this.parentNoteDrafts.set(Object.fromEntries(profile.parents.map((parent) => [parent.id, parent.notes ?? ''])));
         this.parentNoteStates.set({});
-        this.selectedCanvasYear.set(profile.canvas.academicYear ?? '');
-        this.selectedCanvasTerm.set(profile.canvas.term ?? '');
         this.loading.set(false);
+        this.periodLoading.set(false);
       },
       error: (response) => {
         this.loading.set(false);
+        this.periodLoading.set(false);
         this.error.set(
           response?.status === 404
             ? this.languageService.t('studentProfile.notFound')
@@ -1628,12 +1547,6 @@ export class StudentProfileComponent implements OnInit {
       if (item.academicYear) years.add(item.academicYear);
     }
     for (const item of profile.mentalHealthRecords) years.add(item.academicYear);
-    this.knownYears.set(Array.from(years).sort());
-  }
-
-  private rememberCanvasAcademicYears(academicYears: string[]): void {
-    const years = new Set(this.knownYears());
-    for (const year of academicYears) years.add(year);
     this.knownYears.set(Array.from(years).sort());
   }
 
