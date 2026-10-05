@@ -26,6 +26,8 @@ type ProfileSection =
   | 'wellbeing'
   | 'learning';
 
+type LearningTableTab = 'courseGrades' | 'recentSubmissions';
+
 @Component({
   selector: 'app-student-profile',
   imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent, StudentSupportJourneyComponent, StudentCareerGuidanceComponent],
@@ -835,8 +837,56 @@ type ProfileSection =
               </button>
             </div>
 
-            <div class="grid items-stretch gap-5 border-t border-[#ebe6ef] p-6 xl:grid-cols-2">
-              <div class="flex min-w-0 flex-col">
+            <div class="border-t border-[#ebe6ef]">
+              <div class="border-b border-[#ebe6ef] px-6 pt-5">
+                <div
+                  class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-t-lg bg-[#f4f0f6] p-1 pb-0"
+                  role="tablist"
+                  [attr.aria-label]="languageService.t('studentProfile.canvas.tableNavigationLabel')"
+                >
+                  <button
+                    id="course-grades-tab"
+                    type="button"
+                    role="tab"
+                    class="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-t-md border-b-2 px-5 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
+                    [ngClass]="learningTableTab() === 'courseGrades'
+                      ? 'border-[#6d3a91] bg-white text-[#32124f] shadow-sm'
+                      : 'border-transparent text-[#6f6877] hover:bg-white/70 hover:text-[#32124f]'"
+                    [attr.aria-selected]="learningTableTab() === 'courseGrades'"
+                    aria-controls="course-grades-panel"
+                    [attr.tabindex]="learningTableTab() === 'courseGrades' ? 0 : -1"
+                    (click)="learningTableTab.set('courseGrades')"
+                  >
+                    {{ languageService.t('studentProfile.canvas.courseGrades') }}
+                    <span class="rounded-full bg-[#ece5f1] px-2 py-0.5 text-xs text-[#5b287d]">{{ profile.canvas.courseGradesTotalCount }}</span>
+                  </button>
+                  <button
+                    id="recent-submissions-tab"
+                    type="button"
+                    role="tab"
+                    class="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-t-md border-b-2 px-5 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
+                    [ngClass]="learningTableTab() === 'recentSubmissions'
+                      ? 'border-[#6d3a91] bg-white text-[#32124f] shadow-sm'
+                      : 'border-transparent text-[#6f6877] hover:bg-white/70 hover:text-[#32124f]'"
+                    [attr.aria-selected]="learningTableTab() === 'recentSubmissions'"
+                    aria-controls="recent-submissions-panel"
+                    [attr.tabindex]="learningTableTab() === 'recentSubmissions' ? 0 : -1"
+                    (click)="learningTableTab.set('recentSubmissions')"
+                  >
+                    {{ languageService.t('studentProfile.canvas.recentSubmissions') }}
+                    <span class="rounded-full bg-[#ece5f1] px-2 py-0.5 text-xs text-[#5b287d]">{{ profile.canvas.recentSubmissionsTotalCount }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="p-6">
+              @if (learningTableTab() === 'courseGrades') {
+              <div
+                id="course-grades-panel"
+                class="min-w-0"
+                role="tabpanel"
+                aria-labelledby="course-grades-tab"
+              >
                 <div class="flex min-h-9 flex-wrap items-center justify-between gap-3">
                   <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.courseGrades') }}</h4>
                   @if (profile.canvas.courseGradesTotalPages > 1) {
@@ -859,41 +909,47 @@ type ProfileSection =
                     </div>
                   }
                 </div>
-                <div class="mt-3 flex-1 overflow-hidden rounded-md border border-[#ebe6ef]">
-                  <div class="hidden grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] bg-[#faf9f6] text-xs uppercase tracking-[0.12em] text-[#7c7284] md:grid">
+                <div class="mt-3 flex-1 overflow-hidden rounded-lg border border-[#e5dee9] bg-[#faf9fb]">
+                  <div class="hidden grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(6.5rem,0.45fr)_minmax(6.5rem,0.45fr)] border-b border-[#e5dee9] bg-[#f5f2f6] text-[0.68rem] uppercase tracking-[0.14em] text-[#746a7b] md:grid">
                     <span class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.course') }}</span>
                     <span class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.enrollmentTerm') }}</span>
                     <span class="px-4 py-3 font-semibold">{{ languageService.t('studentProfile.canvas.gradingPeriod') }}</span>
+                    <span class="px-3 py-3 text-center font-semibold">{{ languageService.t('studentProfile.canvas.currentScore') }}</span>
+                    <span class="px-3 py-3 text-center font-semibold">{{ languageService.t('studentProfile.canvas.finalScore') }}</span>
                   </div>
-                  <div class="space-y-2 p-2">
+                  <div class="divide-y divide-[#ebe6ef]">
                     @for (course of profile.canvas.courses; track $index) {
-                      <article class="rounded-md border border-[#ebe6ef] bg-white p-3 text-sm shadow-[0_1px_2px_rgba(50,18,79,0.04)] xl:flex xl:h-[8.5rem] xl:flex-col xl:justify-between">
-                        <div class="grid gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
-                          <div class="min-w-0 text-[#32124f]">
-                            <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.course') }}</span>
-                            <span class="block font-semibold">{{ course.courseName }}</span>
-                            <span class="mt-0.5 block text-xs font-normal text-[#8a808f]">{{ course.courseCode || '—' }} · {{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.canvasCourseId }}</span>
-                          </div>
-                          <div class="min-w-0 text-[#6f6877]">
-                            <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.enrollmentTerm') }}</span>
-                            <span class="block">{{ course.enrollmentTermName || '—' }}</span>
-                            @if (course.enrollmentTermId) { <span class="mt-0.5 block text-xs text-[#8a808f]">{{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.enrollmentTermId }}</span> }
-                          </div>
-                          <div class="min-w-0 text-[#6f6877]">
-                            <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.gradingPeriod') }}</span>
-                            <span class="block">{{ course.gradingPeriodTitle || '—' }}</span>
-                            @if (course.gradingPeriodId) { <span class="mt-0.5 block text-xs text-[#8a808f]">{{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.gradingPeriodId }}</span> }
-                          </div>
+                      <article class="group bg-white p-4 text-sm transition hover:bg-[#fdfbfe] md:grid md:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(6.5rem,0.45fr)_minmax(6.5rem,0.45fr)] md:items-center md:gap-4">
+                        <div class="min-w-0 border-l-2 border-[#d7c2e4] pl-3 text-[#32124f] transition group-hover:border-[#6d3a91]">
+                          <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.course') }}</span>
+                          <span class="block text-[0.95rem] font-semibold leading-5">{{ course.courseName }}</span>
+                          <span class="mt-1 block text-xs font-normal text-[#8a808f]">{{ course.courseCode || '—' }} · {{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.canvasCourseId }}</span>
                         </div>
-                        <div class="mt-3 flex flex-wrap items-center justify-end gap-x-8 gap-y-2 border-t border-[#ebe6ef] pt-3">
-                          <div class="flex items-baseline gap-2">
-                            <span class="text-xs font-semibold uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.currentScore') }}</span>
-                            <span class="font-semibold text-[#32124f]">{{ course.currentScore != null ? course.currentScore + '%' : languageService.t('studentProfile.canvas.noGradeData') }}</span>
-                          </div>
-                          <div class="flex items-baseline gap-2">
-                            <span class="text-xs font-semibold uppercase tracking-[0.1em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.finalScore') }}</span>
-                            <span class="font-semibold text-[#32124f]">{{ course.finalScore != null ? course.finalScore + '%' : languageService.t('studentProfile.canvas.noGradeData') }}</span>
-                          </div>
+                        <div class="mt-4 min-w-0 text-[#5e5465] md:mt-0">
+                          <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.enrollmentTerm') }}</span>
+                          <span class="block font-medium">{{ course.enrollmentTermName || '—' }}</span>
+                          @if (course.enrollmentTermId) { <span class="mt-1 block text-xs text-[#918797]">{{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.enrollmentTermId }}</span> }
+                        </div>
+                        <div class="mt-4 min-w-0 text-[#5e5465] md:mt-0">
+                          <span class="mb-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.gradingPeriod') }}</span>
+                          <span class="block font-medium">{{ course.gradingPeriodTitle || '—' }}</span>
+                          @if (course.gradingPeriodId) { <span class="mt-1 block text-xs text-[#918797]">{{ languageService.t('studentProfile.canvas.canvasId') }} {{ course.gradingPeriodId }}</span> }
+                        </div>
+                        <div class="mt-4 rounded-lg border border-[#ded1e6] bg-[#f8f3fa] px-3 py-2.5 text-right md:mt-0 md:text-center">
+                          <span class="block text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-[#7c7284] md:hidden">{{ languageService.t('studentProfile.canvas.currentScore') }}</span>
+                          @if (course.currentScore != null) {
+                            <span class="block text-xl font-bold leading-6 text-[#4f1f70]">{{ course.currentScore }}%</span>
+                          } @else {
+                            <span class="block text-xs font-semibold leading-6 text-[#8a808f]">{{ languageService.t('studentProfile.canvas.noGradeData') }}</span>
+                          }
+                        </div>
+                        <div class="mt-2 rounded-lg border border-[#ead8a2] bg-[#fff9e8] px-3 py-2.5 text-right md:mt-0 md:text-center">
+                          <span class="block text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-[#7c651d] md:hidden">{{ languageService.t('studentProfile.canvas.finalScore') }}</span>
+                          @if (course.finalScore != null) {
+                            <span class="block text-xl font-bold leading-6 text-[#72540c]">{{ course.finalScore }}%</span>
+                          } @else {
+                            <span class="block text-xs font-semibold leading-6 text-[#9a874d]">{{ languageService.t('studentProfile.canvas.noGradeData') }}</span>
+                          }
                         </div>
                       </article>
                     } @empty {
@@ -902,8 +958,13 @@ type ProfileSection =
                   </div>
                 </div>
               </div>
-
-              <div class="flex min-w-0 flex-col">
+              } @else {
+              <div
+                id="recent-submissions-panel"
+                class="min-w-0"
+                role="tabpanel"
+                aria-labelledby="recent-submissions-tab"
+              >
                 <div class="flex min-h-9 flex-wrap items-center justify-between gap-3">
                   <h4 class="text-sm font-semibold uppercase tracking-[0.12em] text-[#7c7284]">{{ languageService.t('studentProfile.canvas.recentSubmissions') }}</h4>
                   @if (profile.canvas.recentSubmissionsTotalPages > 1) {
@@ -926,30 +987,46 @@ type ProfileSection =
                     </div>
                   }
                 </div>
-                <div class="mt-3 flex-1 space-y-2 rounded-md border border-[#ebe6ef] p-2">
+                <div class="mt-3 flex-1 overflow-hidden rounded-lg border border-[#e5dee9] bg-[#faf9fb]">
                   @for (submission of profile.canvas.recentSubmissions; track $index) {
-                    <div class="rounded-md border border-[#ebe6ef] p-3 xl:flex xl:h-[8.5rem] xl:flex-col xl:justify-center">
-                      <div class="flex flex-wrap items-start justify-between gap-2">
+                    <article class="group grid gap-4 border-b border-[#ebe6ef] bg-white p-4 transition last:border-b-0 hover:bg-[#fdfbfe] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                      <div class="flex min-w-0 items-start gap-3.5">
+                        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#f0e8f5] text-[#5b287d] transition group-hover:bg-[#e8d9f0]" aria-hidden="true">
+                          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <path d="M14 2v6h6M8 13h8M8 17h5" />
+                          </svg>
+                        </span>
                         <div class="min-w-0">
-                          <p class="truncate text-sm font-semibold text-[#32124f]">{{ submission.assignmentTitle }}</p>
-                          <p class="mt-0.5 truncate text-xs text-[#7c7284]">{{ submission.subject || submission.courseName || '—' }} · {{ submission.dueAt ? formatDate(submission.dueAt) : '—' }}</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                          @if (submission.missing && !submission.excused) {
-                            <span class="rounded-full bg-[#a9485d]/15 px-2.5 py-1 text-xs font-semibold text-[#a9485d]">{{ languageService.t('studentProfile.canvas.badge.missing') }}</span>
-                          } @else if (submission.late) {
-                            <span class="rounded-full bg-[#f3c246]/25 px-2.5 py-1 text-xs font-semibold text-[#8a6811]">{{ languageService.t('studentProfile.canvas.badge.late') }}</span>
-                          } @else if (submission.excused) {
-                            <span class="rounded-full bg-[#f1edf4] px-2.5 py-1 text-xs font-semibold text-[#5b287d]">{{ languageService.t('studentProfile.canvas.badge.excused') }}</span>
-                          }
-                          <span class="whitespace-nowrap text-sm font-semibold text-[#32124f]">{{ submission.score ?? '—' }}<span class="text-xs font-medium text-[#7c7284]">/{{ submission.pointsPossible ?? '—' }}</span></span>
+                          <p class="truncate text-[0.95rem] font-semibold text-[#32124f]">{{ submission.assignmentTitle }}</p>
+                          <p class="mt-1 truncate text-xs font-medium text-[#6f6877]">{{ submission.subject || submission.courseName || '—' }}</p>
+                          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#8a808f]">
+                            <span class="inline-flex items-center gap-1.5">
+                              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2z" /></svg>
+                              {{ languageService.t('studentProfile.canvas.sheet.due') }}: {{ submission.dueAt ? formatDate(submission.dueAt) : '—' }}
+                            </span>
+                            @if (submission.missing && !submission.excused) {
+                              <span class="rounded-full bg-[#a9485d]/15 px-2.5 py-1 text-xs font-semibold text-[#a9485d]">{{ languageService.t('studentProfile.canvas.badge.missing') }}</span>
+                            } @else if (submission.late) {
+                              <span class="rounded-full bg-[#f3c246]/25 px-2.5 py-1 text-xs font-semibold text-[#8a6811]">{{ languageService.t('studentProfile.canvas.badge.late') }}</span>
+                            } @else if (submission.excused) {
+                              <span class="rounded-full bg-[#f1edf4] px-2.5 py-1 text-xs font-semibold text-[#5b287d]">{{ languageService.t('studentProfile.canvas.badge.excused') }}</span>
+                            }
+                          </div>
                         </div>
                       </div>
-                    </div>
+                      <div class="flex min-w-[7.5rem] items-baseline justify-end gap-1 rounded-lg border border-[#ded1e6] bg-[#f8f3fa] px-4 py-3 text-right sm:block sm:text-center">
+                        <span class="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#7c7284] sm:block">{{ languageService.t('studentProfile.canvas.score') }}</span>
+                        <span class="text-2xl font-bold leading-7 text-[#4f1f70]">{{ submission.score ?? '—' }}</span>
+                        <span class="text-xs font-semibold text-[#8a808f]">/{{ submission.pointsPossible ?? '—' }}</span>
+                      </div>
+                    </article>
                   } @empty {
-                    <p class="rounded-md border border-dashed border-[#d8d0df] bg-[#faf9f6] p-6 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noSubmissions') }}</p>
+                    <p class="p-8 text-center text-sm text-[#7c7284]">{{ languageService.t('studentProfile.canvas.noSubmissions') }}</p>
                   }
                 </div>
+              </div>
+              }
               </div>
             </div>
           } @else {
@@ -1071,6 +1148,7 @@ export class StudentProfileComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly courseGradesLoading = signal(false);
   readonly recentSubmissionsLoading = signal(false);
+  readonly learningTableTab = signal<LearningTableTab>('courseGrades');
   readonly canvasYearLoading = signal(false);
   readonly canvasSheetKind = signal<CanvasSubmissionSheetKind | null>(null);
   readonly activeSection = signal<ProfileSection>('overview');
@@ -1096,6 +1174,10 @@ export class StudentProfileComponent implements OnInit {
           label: this.languageService.t('studentProfile.navigation.parents'),
         },
         {
+          id: 'learning',
+          label: this.languageService.t('studentProfile.navigation.learning'),
+        },
+        {
           id: 'support',
           label: this.languageService.t('studentProfile.navigation.support'),
         },
@@ -1118,10 +1200,6 @@ export class StudentProfileComponent implements OnInit {
         {
           id: 'wellbeing',
           label: this.languageService.t('studentProfile.navigation.wellbeing'),
-        },
-        {
-          id: 'learning',
-          label: this.languageService.t('studentProfile.navigation.learning'),
         },
       ];
       return sections.filter((item) => {

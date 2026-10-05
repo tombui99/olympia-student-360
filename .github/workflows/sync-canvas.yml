@@ -1,9 +1,9 @@
 name: Sync Canvas data
 
 on:
-  # schedule:
-  # 01:00 Asia/Ho_Chi_Minh (UTC+7). GitHub schedules use UTC.
-  # - cron: "0 18 * * *"
+  schedule:
+    # 17:00 Asia/Ho_Chi_Minh (UTC+7). GitHub schedules use UTC.
+    - cron: "0 10 * * *"
   workflow_dispatch:
 
 permissions:

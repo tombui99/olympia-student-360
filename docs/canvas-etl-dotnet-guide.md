@@ -298,7 +298,7 @@ data.
 | Workflow | Trigger | .NET mode | Scope |
 |---|---|---|---|
 | `backend/sql/export-local-canvas-for-rds.sh` | Local command, followed by MySQL Workbench | Idempotent SQL transfer | Verified local Canvas warehouse plus its successful watermark |
-| `.github/workflows/sync-canvas.yml` | Manual; daily schedule template is currently commented | `--incremental` | Current configured terms since watermark minus overlap |
+| `.github/workflows/sync-canvas.yml` | Daily at 17:00 Asia/Ho_Chi_Minh, plus manual dispatch | `--incremental` | Current configured terms since watermark minus overlap |
 | `.github/workflows/reconcile-canvas.yml` | Manual; weekly schedule template is currently commented | `--reconcile-days=30` | Historical and current configured terms for the previous 30 days |
 
 After a successful local ETL, generate the transfer with:

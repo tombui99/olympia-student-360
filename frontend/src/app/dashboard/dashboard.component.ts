@@ -138,7 +138,6 @@ interface RiskRow {
             <h3 class="text-lg font-semibold text-[#32124f]">
               {{ languageService.t('dashboard.attentionTitle') }}
             </h3>
-            <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('dashboard.attentionHint') }}</p>
           </div>
           <a
             class="inline-flex items-center gap-2 rounded-md border border-[#d8d0df] px-4 py-2 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
