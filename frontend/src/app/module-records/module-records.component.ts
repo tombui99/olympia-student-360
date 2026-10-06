@@ -1,14 +1,14 @@
 import { AfterViewInit, Component, ElementRef, inject, OnDestroy, OnInit, signal, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { catchError, finalize, forkJoin, of } from 'rxjs';
+import { catchError, concatMap, finalize, forkJoin, Observable, of, Subject, takeUntil, tap } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { ExcelImportSheetComponent } from '../imports/excel-import-sheet.component';
 import { FieldDesignerSheetComponent } from '../imports/field-designer-sheet.component';
 import { ImportModule, importModules } from '../imports/import-template-data';
 import { ImportModuleField, ImportModuleFieldsService } from '../imports/import-module-fields.service';
-import { ManualEntryOptions, ManualEntryService } from '../imports/manual-entry.service';
+import { ManualEntryOptions, ManualEntryService, ManualEntryStudent } from '../imports/manual-entry.service';
 import { ManualEntrySheetComponent } from '../imports/manual-entry-sheet.component';
 import { BehaviourTypeSelectComponent } from '../imports/behaviour-type-select.component';
 import { defaultFilterSet, WorkspaceFiltersService, WorkspaceFilterSet } from '../workspace/workspace-filters.service';
@@ -22,6 +22,15 @@ type RecordField = {
   custom: boolean;
   label?: string;
   sectionKey?: string;
+};
+
+type InlineCell = { recordId: number; fieldKey: string };
+type CellSaveState = 'saving' | 'saved' | 'error';
+type InlineSaveRequest = {
+  recordId: number;
+  fieldKey: string;
+  changes: Record<string, string | null>;
+  previous: Record<string, string | null>;
 };
 
 @Component({
@@ -148,6 +157,16 @@ type RecordField = {
           <table #recordsTable class="w-full min-w-max text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
               <tr>
+                <th class="w-14 min-w-14 px-3 py-3 text-center">
+                  <button
+                    class="mx-auto grid h-8 w-8 place-items-center rounded-md border border-[#cfc3d8] bg-white text-xl font-medium leading-none text-[#5b287d] shadow-sm transition hover:border-[#6d3a91] hover:bg-[#f7f3fa] disabled:cursor-not-allowed disabled:opacity-40"
+                    type="button"
+                    [disabled]="newRowOpen()"
+                    [attr.aria-label]="t('moduleRecords.addInline')"
+                    [title]="t('moduleRecords.addInline')"
+                    (click)="startNewRow()"
+                  >+</button>
+                </th>
                 @if (isHealthModule()) {
                   <th class="min-w-28 px-5 py-4 font-semibold">{{ t('imports.templateFields.class_name') }}</th>
                 }
@@ -165,8 +184,90 @@ type RecordField = {
               </tr>
             </thead>
             <tbody class="divide-y divide-[#ebe6ef]">
+              @if (newRowOpen()) {
+                <tr class="relative align-top bg-[#fffdf6] text-sm shadow-[inset_0_0_0_1px_rgba(243,194,70,0.45)]">
+                  <td class="px-3 py-3 text-center">
+                    <button class="grid h-7 w-7 place-items-center rounded-md text-lg text-[#7c7284] hover:bg-white hover:text-red-700" type="button" [attr.aria-label]="t('moduleRecords.cancelNewRow')" (click)="cancelNewRow()">×</button>
+                  </td>
+                  @if (isHealthModule()) {
+                    <td class="whitespace-nowrap px-5 py-4 font-semibold text-[#32124f]">{{ newRowStudent()?.homeroom || '—' }}</td>
+                  }
+                  <td class="relative min-w-72 px-3 py-3">
+                    @if (newRowStudent(); as student) {
+                      <button class="w-full rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-left hover:border-[#6d3a91]" type="button" (click)="clearNewRowStudent()">
+                        <span class="block font-semibold text-[#32124f]">{{ student.fullName }}</span>
+                        <span class="mt-0.5 block text-xs text-[#81758a]">{{ student.sisUserId }} · {{ t('imports.manual.grade') }} {{ student.gradeLevel || '—' }} · {{ student.homeroom || '—' }}</span>
+                      </button>
+                    } @else {
+                      <input
+                        class="w-full rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10"
+                        type="search"
+                        autocomplete="off"
+                        [placeholder]="t('imports.manual.searchStudent')"
+                        [ngModel]="newStudentSearchText"
+                        (ngModelChange)="searchNewRowStudents($event)"
+                        (focus)="openNewRowStudentSearch()"
+                        (blur)="closeNewRowStudentSearchSoon()"
+                      />
+                      @if (newStudentSearchOpen()) {
+                        <div class="absolute left-3 right-3 top-[3.35rem] z-40 max-h-64 overflow-y-auto rounded-md border border-[#d8d0df] bg-white py-1 shadow-[0_12px_30px_rgba(50,18,79,0.16)]">
+                          @if (newStudentSearchText.trim().length < 2) {
+                            <p class="px-3 py-2 text-xs text-[#7c7284]">{{ t('imports.manual.searchStudentHint') }}</p>
+                          } @else if (newStudentSearchLoading()) {
+                            <p class="px-3 py-2 text-xs text-[#7c7284]">{{ t('imports.manual.searchingStudents') }}</p>
+                          } @else if (!newStudentSearchResults().length) {
+                            <p class="px-3 py-2 text-xs text-[#7c7284]">{{ t('imports.manual.noStudentsFound') }}</p>
+                          } @else {
+                            @for (student of newStudentSearchResults(); track student.id) {
+                              <button class="block w-full px-3 py-2 text-left hover:bg-[#f7f3fa]" type="button" (mousedown)="$event.preventDefault()" (click)="selectNewRowStudent(student)">
+                                <span class="block font-semibold text-[#32124f]">{{ student.fullName }}</span>
+                                <span class="mt-0.5 block text-xs text-[#81758a]">{{ student.sisUserId }} · {{ t('imports.manual.grade') }} {{ student.gradeLevel || '—' }} · {{ student.homeroom || '—' }}</span>
+                              </button>
+                            }
+                          }
+                        </div>
+                      }
+                    }
+                  </td>
+                  @for (field of tableFields(); track field.key) {
+                    <td class="max-w-72 px-3 py-3">
+                      @if (isBehaviourModule() && field.key === 'incident_date') {
+                        <div class="grid min-w-0 grid-cols-1 gap-1.5">
+                          <input class="block w-full min-w-0 max-w-full rounded-md border border-[#d8d0df] bg-white px-2 py-2 text-sm outline-none focus:border-[#6d3a91]" type="date" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="newRowValues[field.key]" (blur)="maybeCreateNewRow()" (keydown)="onNewRowKeydown($event)" />
+                          <input class="block w-full min-w-0 max-w-full rounded-md border border-[#d8d0df] bg-white px-2 py-2 text-xs outline-none focus:border-[#6d3a91]" [attr.placeholder]="t('imports.manual.incidentTime')" [(ngModel)]="newRowValues['incident_time']" (blur)="maybeCreateNewRow()" (keydown)="onNewRowKeydown($event)" />
+                        </div>
+                      } @else if (field.type === 'select') {
+                        <select class="w-full rounded-md border border-[#d8d0df] bg-white px-2 py-2 text-sm outline-none focus:border-[#6d3a91]" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="newRowValues[field.key]" (blur)="maybeCreateNewRow()" (keydown)="onNewRowKeydown($event)">
+                          <option value="">{{ field.required ? t('moduleRecords.selectValue') : '' }}</option>
+                          @for (option of optionsFor(field); track option) { <option [value]="option">{{ displayValue(field.key, option) }}</option> }
+                        </select>
+                      } @else if (field.type === 'checkbox') {
+                        <label class="flex min-h-10 items-center justify-center rounded-md border border-[#d8d0df] bg-white px-2">
+                          <input class="h-4 w-4 accent-[#5d2d7b]" type="checkbox" [attr.aria-label]="editFieldLabel(field)" [ngModel]="newRowValues[field.key] === 'true'" (ngModelChange)="newRowValues[field.key] = $event ? 'true' : 'false'" (blur)="maybeCreateNewRow()" (keydown)="onNewRowKeydown($event)" />
+                        </label>
+                      } @else if (field.type === 'textarea') {
+                        <textarea class="min-h-16 w-full resize-y rounded-md border border-[#d8d0df] bg-white px-2 py-2 text-sm outline-none focus:border-[#6d3a91]" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="newRowValues[field.key]" (blur)="maybeCreateNewRow()" (keydown)="onNewRowKeydown($event)"></textarea>
+                      } @else {
+                        <input class="w-full rounded-md border border-[#d8d0df] bg-white px-2 py-2 text-sm outline-none focus:border-[#6d3a91]" [type]="field.type" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="newRowValues[field.key]" (blur)="maybeCreateNewRow()" (keydown)="onNewRowKeydown($event)" />
+                      }
+                      @if (field.required && !newRowValues[field.key]) { <span class="mt-1 block text-[0.68rem] font-medium text-[#9a6f00]">{{ t('moduleRecords.required') }}</span> }
+                    </td>
+                  }
+                  @if (isHealthModule()) {
+                    <td class="whitespace-nowrap px-5 py-4 text-[#6f6877]">{{ newRowStudent()?.sisUserId || '—' }}</td>
+                  }
+                  @if (!isBehaviourModule()) {
+                    <td class="px-5 py-4 text-[#8b8193]">{{ t('moduleRecords.currentUser') }}</td>
+                  }
+                  <td class="sticky right-0 z-20 bg-[#fff9e8] px-4 py-3 text-right before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#d7ad3d] before:content-['']">
+                    <p class="text-xs font-semibold" [class.text-[#8a6811]]="!newRowSaving()" [class.text-[#5b287d]]="newRowSaving()">{{ newRowSaving() ? t('moduleRecords.saving') : t('moduleRecords.autoSaveHint') }}</p>
+                    @if (newRowError()) { <p class="mt-1 max-w-44 text-xs text-red-700">{{ newRowError() }}</p> }
+                  </td>
+                </tr>
+              }
               @for (record of records(); track record.id) {
                 <tr class="group align-top text-sm transition hover:bg-[#fdfcff]">
+                  <td class="px-3 py-4"></td>
                   @if (isHealthModule()) {
                     <td class="whitespace-nowrap px-5 py-4 font-semibold text-[#32124f]">{{ record.homeroom || '—' }}</td>
                   }
@@ -183,19 +284,42 @@ type RecordField = {
                     }
                   </td>
                   @for (field of tableFields(); track field.key) {
-                    <td class="max-w-72 px-5 py-4 text-[#5f5368]" [class.whitespace-nowrap]="field.type === 'date' || field.type === 'datetime-local'">
-                      @if (isBehaviourModule() && field.key === 'incident_date') {
-                        <span class="font-medium text-[#4f4357]">{{ displayValue(field.key, record.values[field.key]) || '—' }}</span>
-                        @if (record.values['incident_time']) {
-                          <span class="mt-1 block text-xs text-[#81758a]">{{ record.values['incident_time'] }}</span>
+                    <td class="relative max-w-72 overflow-hidden px-3 py-3 text-[#5f5368]" [class.whitespace-nowrap]="field.type === 'date' || field.type === 'datetime-local'" [class.bg-[#f8f3fb]]="isInlineEditing(record, field)" (pointerdown)="onInlineCellPointerDown($event, record, field)">
+                      @if (isInlineEditing(record, field)) {
+                        @if (isBehaviourModule() && field.key === 'incident_date') {
+                          <div class="grid min-w-0 grid-cols-1 gap-1.5" (focusout)="onCompositeEditorFocusOut($event, record, field)">
+                            <input class="block w-full min-w-0 max-w-full rounded-md border border-[#6d3a91] bg-white px-2 py-2 text-sm outline-none ring-4 ring-[#6d3a91]/10" type="date" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="inlineValue" (keydown)="onInlineKeydown($event, record, field)" />
+                            <input class="block w-full min-w-0 max-w-full rounded-md border border-[#d8d0df] bg-white px-2 py-2 text-xs outline-none focus:border-[#6d3a91]" [attr.placeholder]="t('imports.manual.incidentTime')" [(ngModel)]="inlineSecondaryValue" (keydown)="onInlineKeydown($event, record, field)" />
+                          </div>
+                        } @else if (field.type === 'select') {
+                          <select class="w-full rounded-md border border-[#6d3a91] bg-white px-2 py-2 text-sm outline-none ring-4 ring-[#6d3a91]/10" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="inlineValue" (blur)="commitInlineEdit(record, field)" (keydown)="onInlineKeydown($event, record, field)">
+                            <option value="">{{ field.required ? t('moduleRecords.selectValue') : '' }}</option>
+                            @for (option of optionsFor(field); track option) { <option [value]="option">{{ displayValue(field.key, option) }}</option> }
+                          </select>
+                        } @else if (field.type === 'checkbox') {
+                          <label class="flex min-h-10 items-center justify-center rounded-md border border-[#6d3a91] bg-white ring-4 ring-[#6d3a91]/10">
+                            <input class="h-4 w-4 accent-[#5d2d7b]" type="checkbox" [attr.aria-label]="editFieldLabel(field)" [ngModel]="inlineValue === 'true'" (ngModelChange)="inlineValue = $event ? 'true' : 'false'" (blur)="commitInlineEdit(record, field)" (keydown)="onInlineKeydown($event, record, field)" />
+                          </label>
+                        } @else if (field.type === 'textarea') {
+                          <textarea class="min-h-16 w-full resize-y rounded-md border border-[#6d3a91] bg-white px-2 py-2 text-sm outline-none ring-4 ring-[#6d3a91]/10" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="inlineValue" (blur)="commitInlineEdit(record, field)" (keydown)="onInlineKeydown($event, record, field)"></textarea>
+                        } @else {
+                          <input class="w-full rounded-md border border-[#6d3a91] bg-white px-2 py-2 text-sm outline-none ring-4 ring-[#6d3a91]/10" [type]="field.type" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="inlineValue" (blur)="commitInlineEdit(record, field)" (keydown)="onInlineKeydown($event, record, field)" />
                         }
-                      } @else if (isBadgeField(field.key) && record.values[field.key]) {
-                        <span class="rounded-full px-2.5 py-1 text-xs font-semibold" [class]="badgeClass(record.values[field.key])">
-                          {{ displayValue(field.key, record.values[field.key]) }}
-                        </span>
                       } @else {
-                        <span [class.line-clamp-3]="field.type === 'textarea'">{{ displayValue(field.key, record.values[field.key]) || '—' }}</span>
+                        <button class="block min-h-9 w-full rounded px-2 py-1 text-left transition hover:bg-[#f3edf7] focus:outline-none focus:ring-2 focus:ring-[#6d3a91]/30" type="button" [attr.aria-label]="t('moduleRecords.editCell').replace('{field}', tableFieldLabel(field))" (click)="startInlineEdit(record, field, $event)">
+                          @if (isBehaviourModule() && field.key === 'incident_date') {
+                            <span class="font-medium text-[#4f4357]">{{ displayValue(field.key, record.values[field.key]) || '—' }}</span>
+                            @if (record.values['incident_time']) { <span class="mt-1 block text-xs text-[#81758a]">{{ record.values['incident_time'] }}</span> }
+                          } @else if (isBadgeField(field.key) && record.values[field.key]) {
+                            <span class="rounded-full px-2.5 py-1 text-xs font-semibold" [class]="badgeClass(record.values[field.key])">{{ displayValue(field.key, record.values[field.key]) }}</span>
+                          } @else {
+                            <span [class.line-clamp-3]="field.type === 'textarea'">{{ displayValue(field.key, record.values[field.key]) || '—' }}</span>
+                          }
+                        </button>
                       }
+                      @if (cellSaveState(record.id, field.key) === 'saving') { <span class="absolute right-1 top-1 text-[0.65rem] font-semibold text-[#6d3a91]">{{ t('moduleRecords.savingShort') }}</span> }
+                      @else if (cellSaveState(record.id, field.key) === 'saved') { <span class="absolute right-1 top-1 text-xs font-bold text-emerald-600" [attr.aria-label]="t('moduleRecords.saved')">✓</span> }
+                      @else if (cellSaveState(record.id, field.key) === 'error') { <span class="absolute right-1 top-1 text-xs font-bold text-red-700" [attr.aria-label]="t('moduleRecords.saveError')">!</span> }
                     </td>
                   }
                   @if (isHealthModule()) {
@@ -377,14 +501,35 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   readonly periodLoading = signal(true);
   readonly tableScrollWidth = signal(0);
   readonly tableOverflows = signal(false);
+  readonly activeInlineCell = signal<InlineCell | null>(null);
+  readonly cellSaveStates = signal<Record<string, CellSaveState>>({});
+  readonly newRowOpen = signal(false);
+  readonly newRowSaving = signal(false);
+  readonly newRowError = signal<string | null>(null);
+  readonly newRowStudent = signal<ManualEntryStudent | null>(null);
+  readonly newStudentSearchResults = signal<ManualEntryStudent[]>([]);
+  readonly newStudentSearchOpen = signal(false);
+  readonly newStudentSearchLoading = signal(false);
   search = '';
   selectedYear = '';
   selectedTerm = 'all';
   editValues: Record<string, string | null> = {};
+  inlineValue = '';
+  inlineSecondaryValue = '';
+  newRowValues: Record<string, string> = {};
+  newStudentSearchText = '';
   private currentFilters: WorkspaceFilterSet = defaultFilterSet();
   private tableResizeObserver?: ResizeObserver;
+  private studentSearchTimer?: ReturnType<typeof setTimeout>;
+  private studentSearchSequence = 0;
+  private readonly destroy$ = new Subject<void>();
+  private readonly inlineSaveRequests = new Subject<InlineSaveRequest>();
 
   ngOnInit(): void {
+    this.inlineSaveRequests.pipe(
+      concatMap((request) => this.performInlineSave(request)),
+      takeUntil(this.destroy$),
+    ).subscribe();
     forkJoin({ fields: this.fieldsService.list(this.moduleId), options: this.manualService.options() }).subscribe({
       next: ({ fields, options }) => { this.customFields.set(fields); this.options.set(options); },
       error: () => this.error.set(this.t('moduleRecords.optionsError')),
@@ -415,6 +560,9 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
 
   ngOnDestroy(): void {
     this.tableResizeObserver?.disconnect();
+    if (this.studentSearchTimer) clearTimeout(this.studentSearchTimer);
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   module(): ImportModule {
@@ -582,7 +730,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
       : this.fieldLabel(field);
   }
   tableColumnCount(): number {
-    return this.tableFields().length + 2 + (this.isBehaviourModule() ? 0 : 1) + (this.isHealthModule() ? 2 : 0);
+    return this.tableFields().length + 3 + (this.isBehaviourModule() ? 0 : 1) + (this.isHealthModule() ? 2 : 0);
   }
   isBehaviourModule(): boolean { return this.moduleId === 'student-behaviours'; }
   isHealthModule(): boolean { return this.moduleId === 'student-health-visits'; }
@@ -636,6 +784,263 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
     if (normalized.includes('medium') || normalized.includes('late') || normalized.includes('progress')) return 'bg-amber-50 text-amber-800';
     return 'bg-emerald-50 text-emerald-700';
   }
+
+  isInlineEditing(record: ModuleRecord, field: RecordField): boolean {
+    const cell = this.activeInlineCell();
+    return cell?.recordId === record.id && cell.fieldKey === field.key;
+  }
+
+  startInlineEdit(record: ModuleRecord, field: RecordField, event: Event): void {
+    if (this.isInlineEditing(record, field)) return;
+    const cell = (event.currentTarget as HTMLElement).closest('td');
+    this.activeInlineCell.set({ recordId: record.id, fieldKey: field.key });
+    this.inlineValue = record.values[field.key] ?? '';
+    this.inlineSecondaryValue = field.key === 'incident_date' ? record.values['incident_time'] ?? '' : '';
+    this.error.set(null);
+    queueMicrotask(() => cell?.querySelector<HTMLElement>('input, select, textarea')?.focus());
+  }
+
+  commitInlineEdit(record: ModuleRecord, field: RecordField): void {
+    if (!this.isInlineEditing(record, field)) return;
+    const changes: Record<string, string | null> = { [field.key]: this.inlineValue };
+    if (this.isBehaviourModule() && field.key === 'incident_date') {
+      changes['incident_time'] = this.inlineSecondaryValue;
+    }
+    this.activeInlineCell.set(null);
+
+    const updatedValues = { ...record.values, ...changes };
+    if (!this.requiredValuesPresent(updatedValues)) {
+      this.setCellSaveState(record.id, field.key, 'error');
+      this.error.set(this.t('moduleRecords.requiredError'));
+      return;
+    }
+    if (Object.entries(changes).every(([key, value]) => (record.values[key] ?? '') === (value ?? ''))) return;
+
+    const previous = Object.fromEntries(Object.keys(changes).map((key) => [key, record.values[key] ?? null]));
+    this.records.update((records) => records.map((item) => item.id === record.id
+      ? { ...item, values: { ...item.values, ...changes } }
+      : item));
+    this.inlineSaveRequests.next({ recordId: record.id, fieldKey: field.key, changes, previous });
+  }
+
+  onCompositeEditorFocusOut(event: FocusEvent, record: ModuleRecord, field: RecordField): void {
+    const editor = event.currentTarget as HTMLElement;
+    queueMicrotask(() => {
+      if (!editor.contains(document.activeElement)) this.commitInlineEdit(record, field);
+    });
+  }
+
+  onInlineCellPointerDown(event: PointerEvent, record: ModuleRecord, field: RecordField): void {
+    if (!this.isInlineEditing(record, field)) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('input, select, textarea')) return;
+    event.preventDefault();
+    this.commitInlineEdit(record, field);
+  }
+
+  onInlineKeydown(event: KeyboardEvent, record: ModuleRecord, field: RecordField): void {
+    if (event.isComposing) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.commitInlineEdit(record, field);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.activeInlineCell.set(null);
+    }
+  }
+
+  onNewRowKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).blur();
+    this.maybeCreateNewRow();
+  }
+
+  cellSaveState(recordId: number, fieldKey: string): CellSaveState | null {
+    return this.cellSaveStates()[this.cellKey(recordId, fieldKey)] ?? null;
+  }
+
+  startNewRow(): void {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString();
+    this.newRowValues = Object.fromEntries(this.fields().map((field) => [field.key, '']));
+    if ('incident_date' in this.newRowValues) this.newRowValues['incident_date'] = local.slice(0, 10);
+    if ('attendance_date' in this.newRowValues) this.newRowValues['attendance_date'] = local.slice(0, 10);
+    if ('record_date' in this.newRowValues) this.newRowValues['record_date'] = local.slice(0, 10);
+    if ('visit_date' in this.newRowValues) this.newRowValues['visit_date'] = local.slice(0, 16);
+    if ('academic_year' in this.newRowValues) {
+      this.newRowValues['academic_year'] = this.selectedYear || this.options()?.academicYears[0] || '';
+    }
+    if ('term' in this.newRowValues && this.selectedTerm !== 'all') this.newRowValues['term'] = this.selectedTerm;
+    if ('notification_sent' in this.newRowValues) this.newRowValues['notification_sent'] = 'false';
+    if (this.isBehaviourModule()) this.newRowValues['incident_time'] = '';
+    this.newRowStudent.set(null);
+    this.newStudentSearchText = '';
+    this.newStudentSearchResults.set([]);
+    this.newRowError.set(null);
+    this.newRowOpen.set(true);
+    queueMicrotask(() => this.updateTableScrollSize());
+  }
+
+  cancelNewRow(): void {
+    this.newRowOpen.set(false);
+    this.newRowStudent.set(null);
+    this.newRowError.set(null);
+    this.newStudentSearchOpen.set(false);
+  }
+
+  searchNewRowStudents(value: string): void {
+    this.newStudentSearchText = value;
+    this.newRowStudent.set(null);
+    this.newStudentSearchOpen.set(true);
+    this.newStudentSearchResults.set([]);
+    if (this.studentSearchTimer) clearTimeout(this.studentSearchTimer);
+    const query = value.trim();
+    if (query.length < 2) { this.newStudentSearchLoading.set(false); return; }
+    const sequence = ++this.studentSearchSequence;
+    this.newStudentSearchLoading.set(true);
+    this.studentSearchTimer = setTimeout(() => {
+      this.manualService.searchStudents(query, true).subscribe({
+        next: (students) => {
+          if (sequence !== this.studentSearchSequence) return;
+          this.newStudentSearchResults.set(students);
+          this.newStudentSearchLoading.set(false);
+        },
+        error: () => {
+          if (sequence !== this.studentSearchSequence) return;
+          this.newStudentSearchResults.set([]);
+          this.newStudentSearchLoading.set(false);
+        },
+      });
+    }, 250);
+  }
+
+  openNewRowStudentSearch(): void { this.newStudentSearchOpen.set(true); }
+  closeNewRowStudentSearchSoon(): void {
+    setTimeout(() => this.newStudentSearchOpen.set(false), 120);
+  }
+  selectNewRowStudent(student: ManualEntryStudent): void {
+    this.newRowStudent.set(student);
+    this.newStudentSearchText = student.fullName;
+    this.newStudentSearchOpen.set(false);
+    this.newRowError.set(null);
+    this.maybeCreateNewRow();
+  }
+  clearNewRowStudent(): void {
+    this.newRowStudent.set(null);
+    this.newStudentSearchText = '';
+    this.newStudentSearchResults.set([]);
+    this.newStudentSearchOpen.set(true);
+  }
+
+  maybeCreateNewRow(): void {
+    if (!this.newRowOpen() || this.newRowSaving() || !this.newRowStudent() || !this.requiredValuesPresent(this.newRowValues)) return;
+    this.createNewRow();
+  }
+
+  private performInlineSave(request: InlineSaveRequest): Observable<unknown> {
+    const record = this.records().find((item) => item.id === request.recordId);
+    if (!record) return of(null);
+    this.setCellSaveState(request.recordId, request.fieldKey, 'saving');
+    return this.service.update(this.moduleId, request.recordId, { ...record.values }).pipe(
+      tap(() => {
+        this.setCellSaveState(request.recordId, request.fieldKey, 'saved');
+        setTimeout(() => {
+          if (this.cellSaveState(request.recordId, request.fieldKey) === 'saved') {
+            this.clearCellSaveState(request.recordId, request.fieldKey);
+          }
+        }, 1600);
+      }),
+      catchError((response) => {
+        this.records.update((records) => records.map((item) => {
+          if (item.id !== request.recordId) return item;
+          const values = { ...item.values };
+          for (const [key, changedValue] of Object.entries(request.changes)) {
+            if ((values[key] ?? '') === (changedValue ?? '')) values[key] = request.previous[key] ?? null;
+          }
+          return { ...item, values };
+        }));
+        this.setCellSaveState(request.recordId, request.fieldKey, 'error');
+        this.error.set(response?.error?.message || this.t('moduleRecords.saveError'));
+        return of(null);
+      }),
+    );
+  }
+
+  private createNewRow(): void {
+    const student = this.newRowStudent();
+    if (!student) return;
+    const value = (key: string) => this.newRowValues[key]?.trim() || null;
+    const customFields = Object.fromEntries(this.customFields().map((field) => [
+      field.fieldKey,
+      this.newRowValues[field.fieldKey] ?? '',
+    ]));
+    let request: Observable<unknown>;
+    if (this.moduleId === 'student-behaviours') {
+      const occurrence = value('occurrence_count');
+      request = this.manualService.createBehaviour(student.id, {
+        incidentDate: value('incident_date')!, incidentTime: value('incident_time'),
+        behaviourType: value('behaviour_type')!, academicYear: value('academic_year'), term: value('term'),
+        subject: value('subject'), reporterName: value('reporter_name'), recordedByEmail: value('recorded_by_email'),
+        recordedByTitle: value('recorded_by_title'), decision: value('decision'),
+        conductDeductionLevel: value('conduct_deduction_level'), occurrenceCount: occurrence ? Number(occurrence) : null,
+        behaviourPointsDeducted: value('behaviour_points_deducted'), notes: value('notes'), customFields,
+      });
+    } else if (this.moduleId === 'student-projects') {
+      request = this.manualService.createProject(student.id, {
+        projectName: value('project_name')!, subject: value('subject')!, status: value('status')!,
+        teacherNotes: value('teacher_notes'), customFields,
+      });
+    } else if (this.moduleId === 'student-bus-attendance') {
+      request = this.manualService.createBusAttendance(student.id, {
+        attendanceDate: value('attendance_date')!, tripDirection: value('trip_direction')!,
+        violationType: value('violation_type')!, busCode: value('bus_code'), routeName: value('route_name'),
+        notes: value('notes'), customFields,
+      });
+    } else if (this.moduleId === 'student-mental-health') {
+      request = this.manualService.createMentalHealth(student.id, {
+        recordDate: value('record_date')!, academicYear: value('academic_year')!,
+        concernType: value('concern_type')!, riskLevel: value('risk_level')!, notes: value('notes'), customFields,
+      });
+    } else {
+      request = this.manualService.createHealthVisit(student.id, {
+        visitDate: value('visit_date')!, symptoms: value('symptoms')!, diagnosis: value('diagnosis'),
+        classification: value('classification'), treatment: value('treatment'), medication: value('medication'),
+        notes: value('notes'), notificationSent: value('notification_sent') === 'true', customFields,
+      });
+    }
+    this.newRowSaving.set(true);
+    this.newRowError.set(null);
+    request.pipe(finalize(() => this.newRowSaving.set(false))).subscribe({
+      next: () => {
+        this.newRowOpen.set(false);
+        this.newRowStudent.set(null);
+        this.message.set(this.t('moduleRecords.created'));
+        this.load(1);
+      },
+      error: (response) => this.newRowError.set(response?.error?.message || this.t('moduleRecords.createError')),
+    });
+  }
+
+  private requiredValuesPresent(values: Record<string, string | null>): boolean {
+    return this.fields().every((field) => {
+      if (!field.required) return true;
+      const value = values[field.key];
+      return field.type === 'checkbox' ? value === 'true' : !!value?.trim();
+    });
+  }
+
+  private setCellSaveState(recordId: number, fieldKey: string, state: CellSaveState): void {
+    this.cellSaveStates.update((states) => ({ ...states, [this.cellKey(recordId, fieldKey)]: state }));
+  }
+  private clearCellSaveState(recordId: number, fieldKey: string): void {
+    this.cellSaveStates.update((states) => {
+      const next = { ...states };
+      delete next[this.cellKey(recordId, fieldKey)];
+      return next;
+    });
+  }
+  private cellKey(recordId: number, fieldKey: string): string { return `${recordId}:${fieldKey}`; }
 
   edit(record: ModuleRecord): void {
     this.editing.set(record);
