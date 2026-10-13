@@ -1,6 +1,7 @@
 import { NgClass } from '@angular/common';
 import { Component, computed, inject, Input, OnChanges, signal, SimpleChanges } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import {
   ModuleRecord,
   ModuleRecordsService,
@@ -177,31 +178,10 @@ export class SupplementalReportComponent implements OnChanges {
   readonly loadFailed = signal(false);
   private requestId = 0;
 
-  readonly distinctStudents = computed(() => new Set(
-    this.records().flatMap((record) => record.studentProfileId == null ? [] : [record.studentProfileId]),
-  ).size);
+  readonly distinctStudents = signal(0);
   readonly recentRecords = computed(() => this.records().slice(0, 20));
-  readonly attentionCount = computed(() => this.records().filter((record) => this.needsAttention(record)).length);
-  readonly distribution = computed<DistributionRow[]>(() => {
-    const groups = new Map<string, { records: number; students: Set<number> }>();
-    for (const record of this.records()) {
-      const label = this.groupLabel(record);
-      const current = groups.get(label) ?? { records: 0, students: new Set<number>() };
-      current.records++;
-      if (record.studentProfileId != null) current.students.add(record.studentProfileId);
-      groups.set(label, current);
-    }
-    const total = Math.max(1, this.records().length);
-    return [...groups.entries()]
-      .map(([label, value]) => ({
-        label,
-        records: value.records,
-        students: value.students.size,
-        share: value.records / total * 100,
-      }))
-      .sort((left, right) => right.records - left.records || left.label.localeCompare(right.label))
-      .slice(0, 10);
-  });
+  readonly attentionCount = signal(0);
+  readonly distribution = signal<DistributionRow[]>([]);
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['report'] || changes['academicYear'] || changes['term']) this.load();
@@ -212,18 +192,20 @@ export class SupplementalReportComponent implements OnChanges {
     const requestId = ++this.requestId;
     this.loading.set(true);
     this.loadFailed.set(false);
-    this.recordsService.list(
-      this.report.moduleId,
-      1,
-      100,
-      '',
-      this.academicYear,
-      this.term,
-    ).subscribe({
-      next: (response) => {
+    forkJoin({
+      records: this.recordsService.list(this.report.moduleId, 1, 20, '', this.academicYear, this.term),
+      summary: this.recordsService.supplementalSummary(
+        this.report.moduleId, this.report.dimensionField || this.report.primaryField,
+        this.academicYear, this.term,
+      ),
+    }).subscribe({
+      next: ({ records, summary }) => {
         if (requestId !== this.requestId) return;
-        this.records.set(response.items);
-        this.totalCount.set(response.totalCount);
+        this.records.set(records.items);
+        this.totalCount.set(summary.totalCount);
+        this.distinctStudents.set(summary.distinctStudents);
+        this.attentionCount.set(summary.attentionCount);
+        this.distribution.set(summary.distribution);
         this.loading.set(false);
       },
       error: () => {
@@ -269,31 +251,4 @@ export class SupplementalReportComponent implements OnChanges {
     }).format(value) + '%';
   }
 
-  private groupLabel(record: ModuleRecord): string {
-    if (this.report.dimension === 'cohort') return this.cohortLabel(record);
-    if (this.report.dimension === 'enteredBy') return record.enteredByName || this.languageService.t('reports.supplemental.unassigned');
-    if (this.report.dimension === 'category') return this.behaviourCategory(record.values['behaviour_type']);
-    return this.value(record, this.report.dimensionField || this.report.primaryField);
-  }
-
-  private behaviourCategory(value: string | null | undefined): string {
-    const positive = ['Khen thưởng', 'Tham gia tích cực', 'Hỗ trợ bạn học', 'Nỗ lực nổi bật'];
-    const concerning = ['Đi học muộn', 'Chưa nộp bài tập', 'Gây mất trật tự trong lớp'];
-    if (positive.includes(value || '')) return this.languageService.t('reports.supplemental.positive');
-    if (concerning.includes(value || '')) return this.languageService.t('reports.supplemental.concerning');
-    return this.languageService.t('reports.supplemental.other');
-  }
-
-  private needsAttention(record: ModuleRecord): boolean {
-    if (this.report.attentionMode === 'behaviour') {
-      return this.behaviourCategory(record.values['behaviour_type']) === this.languageService.t('reports.supplemental.concerning');
-    }
-    if (this.report.attentionMode === 'mental-health') {
-      return ['High', 'Medium'].includes(record.values['risk_level'] || '');
-    }
-    if (this.report.attentionMode === 'project') {
-      return !['Completed', 'Hoàn thành'].includes(record.values['status'] || '');
-    }
-    return true;
-  }
 }

@@ -17,6 +17,7 @@ public sealed record CanvasReportingPeriod(
 public sealed class CanvasReportingPeriodService
 {
     private readonly AppDbContext _context;
+    private Task<List<CanvasReportingPeriod>>? _periodsTask;
 
     public CanvasReportingPeriodService(AppDbContext context)
     {
@@ -40,39 +41,9 @@ public sealed class CanvasReportingPeriodService
             : DashboardPeriodNormalizer.Term(requestedTerm.Trim());
         if (term is not ("hk1" or "hk2")) term = null;
 
-        var sourceRows = await _context.CanvasCourseScores.AsNoTracking()
-            .Where(score => score.GradingPeriodId != null
-                && score.GradingPeriodTitle != null
-                && score.GradingPeriodStartDate != null
-                && score.GradingPeriodEndDate != null
-                && score.Enrollment!.Course!.EnrollmentTermName != null)
-            .Select(score => new
-            {
-                YearLabel = score.Enrollment!.Course!.EnrollmentTermName!,
-                TermLabel = score.GradingPeriodTitle!,
-                Start = score.GradingPeriodStartDate!.Value,
-                End = score.GradingPeriodEndDate!.Value
-            })
-            .Distinct()
-            .ToListAsync();
-
-        var periods = sourceRows
-            .Select(row => new
-            {
-                AcademicYear = DashboardPeriodNormalizer.AcademicYear(row.YearLabel, row.End),
-                Term = DashboardPeriodNormalizer.Term(row.TermLabel),
-                row.Start,
-                row.End
-            })
-            .Where(row => DashboardPeriodNormalizer.IsAcademicYear(row.AcademicYear)
-                && row.Term is "hk1" or "hk2")
-            .GroupBy(row => new { row.AcademicYear, row.Term })
-            .Select(group => new CanvasReportingPeriod(
-                group.Key.AcademicYear,
-                group.Key.Term,
-                group.Min(row => row.Start),
-                group.Max(row => row.End)))
-            .ToList();
+        // A report rebuild resolves many years/terms in one scope. Reuse this narrow period
+        // catalog instead of rescanning Canvas score metadata for every combination.
+        var periods = await (_periodsTask ??= LoadPeriodsAsync());
 
         if (allTerms)
         {
@@ -114,6 +85,43 @@ public sealed class CanvasReportingPeriodService
         var fallbackTerm = term ?? ResolveFallbackTerm(fallbackYear, now);
         var (start, end) = DashboardPeriodNormalizer.PeriodRange(fallbackYear, fallbackTerm);
         return new CanvasReportingPeriod(fallbackYear, fallbackTerm, start, end);
+    }
+
+    private async Task<List<CanvasReportingPeriod>> LoadPeriodsAsync()
+    {
+        var sourceRows = await _context.CanvasCourseScores.AsNoTracking()
+            .Where(score => score.GradingPeriodId != null
+                && score.GradingPeriodTitle != null
+                && score.GradingPeriodStartDate != null
+                && score.GradingPeriodEndDate != null
+                && score.Enrollment!.Course!.EnrollmentTermName != null)
+            .Select(score => new
+            {
+                YearLabel = score.Enrollment!.Course!.EnrollmentTermName!,
+                TermLabel = score.GradingPeriodTitle!,
+                Start = score.GradingPeriodStartDate!.Value,
+                End = score.GradingPeriodEndDate!.Value
+            })
+            .Distinct()
+            .ToListAsync();
+
+        return sourceRows
+            .Select(row => new
+            {
+                AcademicYear = DashboardPeriodNormalizer.AcademicYear(row.YearLabel, row.End),
+                Term = DashboardPeriodNormalizer.Term(row.TermLabel),
+                row.Start,
+                row.End
+            })
+            .Where(row => DashboardPeriodNormalizer.IsAcademicYear(row.AcademicYear)
+                && row.Term is "hk1" or "hk2")
+            .GroupBy(row => new { row.AcademicYear, row.Term })
+            .Select(group => new CanvasReportingPeriod(
+                group.Key.AcademicYear,
+                group.Key.Term,
+                group.Min(row => row.Start),
+                group.Max(row => row.End)))
+            .ToList();
     }
 
     public static IQueryable<CanvasCourseScore> FilterScores(

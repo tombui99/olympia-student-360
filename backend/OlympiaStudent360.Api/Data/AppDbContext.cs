@@ -10,6 +10,22 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     {
     }
 
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        SaveChangesAsync(true, cancellationToken);
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        if (ChangeTracker.Entries().Any(entry =>
+            (entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted) &&
+            entry.Entity is StudentProfile or StudentBehaviour or StudentProject or StudentMentalHealthRecord
+                or StudentHealthVisit or StudentBusAttendanceRecord or StudentRecordFieldOption
+                or StudentClassificationSetting or AcademicPeriod or CanvasDashboardAggregateBuild))
+        {
+            ImportedReportChanges.Add(new ImportedReportChange());
+        }
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     public DbSet<StudentProfile> StudentProfiles { get; set; }
     public DbSet<TeacherAccessGrant> TeacherAccessGrants { get; set; }
     public DbSet<TeacherClassAccess> TeacherClassAccesses { get; set; }
@@ -44,9 +60,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CanvasCourseScore> CanvasCourseScores { get; set; }
     public DbSet<CanvasSubmission> CanvasSubmissions { get; set; }
     public DbSet<CanvasDashboardMetricAggregate> CanvasDashboardMetricAggregates { get; set; }
+    public DbSet<CanvasDashboardAggregateBuild> CanvasDashboardAggregateBuilds { get; set; }
     public DbSet<CanvasSyncState> CanvasSyncStates { get; set; }
     public DbSet<CanvasSyncRun> CanvasSyncRuns { get; set; }
     public DbSet<StudentClassificationSetting> StudentClassificationSettings { get; set; }
+    public DbSet<ImportedReportAggregate> ImportedReportAggregates { get; set; }
+    public DbSet<ImportedReportChange> ImportedReportChanges { get; set; }
+    public DbSet<ImportedReportBuild> ImportedReportBuilds { get; set; }
+    public DbSet<StudentRiskSnapshot> StudentRiskSnapshots { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -120,6 +141,51 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<StudentProfile>()
             .Property(s => s.SISUserId)
             .HasMaxLength(100);
+
+        modelBuilder.Entity<ImportedReportAggregate>(aggregate =>
+        {
+            aggregate.Property(item => item.Source).HasMaxLength(40);
+            aggregate.Property(item => item.StudentKey).HasMaxLength(400);
+            aggregate.Property(item => item.StudentName).HasMaxLength(255);
+            aggregate.Property(item => item.SISUserId).HasMaxLength(100);
+            aggregate.Property(item => item.Grade).HasMaxLength(50);
+            aggregate.Property(item => item.Homeroom).HasMaxLength(100);
+            aggregate.Property(item => item.CanvasGrade).HasMaxLength(50);
+            aggregate.Property(item => item.ClassName).HasMaxLength(100);
+            aggregate.Property(item => item.Campus).HasMaxLength(100);
+            aggregate.Property(item => item.EducationLevel).HasMaxLength(100);
+            aggregate.Property(item => item.Program).HasMaxLength(100);
+            aggregate.Property(item => item.Subject).HasMaxLength(100);
+            aggregate.Property(item => item.MeasurementCycle).HasMaxLength(100);
+            aggregate.Property(item => item.AcademicYear).HasMaxLength(20);
+            aggregate.Property(item => item.Term).HasMaxLength(50);
+            aggregate.Property(item => item.Type).HasMaxLength(255);
+            aggregate.Property(item => item.Category).HasMaxLength(100);
+            aggregate.Property(item => item.Status).HasMaxLength(100);
+            aggregate.Property(item => item.Diagnosis).HasColumnType("text");
+            aggregate.Property(item => item.Symptoms).HasColumnType("text");
+            aggregate.Property(item => item.EnteredBy).HasMaxLength(255);
+            aggregate.HasIndex(item => new { item.Source, item.AcademicYear, item.Term, item.EventDay });
+            aggregate.HasIndex(item => new { item.Source, item.EventDay, item.StudentProfileId });
+            aggregate.HasIndex(item => new { item.Source, item.StudentKey });
+            aggregate.HasOne(item => item.Student).WithMany()
+                .HasForeignKey(item => item.StudentProfileId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<StudentRiskSnapshot>(snapshot =>
+        {
+            snapshot.Property(item => item.AcademicYear).HasMaxLength(20);
+            snapshot.Property(item => item.Term).HasMaxLength(10);
+            snapshot.Property(item => item.AverageCanvasScore).HasPrecision(7, 2);
+            snapshot.Property(item => item.RiskLevelWithBus).HasMaxLength(10);
+            snapshot.Property(item => item.RiskLevelWithoutBus).HasMaxLength(10);
+            snapshot.Property(item => item.RiskFlagsWithBusJson).HasColumnType("text");
+            snapshot.Property(item => item.RiskFlagsWithoutBusJson).HasColumnType("text");
+            snapshot.HasIndex(item => new { item.AcademicYear, item.Term, item.StudentProfileId }).IsUnique();
+            snapshot.HasIndex(item => new { item.AcademicYear, item.Term, item.RiskLevelWithBus });
+            snapshot.HasOne(item => item.Student).WithMany()
+                .HasForeignKey(item => item.StudentProfileId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<StudentProfile>()
             .Property(s => s.SISStudentCode)
@@ -700,12 +766,17 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             aggregate.HasIndex(item => new { item.MetricKey, item.PeriodStart });
             aggregate.HasIndex(item => item.StudentProfileId);
             aggregate.HasIndex(item => item.CanvasCourseId);
+            aggregate.HasIndex(item => item.CanvasAssignmentId);
             aggregate.HasOne(item => item.Student).WithMany()
                 .HasForeignKey(item => item.StudentProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
             aggregate.HasOne(item => item.Course).WithMany()
                 .HasForeignKey(item => item.CanvasCourseId)
                 .HasPrincipalKey(item => item.CanvasCourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+            aggregate.HasOne(item => item.Assignment).WithMany()
+                .HasForeignKey(item => item.CanvasAssignmentId)
+                .HasPrincipalKey(item => item.CanvasAssignmentId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

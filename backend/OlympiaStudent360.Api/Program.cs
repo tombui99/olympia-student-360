@@ -98,6 +98,10 @@ builder.Services.AddScoped<WorkspaceAiReportDocumentService>();
 builder.Services.AddScoped<CanvasReportingPeriodService>();
 builder.Services.AddScoped<UserAccessService>();
 builder.Services.AddScoped<StudentRecordFieldOptionService>();
+builder.Services.AddScoped<CanvasDashboardAggregateService>();
+builder.Services.AddScoped<ImportedReportAggregateService>();
+builder.Services.AddHostedService<CanvasReportBackfillWorker>();
+builder.Services.AddHostedService<ImportedReportAggregateWorker>();
 builder.Services.Configure<TranscriptSubjectOptions>(
     builder.Configuration.GetSection("TranscriptSubjects"));
 builder.Services.AddSingleton<TranscriptSubjectResolver>();
@@ -166,6 +170,15 @@ catch (Exception ex)
     {
         throw;
     }
+}
+
+if (args.Contains("--rebuild-imported-report-aggregates-only", StringComparer.Ordinal))
+{
+    using var scope = app.Services.CreateScope();
+    var count = await scope.ServiceProvider.GetRequiredService<ImportedReportAggregateService>()
+        .RebuildAsync();
+    app.Logger.LogInformation("Rebuilt {Count} imported report aggregate rows", count);
+    return;
 }
 
 app.Run();

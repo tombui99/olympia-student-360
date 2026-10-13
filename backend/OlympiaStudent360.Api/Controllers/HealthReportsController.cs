@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.DTOs;
+using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
@@ -46,16 +47,40 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
             ? DashboardPeriodNormalizer.AcademicYear(DateTime.UtcNow)
             : academicYear;
         var (start, end) = DashboardPeriodNormalizer.PeriodRange(year, reportingTerm);
-        var source = await HealthVisits(start, end);
+        if (!await context.ImportedReportBuilds.AsNoTracking().AnyAsync())
+            return StatusCode(503, new { Message = "Report aggregates are being prepared." });
         var searchTerm = Clean(search);
         if (searchTerm?.Length > 100) searchTerm = searchTerm[..100];
-        if (searchTerm != null) source = source.Where(item => Matches(item, searchTerm)).ToList();
+        if (report == "student-visits")
+            return Ok(await VisitSummaryPage(start, end, groupBy, searchTerm, page, pageSize));
+        var aggregateQuery = userAccess.ApplyStudentOrHomeroomScope(
+            context.ImportedReportAggregates.AsNoTracking()
+                .Where(item => item.Source == "student-health-visits" && item.EventDay >= start && item.EventDay < end),
+            item => item.Student, item => item.ClassName);
+        var source = await aggregateQuery.Select(item => new ImportedReportAggregate
+        {
+            StudentProfileId = item.StudentProfileId,
+            StudentKey = item.StudentKey,
+            SISUserId = item.SISUserId,
+            StudentName = item.StudentName,
+            ClassName = item.ClassName,
+            EventDay = item.EventDay,
+            LatestEvent = item.LatestEvent,
+            Diagnosis = item.Diagnosis,
+            Symptoms = item.Symptoms,
+            Category = item.Category,
+            RecordCount = item.RecordCount
+        }).ToListAsync();
+        if (searchTerm != null) source = source.Where(item =>
+            Contains(item.StudentName, searchTerm) || Contains(item.SISUserId, searchTerm) ||
+            Contains(item.ClassName, searchTerm) || Contains(item.Diagnosis, searchTerm) ||
+            Contains(item.Symptoms, searchTerm) ||
+            Contains(item.Category, searchTerm)).ToList();
 
         var rows = report switch
         {
-            "diagnoses" => DiagnosisRows(source, groupBy),
-            "frequent-students" => FrequentStudentRows(source, groupBy),
-            "student-visits" => VisitRows(source, groupBy),
+            "diagnoses" => AggregatedDiagnosisRows(source, groupBy),
+            "frequent-students" => AggregatedFrequentStudentRows(source, groupBy),
             _ => []
         };
         var total = rows.Count;
@@ -68,8 +93,80 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
             PageSize = pageSize,
             TotalCount = total,
             TotalPages = totalPages,
-            TotalVisits = source.Count
+            TotalVisits = source.Sum(item => item.RecordCount)
         });
+    }
+
+    private static List<HealthReportRowDto> AggregatedDiagnosisRows(
+        List<ImportedReportAggregate> source, string groupBy) =>
+        source.GroupBy(item => new { Period = PeriodBounds(item.EventDay, groupBy).Start,
+                Diagnosis = (item.Diagnosis ?? "—").ToUpperInvariant() })
+            .Select(group =>
+            {
+                var latest = group.OrderByDescending(item => item.LatestEvent).First();
+                var bounds = PeriodBounds(latest.EventDay, groupBy);
+                return new HealthReportRowDto
+                {
+                    Key = $"diagnosis:{bounds.Start:yyyyMMdd}:{group.Key.Diagnosis}",
+                    PeriodStart = bounds.Start, PeriodEnd = bounds.End,
+                    StudentName = latest.Diagnosis ?? "—", Diagnosis = latest.Diagnosis ?? "—",
+                    VisitCount = group.Sum(item => item.RecordCount),
+                    StudentCount = group.Select(item => item.StudentKey).Distinct().Count(),
+                    LatestVisit = group.Max(item => item.LatestEvent)
+                };
+            })
+            .OrderByDescending(item => item.PeriodStart).ThenByDescending(item => item.VisitCount)
+            .ThenBy(item => item.Diagnosis).ToList();
+
+    private static List<HealthReportRowDto> AggregatedFrequentStudentRows(
+        List<ImportedReportAggregate> source, string groupBy) =>
+        source.GroupBy(item => new { Period = PeriodBounds(item.EventDay, groupBy).Start, item.StudentKey })
+            .Select(group =>
+            {
+                var latest = group.OrderByDescending(item => item.LatestEvent).First();
+                var bounds = PeriodBounds(latest.EventDay, groupBy);
+                return new HealthReportRowDto
+                {
+                    Key = $"student:{bounds.Start:yyyyMMdd}:{group.Key.StudentKey}",
+                    PeriodStart = bounds.Start, PeriodEnd = bounds.End,
+                    StudentProfileId = latest.StudentProfileId, SISUserId = latest.SISUserId,
+                    StudentName = latest.StudentName, ClassName = latest.ClassName,
+                    VisitCount = group.Sum(item => item.RecordCount), StudentCount = 1,
+                    LatestVisit = group.Max(item => item.LatestEvent)
+                };
+            })
+            .OrderByDescending(item => item.PeriodStart).ThenByDescending(item => item.VisitCount)
+            .ThenBy(item => item.StudentName).ToList();
+
+    private async Task<HealthReportPageDto> VisitSummaryPage(DateTime start, DateTime end,
+        string groupBy, string? search, int page, int pageSize)
+    {
+        var query = userAccess.ApplyStudentOrHomeroomScope(
+            context.StudentHealthVisits.AsNoTracking()
+                .Where(item => item.ExamTime >= start && item.ExamTime < end),
+            item => item.Student, item => item.ClassName);
+        if (search != null)
+            query = query.Where(item => item.FullName.Contains(search) ||
+                item.SISUserId != null && item.SISUserId.Contains(search) ||
+                item.ClassName != null && item.ClassName.Contains(search) ||
+                item.Diagnosis != null && item.Diagnosis.Contains(search) ||
+                item.Classification != null && item.Classification.Contains(search) ||
+                item.Symptoms != null && item.Symptoms.Contains(search) ||
+                item.Notes != null && item.Notes.Contains(search));
+        var total = await query.CountAsync();
+        var totalPages = total == 0 ? 0 : (int)Math.Ceiling((double)total / pageSize);
+        page = Math.Min(page, Math.Max(1, totalPages));
+        var visits = await query.OrderByDescending(item => item.ExamTime).ThenByDescending(item => item.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(item => new HealthVisitSource(item.Id, item.StudentProfileId, item.SISUserId,
+                item.FullName, item.ClassName, item.ExamTime, item.Classification, item.Diagnosis,
+                item.Symptoms, item.Treatment, item.Medication, item.Notes,
+                item.NotificationSent, item.ExaminedBy, item.CustomFieldsJson)).ToListAsync();
+        return new HealthReportPageDto
+        {
+            Items = VisitRows(visits, groupBy), Page = page, PageSize = pageSize,
+            TotalCount = total, TotalPages = totalPages, TotalVisits = total
+        };
     }
 
     [HttpGet("details")]
@@ -88,102 +185,49 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
         if (periodEnd <= periodStart || periodEnd - periodStart > TimeSpan.FromDays(370)) return BadRequest();
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var source = await HealthVisits(ToUtc(periodStart), ToUtc(periodEnd));
-        if (visitId.HasValue) source = source.Where(item => item.Id == visitId.Value).ToList();
+        var start = ToUtc(periodStart);
+        var end = ToUtc(periodEnd);
+        var query = userAccess.ApplyStudentOrHomeroomScope(
+            context.StudentHealthVisits.AsNoTracking()
+                .Where(item => item.ExamTime >= start && item.ExamTime < end),
+            item => item.Student, item => item.ClassName);
+        if (visitId.HasValue) query = query.Where(item => item.Id == visitId.Value);
         if (!string.IsNullOrWhiteSpace(diagnosis))
-            source = source.Where(item => string.Equals(DiagnosisLabel(item), diagnosis.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        {
+            var label = diagnosis.Trim();
+            query = query.Where(item => (item.Diagnosis != null && item.Diagnosis.Trim() != ""
+                    ? item.Diagnosis.Trim()
+                    : item.Classification != null && item.Classification.Trim() != ""
+                        ? item.Classification.Trim()
+                        : item.Symptoms != null && item.Symptoms.Trim() != ""
+                            ? item.Symptoms.Trim() : "—") == label);
+        }
         if (studentProfileId.HasValue)
-            source = source.Where(item => item.StudentProfileId == studentProfileId.Value).ToList();
+            query = query.Where(item => item.StudentProfileId == studentProfileId.Value);
         else if (!string.IsNullOrWhiteSpace(sisUserId))
-            source = source.Where(item => string.Equals(item.SISUserId, sisUserId.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            query = query.Where(item => item.SISUserId == sisUserId.Trim());
         else if (!string.IsNullOrWhiteSpace(studentName))
-            source = source.Where(item => string.Equals(item.StudentName, studentName.Trim(), StringComparison.OrdinalIgnoreCase)
-                && (string.IsNullOrWhiteSpace(className) || string.Equals(item.ClassName, className.Trim(), StringComparison.OrdinalIgnoreCase))).ToList();
+            query = query.Where(item => item.FullName == studentName.Trim()
+                && (string.IsNullOrWhiteSpace(className) || item.ClassName == className.Trim()));
 
-        source = source.OrderByDescending(item => item.ExamTime).ThenByDescending(item => item.Id).ToList();
-        var total = source.Count;
+        var total = await query.CountAsync();
         var totalPages = total == 0 ? 0 : (int)Math.Ceiling((double)total / pageSize);
         page = Math.Min(page, Math.Max(1, totalPages));
+        var source = await query.OrderByDescending(item => item.ExamTime).ThenByDescending(item => item.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(item => new HealthVisitSource(item.Id, item.StudentProfileId, item.SISUserId,
+                item.FullName, item.ClassName, item.ExamTime, item.Classification, item.Diagnosis,
+                item.Symptoms, item.Treatment, item.Medication, item.Notes,
+                item.NotificationSent, item.ExaminedBy, item.CustomFieldsJson)).ToListAsync();
         return Ok(new HealthVisitReportDetailsPageDto
         {
-            Items = source.Skip((page - 1) * pageSize).Take(pageSize).Select(Detail).ToList(),
+            Items = source.Select(Detail).ToList(),
             Page = page,
             PageSize = pageSize,
             TotalCount = total,
             TotalPages = totalPages
         });
     }
-
-    private async Task<List<HealthVisitSource>> HealthVisits(DateTime start, DateTime end)
-    {
-        var query = context.StudentHealthVisits.AsNoTracking()
-            .Where(item => item.ExamTime >= start && item.ExamTime < end);
-        query = userAccess.ApplyStudentOrHomeroomScope(query,
-            item => item.Student, item => item.ClassName);
-        return await query
-            .Select(item => new HealthVisitSource(
-                item.Id, item.StudentProfileId, item.SISUserId, item.FullName, item.ClassName,
-                item.ExamTime, item.Classification, item.Diagnosis, item.Symptoms,
-                item.Treatment, item.Medication, item.Notes, item.NotificationSent,
-                item.ExaminedBy, item.CustomFieldsJson))
-            .ToListAsync();
-    }
-
-    private static List<HealthReportRowDto> DiagnosisRows(List<HealthVisitSource> source, string groupBy) =>
-        source.GroupBy(item => new
-            {
-                Period = PeriodBounds(item.ExamTime, groupBy).Start,
-                Diagnosis = DiagnosisLabel(item).ToUpperInvariant()
-            })
-            .Select(group =>
-            {
-                var first = group.First();
-                var bounds = PeriodBounds(first.ExamTime, groupBy);
-                return new HealthReportRowDto
-                {
-                    Key = $"diagnosis:{bounds.Start:yyyyMMdd}:{group.Key.Diagnosis}",
-                    PeriodStart = bounds.Start,
-                    PeriodEnd = bounds.End,
-                    StudentName = DiagnosisLabel(first),
-                    Diagnosis = DiagnosisLabel(first),
-                    VisitCount = group.Count(),
-                    StudentCount = group.Select(StudentIdentity).Distinct().Count(),
-                    LatestVisit = group.Max(item => item.ExamTime)
-                };
-            })
-            .OrderByDescending(item => item.PeriodStart)
-            .ThenByDescending(item => item.VisitCount)
-            .ThenBy(item => item.Diagnosis)
-            .ToList();
-
-    private static List<HealthReportRowDto> FrequentStudentRows(List<HealthVisitSource> source, string groupBy) =>
-        source.GroupBy(item => new
-            {
-                Period = PeriodBounds(item.ExamTime, groupBy).Start,
-                Student = StudentIdentity(item)
-            })
-            .Select(group =>
-            {
-                var latest = group.OrderByDescending(item => item.ExamTime).ThenByDescending(item => item.Id).First();
-                var bounds = PeriodBounds(latest.ExamTime, groupBy);
-                return new HealthReportRowDto
-                {
-                    Key = $"student:{bounds.Start:yyyyMMdd}:{group.Key.Student}",
-                    PeriodStart = bounds.Start,
-                    PeriodEnd = bounds.End,
-                    StudentProfileId = latest.StudentProfileId,
-                    SISUserId = latest.SISUserId,
-                    StudentName = latest.StudentName,
-                    ClassName = latest.ClassName,
-                    VisitCount = group.Count(),
-                    StudentCount = 1,
-                    LatestVisit = latest.ExamTime
-                };
-            })
-            .OrderByDescending(item => item.PeriodStart)
-            .ThenByDescending(item => item.VisitCount)
-            .ThenBy(item => item.StudentName)
-            .ToList();
 
     private static List<HealthReportRowDto> VisitRows(List<HealthVisitSource> source, string groupBy) =>
         source.OrderByDescending(item => item.ExamTime).ThenByDescending(item => item.Id)
@@ -247,17 +291,6 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
 
     private static string DiagnosisLabel(HealthVisitSource item) =>
         Clean(item.Diagnosis) ?? Clean(item.Classification) ?? Clean(item.Symptoms) ?? "—";
-
-    private static string StudentIdentity(HealthVisitSource item) => item.StudentProfileId.HasValue
-        ? $"profile:{item.StudentProfileId.Value}"
-        : !string.IsNullOrWhiteSpace(item.SISUserId)
-            ? $"sis:{item.SISUserId.Trim().ToUpperInvariant()}"
-            : $"name:{item.StudentName.Trim().ToUpperInvariant()}:{item.ClassName?.Trim().ToUpperInvariant()}";
-
-    private static bool Matches(HealthVisitSource item, string term) =>
-        Contains(item.StudentName, term) || Contains(item.SISUserId, term) || Contains(item.ClassName, term) ||
-        Contains(item.Diagnosis, term) || Contains(item.Classification, term) || Contains(item.Symptoms, term) ||
-        Contains(item.Notes, term);
 
     private static bool Contains(string? value, string term) =>
         value?.Contains(term, StringComparison.OrdinalIgnoreCase) == true;

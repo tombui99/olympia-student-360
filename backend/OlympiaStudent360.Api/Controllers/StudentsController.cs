@@ -103,16 +103,18 @@ public class StudentsController : ControllerBase
         var canAccessAcademic = _userAccess.Current.CanAccessAcademic;
         var canAccessBus = _userAccess.Current.CanAccessBus;
         if (!canAccessAcademic) atRiskOnly = false;
-        var settings = await ClassificationSettings();
         var canvasPeriod = await _canvasReportingPeriods.ResolveAsync();
-        var riskSince = DateTime.UtcNow.AddDays(-settings.RiskWindowDays);
+        if (canAccessAcademic && !await _context.ImportedReportBuilds.AsNoTracking().AnyAsync())
+            return StatusCode(503, new { Message = "Report aggregates are being prepared." });
+        var snapshotQuery = _context.StudentRiskSnapshots.AsNoTracking()
+            .Where(item => item.AcademicYear == canvasPeriod.AcademicYear && item.Term == canvasPeriod.Term);
         if (atRiskOnly)
         {
-            var atRiskIds = (await LoadVisibleSignals(settings, canvasPeriod))
-                .Where(entry => StudentClassificationService.ClassifyRisk(entry.Signals, settings).Level != "None")
-                .Select(entry => entry.Student.Id)
-                .ToList();
-            query = query.Where(student => atRiskIds.Contains(student.Id));
+            query = canAccessBus
+                ? query.Where(student => snapshotQuery.Any(item => item.StudentProfileId == student.Id &&
+                    item.RiskLevelWithBus != "None"))
+                : query.Where(student => snapshotQuery.Any(item => item.StudentProfileId == student.Id &&
+                    item.RiskLevelWithoutBus != "None"));
         }
 
         var rows = query.Select(student => new
@@ -125,12 +127,7 @@ public class StudentsController : ControllerBase
             student.Homeroom,
             student.Campus,
             student.EducationLevel,
-            student.Program,
-            BehaviourCount = student.Behaviours.Count,
-            ProjectCount = student.Projects.Count,
-            MentalHealthCount = student.MentalHealthRecords.Count,
-            BusViolationCount = canAccessBus
-                ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince) : 0
+            student.Program
         });
         var totalCount = await rows.CountAsync();
         var totalPages = TotalPages(totalCount, pageSize);
@@ -142,46 +139,29 @@ public class StudentsController : ControllerBase
             .Take(pageSize)
             .ToListAsync();
         var pageStudentIds = pageRows.Select(student => student.Id).ToList();
-        var canvasAverages = canAccessAcademic ? await CanvasAverages(pageStudentIds, canvasPeriod) : [];
-        var behaviourRows = canAccessAcademic ? await _context.StudentBehaviours.AsNoTracking()
-            .Where(behaviour => behaviour.StudentProfileId.HasValue && pageStudentIds.Contains(behaviour.StudentProfileId.Value))
-            .Select(behaviour => new { StudentProfileId = behaviour.StudentProfileId!.Value, behaviour.BehaviourType, behaviour.ClassificationCategory, behaviour.IncidentDate })
-            .ToListAsync() : [];
-        var behaviourCounts = behaviourRows.GroupBy(behaviour => behaviour.StudentProfileId)
-            .ToDictionary(group => group.Key, group => new
-            {
-                Positive = group.Count(behaviour => StudentClassificationService.IsCommendationBehaviourType(behaviour.BehaviourType, behaviour.ClassificationCategory)),
-                Concerning = group.Count(behaviour => StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType, behaviour.ClassificationCategory)),
-                RecentConcerning = group.Count(behaviour => behaviour.IncidentDate >= riskSince
-                    && StudentClassificationService.IsConcerningBehaviourType(behaviour.BehaviourType, behaviour.ClassificationCategory))
-            });
+        var snapshots = await snapshotQuery.Where(item => pageStudentIds.Contains(item.StudentProfileId))
+            .ToDictionaryAsync(item => item.StudentProfileId);
 
         return Ok(new StudentsPageDto
         {
             Items = pageRows.Select(student =>
             {
-                var counts = behaviourCounts.GetValueOrDefault(student.Id);
-                var risk = StudentClassificationService.ClassifyRisk(
-                    new StudentSignalSummary(
-                        counts?.RecentConcerning ?? 0,
-                        0,
-                        canvasAverages.GetValueOrDefault(student.Id),
-                        student.BusViolationCount,
-                        0),
-                    settings);
+                snapshots.TryGetValue(student.Id, out var snapshot);
                 return new StudentListItemDto
                 {
                     Id = student.Id, SISStudentCode = student.SISStudentCode,
                     SISUserId = student.SISUserId, FullName = student.FullName,
                     GradeLevel = student.GradeLevel, Homeroom = student.Homeroom,
                     Campus = student.Campus, EducationLevel = student.EducationLevel, Program = student.Program,
-                    BehaviourCount = canAccessAcademic ? student.BehaviourCount : 0,
-                    PositiveBehaviourCount = counts?.Positive ?? 0,
-                    ConcerningBehaviourCount = counts?.Concerning ?? 0,
-                    ProjectCount = canAccessAcademic ? student.ProjectCount : 0,
-                    MentalHealthCount = _userAccess.Current.CanAccessHealth ? student.MentalHealthCount : 0,
-                    RiskLevel = canAccessAcademic ? risk.Level : "None",
-                    RiskFlagCount = canAccessAcademic ? risk.Flags.Count : 0
+                    BehaviourCount = canAccessAcademic ? snapshot?.BehaviourCount ?? 0 : 0,
+                    PositiveBehaviourCount = canAccessAcademic ? snapshot?.PositiveBehaviourCount ?? 0 : 0,
+                    ConcerningBehaviourCount = canAccessAcademic ? snapshot?.ConcerningBehaviourCount ?? 0 : 0,
+                    ProjectCount = canAccessAcademic ? snapshot?.ProjectCount ?? 0 : 0,
+                    MentalHealthCount = _userAccess.Current.CanAccessHealth ? snapshot?.MentalHealthCount ?? 0 : 0,
+                    RiskLevel = canAccessAcademic && snapshot is not null
+                        ? canAccessBus ? snapshot.RiskLevelWithBus : snapshot.RiskLevelWithoutBus : "None",
+                    RiskFlagCount = canAccessAcademic && snapshot is not null
+                        ? canAccessBus ? snapshot.RiskFlagCountWithBus : snapshot.RiskFlagCountWithoutBus : 0
                 };
             }).ToList(),
             Page = page,
@@ -204,7 +184,6 @@ public class StudentsController : ControllerBase
         [FromQuery] string? term = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
-        var settings = await ClassificationSettings();
         var searchTerm = search?.Trim();
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {
@@ -212,50 +191,67 @@ public class StudentsController : ControllerBase
         }
         var normalizedGrade = grade?.Trim();
         var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(academicYear, term);
-        var candidates = (await LoadVisibleSignals(settings, canvasPeriod, searchTerm, normalizedGrade, homeroom?.Trim()))
-            .Select(entry => new
-            {
-                entry.Student,
-                entry.Signals,
-                Risk = StudentClassificationService.ClassifyRisk(entry.Signals, settings)
-            })
-            .Where(entry => entry.Risk.Level != "None");
-        var atRiskStudents = candidates
-            .OrderByDescending(entry => entry.Risk.Level == "High")
-            .ThenByDescending(entry => entry.Signals.ConcerningBehaviourCount + entry.Signals.RiskBusViolationCount)
-            .ThenBy(entry => entry.Student.FullName)
-            .ToList();
-
-        var totalCount = atRiskStudents.Count;
+        if (!await _context.ImportedReportBuilds.AsNoTracking().AnyAsync())
+            return StatusCode(503, new { Message = "Report aggregates are being prepared." });
+        var canAccessBus = _userAccess.Current.CanAccessBus;
+        var query = _userAccess.ApplyStudentScope(_context.StudentRiskSnapshots.AsNoTracking()
+            .Where(item => item.AcademicYear == canvasPeriod.AcademicYear && item.Term == canvasPeriod.Term),
+            item => item.Student);
+        query = canAccessBus
+            ? query.Where(item => item.RiskLevelWithBus != "None")
+            : query.Where(item => item.RiskLevelWithoutBus != "None");
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var pattern = $"%{EscapeLikePattern(searchTerm)}%";
+            query = query.Where(item => EF.Functions.Like(item.Student.FullName, pattern, "!") ||
+                EF.Functions.Like(item.Student.SISUserId, pattern, "!") ||
+                item.Student.Homeroom != null && EF.Functions.Like(item.Student.Homeroom, pattern, "!") ||
+                item.Student.GradeLevel != null && EF.Functions.Like(item.Student.GradeLevel, pattern, "!") ||
+                item.Student.CanvasGradeLevel != null && EF.Functions.Like(item.Student.CanvasGradeLevel, pattern, "!"));
+        }
+        if (!string.IsNullOrWhiteSpace(normalizedGrade))
+            query = normalizedGrade == "—"
+                ? query.Where(item => (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == null ||
+                    (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == "")
+                : query.Where(item => (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == normalizedGrade);
+        var normalizedHomeroom = homeroom?.Trim();
+        if (!string.IsNullOrWhiteSpace(normalizedHomeroom))
+            query = normalizedHomeroom == "—"
+                ? query.Where(item => item.Student.Homeroom == null || item.Student.Homeroom == "")
+                : query.Where(item => item.Student.Homeroom == normalizedHomeroom);
+        var totalCount = await query.CountAsync();
+        var highCount = await query.CountAsync(item => canAccessBus
+            ? item.RiskLevelWithBus == "High" : item.RiskLevelWithoutBus == "High");
+        var snapshots = await query.Include(item => item.Student)
+            .OrderByDescending(item => canAccessBus ? item.RiskLevelWithBus == "High" : item.RiskLevelWithoutBus == "High")
+            .ThenByDescending(item => item.RiskConcerningCount + (canAccessBus ? item.RiskBusCount : 0))
+            .ThenBy(item => item.Student.FullName)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
         return Ok(new AtRiskStudentsPageDto
         {
-            Items = atRiskStudents
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(entry => new AtRiskStudentDto
+            Items = snapshots.Select(item => new AtRiskStudentDto
                 {
-                    Id = entry.Student.Id,
-                    SISUserId = entry.Student.SISUserId,
-                    FullName = entry.Student.FullName,
-                    GradeLevel = entry.Student.GradeLevel ?? entry.Student.CanvasGradeLevel,
-                    Homeroom = entry.Student.Homeroom,
-                    BehaviourCount = entry.Student.Behaviours.Count,
-                    PositiveBehaviourCount = entry.Student.Behaviours.Count(StudentClassificationService.IsCommendationBehaviour),
-                    ConcerningBehaviourCount = entry.Student.Behaviours.Count(StudentClassificationService.IsConcerningBehaviour),
-                    ProjectCount = entry.Student.Projects.Count,
-                    MentalHealthCount = entry.Student.MentalHealthRecords.Count,
-                    RiskLevel = entry.Risk.Level,
-                    RiskFlagCount = entry.Risk.Flags.Count,
-                    AverageCanvasScorePercentage = entry.Signals.AverageCanvasGrade,
-                    Flags = entry.Risk.Flags
+                    Id = item.Student.Id, SISUserId = item.Student.SISUserId,
+                    FullName = item.Student.FullName,
+                    GradeLevel = item.Student.GradeLevel ?? item.Student.CanvasGradeLevel,
+                    Homeroom = item.Student.Homeroom,
+                    BehaviourCount = item.BehaviourCount,
+                    PositiveBehaviourCount = item.PositiveBehaviourCount,
+                    ConcerningBehaviourCount = item.ConcerningBehaviourCount,
+                    ProjectCount = item.ProjectCount, MentalHealthCount = item.MentalHealthCount,
+                    RiskLevel = canAccessBus ? item.RiskLevelWithBus : item.RiskLevelWithoutBus,
+                    RiskFlagCount = canAccessBus ? item.RiskFlagCountWithBus : item.RiskFlagCountWithoutBus,
+                    AverageCanvasScorePercentage = item.AverageCanvasScore,
+                    Flags = System.Text.Json.JsonSerializer.Deserialize<List<RiskFlagDto>>(
+                        canAccessBus ? item.RiskFlagsWithBusJson : item.RiskFlagsWithoutBusJson) ?? []
                 })
                 .ToList(),
             Page = page,
             PageSize = pageSize,
             TotalCount = totalCount,
             TotalPages = TotalPages(totalCount, pageSize),
-            HighRiskCount = atRiskStudents.Count(entry => entry.Risk.Level == "High"),
-            MediumRiskCount = atRiskStudents.Count(entry => entry.Risk.Level == "Medium"),
+            HighRiskCount = highCount,
+            MediumRiskCount = totalCount - highCount,
             AcademicYear = canvasPeriod.AcademicYear,
             Term = canvasPeriod.Term
         });

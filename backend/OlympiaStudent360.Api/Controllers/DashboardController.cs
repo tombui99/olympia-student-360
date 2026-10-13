@@ -25,23 +25,6 @@ public class DashboardController : ControllerBase
         double? Score, string? Grade, double? PointsPossible, DateTime? SubmittedAt,
         DateTime? GradedAt, DateTime? DueAt, string? CourseName, string? AssignmentTitle);
 
-    private sealed class MetricMonthlyAggregate
-    {
-        public int Year { get; init; }
-        public int Month { get; init; }
-        public double Value { get; init; }
-        public int Count { get; init; }
-    }
-
-    private sealed class CanvasSubmissionCountAggregate
-    {
-        public int Year { get; init; }
-        public int Month { get; init; }
-        public int Submitted { get; init; }
-        public int SubmittedGraded { get; init; }
-        public int Late { get; init; }
-    }
-
     private static Dictionary<string, string?> DetailFields(params (string Key, string? Value)[] fields) =>
         fields.Where(field => !string.IsNullOrWhiteSpace(field.Value))
             .ToDictionary(field => field.Key, field => field.Value);
@@ -620,6 +603,10 @@ public class DashboardController : ControllerBase
         var requestedMetricIds = allRequestedMetricIds
             .Where(metricId => !deniedMetricIds.Contains(metricId))
             .ToHashSet(StringComparer.Ordinal);
+        if ((allRequestedMetricIds.Count == 0 || requestedMetricIds.Count > 0 &&
+             ImportedMetricCatalog().Any(metric => requestedMetricIds.Contains(metric.Id))) &&
+            !await _context.ImportedReportBuilds.AsNoTracking().AnyAsync(cancellationToken))
+            return StatusCode(503, new { Message = "Report aggregates are being prepared." });
         var requestedMetricCacheKey = allRequestedMetricIds.Count == 0
             ? "all"
             : string.Join(',', allRequestedMetricIds.Order(StringComparer.Ordinal));
@@ -721,7 +708,7 @@ public class DashboardController : ControllerBase
             };
         }).ToList();
 
-        computed.AddRange(await ImportedDataMetrics(
+        computed.AddRange(await ImportedDataMetricsFromAggregates(
             year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
             yearAliases, termAliases, requestedMetricIds, computationToken));
         computed.AddRange(await CanvasDataMetrics(
@@ -1481,218 +1468,116 @@ public class DashboardController : ControllerBase
         return query;
     }
 
-    private async Task<List<DashboardMetricDto>> ImportedDataMetrics(
+    private async Task<List<DashboardMetricDto>> ImportedDataMetricsFromAggregates(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
         string? homeroom, int? studentId, string? program, string? subject,
         IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
         IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
     {
-        var behaviours = _userAccess.ApplyStudentScope(
-            _context.StudentBehaviours.AsNoTracking().AsQueryable(), item => item.Student);
-        var projects = _userAccess.ApplyStudentScope(
-            _context.StudentProjects.AsNoTracking().AsQueryable(), item => item.Student);
-        var mentalHealth = _userAccess.ApplyStudentScope(
-            _context.StudentMentalHealthRecords.AsNoTracking().AsQueryable(), item => item.Student);
-        var healthVisits = _userAccess.ApplyStudentScope(
-            _context.StudentHealthVisits.AsNoTracking().Where(item => item.StudentProfileId != null), item => item.Student);
-        var busRecords = _userAccess.ApplyStudentScope(
-            _context.StudentBusAttendanceRecords.AsNoTracking().AsQueryable(), item => item.Student);
-
-        if (studentId.HasValue)
-        {
-            behaviours = behaviours.Where(item => item.StudentProfileId == studentId.Value);
-            projects = projects.Where(item => item.StudentProfileId == studentId.Value);
-            mentalHealth = mentalHealth.Where(item => item.StudentProfileId == studentId.Value);
-            healthVisits = healthVisits.Where(item => item.Student!.Id == studentId.Value);
-            busRecords = busRecords.Where(item => item.StudentProfileId == studentId.Value);
-        }
-        if (HasFilter(campus))
-        {
-            behaviours = behaviours.Where(item => item.Student != null && item.Student.Campus == campus);
-            projects = projects.Where(item => item.Student.Campus == campus);
-            mentalHealth = mentalHealth.Where(item => item.Student.Campus == campus);
-            healthVisits = healthVisits.Where(item => item.Student!.Campus == campus);
-            busRecords = busRecords.Where(item => item.Student.Campus == campus);
-        }
-        if (HasFilter(level))
-        {
-            behaviours = behaviours.Where(item => item.Student != null && item.Student.EducationLevel == level);
-            projects = projects.Where(item => item.Student.EducationLevel == level);
-            mentalHealth = mentalHealth.Where(item => item.Student.EducationLevel == level);
-            healthVisits = healthVisits.Where(item => item.Student!.EducationLevel == level);
-            busRecords = busRecords.Where(item => item.Student.EducationLevel == level);
-        }
-        if (HasFilter(grade))
-        {
-            behaviours = behaviours.Where(item =>
-                item.Student != null && (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
-            projects = projects.Where(item =>
-                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
-            mentalHealth = mentalHealth.Where(item =>
-                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
-            healthVisits = healthVisits.Where(item =>
-                (item.Student!.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
-            busRecords = busRecords.Where(item =>
-                (item.Student.GradeLevel ?? item.Student.CanvasGradeLevel) == grade);
-        }
-        if (HasFilter(homeroom))
-        {
-            behaviours = behaviours.Where(item => item.Student != null && item.Student.Homeroom == homeroom);
-            projects = projects.Where(item => item.Student.Homeroom == homeroom);
-            mentalHealth = mentalHealth.Where(item => item.Student.Homeroom == homeroom);
-            healthVisits = healthVisits.Where(item => item.Student!.Homeroom == homeroom);
-            busRecords = busRecords.Where(item => item.Student.Homeroom == homeroom);
-        }
-        if (HasFilter(program))
-        {
-            behaviours = behaviours.Where(item => item.Program == program ||
-                (item.Program == null && item.Student != null && item.Student.Program == program));
-            projects = projects.Where(item => item.Program == program ||
-                (item.Program == null && item.Student.Program == program));
-            mentalHealth = mentalHealth.Where(item => item.Student.Program == program);
-            healthVisits = healthVisits.Where(item => item.Student!.Program == program);
-            busRecords = busRecords.Where(item => item.Student.Program == program);
-        }
-        if (HasFilter(subject))
-        {
-            behaviours = behaviours.Where(item => item.Subject != null && item.Subject.Trim() == subject!.Trim());
-            projects = projects.Where(item => item.Subject != null && item.Subject.Trim() == subject!.Trim());
-            // Mental health and clinic visits have no subject dimension.
-            mentalHealth = mentalHealth.Where(_ => false);
-            healthVisits = healthVisits.Where(_ => false);
-            busRecords = busRecords.Where(_ => false);
-        }
-        if (HasFilter(cycle))
-        {
-            behaviours = behaviours.Where(item => item.MeasurementCycle == cycle);
-            projects = projects.Where(item => item.MeasurementCycle == cycle);
-            // These are event records and do not use a measurement cycle.
-            mentalHealth = mentalHealth.Where(_ => false);
-            healthVisits = healthVisits.Where(_ => false);
-            busRecords = busRecords.Where(_ => false);
-        }
+        var query = _userAccess.ApplyStudentScope(
+            _context.ImportedReportAggregates.AsNoTracking(), item => item.Student);
+        if (studentId.HasValue) query = query.Where(item => item.StudentProfileId == studentId);
+        if (HasFilter(campus)) query = query.Where(item => item.Campus == campus);
+        if (HasFilter(level)) query = query.Where(item => item.EducationLevel == level);
+        if (HasFilter(grade)) query = query.Where(item => item.Grade == grade);
+        if (HasFilter(homeroom)) query = query.Where(item => item.Homeroom == homeroom);
+        if (HasFilter(program)) query = query.Where(item => item.Program == program);
+        if (HasFilter(subject)) query = query.Where(item => item.Subject == subject!.Trim());
+        if (HasFilter(cycle)) query = query.Where(item => item.MeasurementCycle == cycle);
+        query = query.Where(item => item.Source != "student-health-visits" || item.StudentProfileId != null);
 
         var hasYear = HasFilter(year);
         var hasTerm = HasFilter(term);
-        (string Year, string Term, DateTime Start, DateTime End)? period = null;
         if (hasYear || hasTerm)
         {
-            period = await ResolvePeriod(year, term, DateTime.UtcNow);
-        }
-        if (hasYear && period.HasValue)
-        {
-            var start = period.Value.Start;
-            var end = period.Value.End;
-            behaviours = behaviours.WhereMatchesAny(item => item.AcademicYear, yearAliases,
-                item => item.AcademicYear == null && item.IncidentDate >= start && item.IncidentDate < end);
-            projects = projects.WhereMatchesAny(item => item.AcademicYear, yearAliases,
-                item => item.AcademicYear == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
-                    (item.ActivityDate ?? item.CreatedAt) < end);
-            mentalHealth = mentalHealth.WhereMatchesAny(item => item.AcademicYear, yearAliases);
-            healthVisits = healthVisits.Where(item => item.ExamTime >= start && item.ExamTime < end);
-            busRecords = busRecords.WhereMatchesAny(item => item.AcademicYear, yearAliases,
-                item => item.AcademicYear == null && item.AttendanceDate >= start && item.AttendanceDate < end);
-        }
-        if (hasTerm && period.HasValue)
-        {
-            var start = period.Value.Start;
-            var end = period.Value.End;
-            behaviours = behaviours.WhereMatchesAny(item => item.Term, termAliases,
-                item => item.Term == null && item.IncidentDate >= start && item.IncidentDate < end);
-            projects = projects.WhereMatchesAny(item => item.Term, termAliases,
-                item => item.Term == null && (item.ActivityDate ?? item.CreatedAt) >= start &&
-                    (item.ActivityDate ?? item.CreatedAt) < end);
-            mentalHealth = mentalHealth.Where(item => item.RecordDate >= start && item.RecordDate < end);
-            healthVisits = healthVisits.Where(item => item.ExamTime >= start && item.ExamTime < end);
-            busRecords = busRecords.WhereMatchesAny(item => item.Term, termAliases,
-                item => item.Term == null && item.AttendanceDate >= start && item.AttendanceDate < end);
+            var period = await ResolvePeriod(year, term, DateTime.UtcNow);
+            if (hasYear)
+            {
+                // The MySQL provider cannot type-map a captured string array inside
+                // this conditional expression. Expand aliases to scalar equality branches.
+                query = query.WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                    item => item.Source == "student-health-visits" &&
+                                item.EventDay >= period.Start && item.EventDay < period.End ||
+                            item.Source != "student-health-visits" &&
+                                item.Source != "student-mental-health" && item.AcademicYear == null &&
+                                item.EventDay >= period.Start && item.EventDay < period.End);
+            }
+            if (hasTerm)
+            {
+                query = query.WhereMatchesAny(item => item.Term, termAliases,
+                    item => (item.Source == "student-health-visits" ||
+                             item.Source == "student-mental-health") &&
+                                item.EventDay >= period.Start && item.EventDay < period.End ||
+                            item.Source != "student-health-visits" &&
+                                item.Source != "student-mental-health" && item.Term == null &&
+                                item.EventDay >= period.Start && item.EventDay < period.End);
+            }
         }
 
-        var needsBehaviourMetrics = WantsAnyMetric(requestedMetricIds,
-            "behaviour-records", "concern-behaviour-records", "commendation-records");
-        var needsProjectMetrics = WantsAnyMetric(requestedMetricIds,
-            "project-records", "active-project-records");
-        var needsMentalHealthMetrics = WantsAnyMetric(requestedMetricIds,
-            "mental-health-records", "high-risk-mental-health");
-        var needsHealthVisitMetrics = WantsMetric(requestedMetricIds, "health-visit-records");
-        var needsBusMetrics = WantsAnyMetric(requestedMetricIds,
-            "bus-late-records", "bus-seatbelt-violations", "bus-late-to-school", "bus-late-from-school");
+        // The database reduces daily/student facts to month and source dimensions before any
+        // response assembly. No source record table is scanned in this request.
+        var grouped = await query.GroupBy(item => new
+            {
+                item.Source, item.Type, item.Category, item.Status,
+                Year = item.EventDay.Year, Month = item.EventDay.Month
+            })
+            .Select(group => new
+            {
+                group.Key.Source, group.Key.Type, group.Key.Category, group.Key.Status,
+                group.Key.Year, group.Key.Month,
+                Count = group.Sum(item => item.RecordCount)
+            })
+            .ToListAsync(cancellationToken);
 
-        if (!WantsMetric(requestedMetricIds, "project-records"))
-        {
-            projects = projects.Where(item => item.Status != "Completed" && item.Status != "Hoàn thành");
-        }
-        if (!WantsMetric(requestedMetricIds, "mental-health-records"))
-        {
-            mentalHealth = mentalHealth.Where(item => item.RiskLevel == "High");
-        }
-        if (needsBusMetrics && requestedMetricIds.Count > 0)
-        {
-            var wantsAllLate = requestedMetricIds.Contains("bus-late-records");
-            var wantsSeatbelt = requestedMetricIds.Contains("bus-seatbelt-violations");
-            var wantsMorningLate = requestedMetricIds.Contains("bus-late-to-school");
-            var wantsAfternoonLate = requestedMetricIds.Contains("bus-late-from-school");
-            busRecords = busRecords.Where(item =>
-                (wantsAllLate && item.ViolationType == "Late") ||
-                (wantsSeatbelt && item.ViolationType == "No seatbelt") ||
-                (wantsMorningLate && item.ViolationType == "Late" && item.TripDirection == "To school") ||
-                (wantsAfternoonLate && item.ViolationType == "Late" && item.TripDirection == "From school"));
-        }
-
-        var behaviourRows = needsBehaviourMetrics
-            ? await behaviours.Select(item => new { Date = item.IncidentDate, Type = item.BehaviourType, item.ClassificationCategory })
-                .ToListAsync(cancellationToken)
-            : [];
-        var projectRows = needsProjectMetrics
-            ? await projects.Select(item => new { Date = item.ActivityDate ?? item.CreatedAt, item.Status })
-                .ToListAsync(cancellationToken)
-            : [];
-        var mentalHealthRows = needsMentalHealthMetrics
-            ? await mentalHealth.Select(item => new { Date = item.RecordDate, item.RiskLevel })
-                .ToListAsync(cancellationToken)
-            : [];
-        var healthVisitRows = needsHealthVisitMetrics
-            ? await healthVisits.Select(item => new { Date = item.ExamTime }).ToListAsync(cancellationToken)
-            : [];
-        var busRows = needsBusMetrics
-            ? await busRecords.Select(item => new { Date = item.AttendanceDate, item.ViolationType, item.TripDirection })
-                .ToListAsync(cancellationToken)
-            : [];
+        IEnumerable<(DateTime Day, int Count)> Select(string source, Func<string?, string?, string?, bool>? predicate = null) =>
+            grouped.Where(row => row.Source == source && (predicate == null || predicate(row.Type, row.Category, row.Status)))
+                .Select(row => (new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc), row.Count));
 
         List<DashboardMetricDto> metrics =
         [
-            CountMetric("behaviour-records", "Behaviour records", "Compliance", "StudentBehaviours",
-                behaviourRows.Select(item => item.Date)),
-            CountMetric("concern-behaviour-records", "Concerning behaviour records", "Compliance", "StudentBehaviours",
-                behaviourRows.Where(item => StudentClassificationService.IsConcerningBehaviourType(item.Type, item.ClassificationCategory))
-                    .Select(item => item.Date)),
-            CountMetric("commendation-records", "Commendation records", "Achievement", "StudentBehaviours",
-                behaviourRows.Where(item => StudentClassificationService.IsCommendationBehaviourType(item.Type, item.ClassificationCategory))
-                    .Select(item => item.Date)),
-            CountMetric("project-records", "Student projects", "Achievement", "StudentProjects",
-                projectRows.Select(item => item.Date)),
-            CountMetric("active-project-records", "Active student projects", "Achievement", "StudentProjects",
-                projectRows.Where(item => !StudentDataEntryOptions.IsCompletedProjectStatus(item.Status))
-                    .Select(item => item.Date)),
-            CountMetric("mental-health-records", "Mental health records", "Safety", "StudentMentalHealth",
-                mentalHealthRows.Select(item => item.Date)),
-            CountMetric("high-risk-mental-health", "High-risk mental health records", "Safety", "StudentMentalHealth",
-                mentalHealthRows.Where(item => string.Equals(item.RiskLevel, "High", StringComparison.OrdinalIgnoreCase))
-                    .Select(item => item.Date)),
-            CountMetric("health-visit-records", "Health office visits", "Safety", "StudentHealthVisits",
-                healthVisitRows.Select(item => item.Date)),
-            CountMetric("bus-late-records", "Late bus check-ins", "Safety", "StudentBusAttendance",
-                busRows.Where(item => item.ViolationType == "Late").Select(item => item.Date)),
-            CountMetric("bus-seatbelt-violations", "Bus seatbelt violations", "Safety", "StudentBusAttendance",
-                busRows.Where(item => item.ViolationType == "No seatbelt").Select(item => item.Date)),
-            CountMetric("bus-late-to-school", "Late morning bus check-ins", "Safety", "StudentBusAttendance",
-                busRows.Where(item => item.ViolationType == "Late" && item.TripDirection == "To school")
-                    .Select(item => item.Date)),
-            CountMetric("bus-late-from-school", "Late afternoon bus check-ins", "Safety", "StudentBusAttendance",
-                busRows.Where(item => item.ViolationType == "Late" && item.TripDirection == "From school")
-                    .Select(item => item.Date))
+            CountAggregateMetric("behaviour-records", "Behaviour records", "Compliance", "StudentBehaviours",
+                Select("student-behaviours")),
+            CountAggregateMetric("concern-behaviour-records", "Concerning behaviour records", "Compliance", "StudentBehaviours",
+                Select("student-behaviours", (_, category, _) => category == "Concerning")),
+            CountAggregateMetric("commendation-records", "Commendation records", "Achievement", "StudentBehaviours",
+                Select("student-behaviours", (_, category, _) => category == "Positive")),
+            CountAggregateMetric("project-records", "Student projects", "Achievement", "StudentProjects",
+                Select("student-projects")),
+            CountAggregateMetric("active-project-records", "Active student projects", "Achievement", "StudentProjects",
+                Select("student-projects", (_, _, status) => !StudentDataEntryOptions.IsCompletedProjectStatus(status))),
+            CountAggregateMetric("mental-health-records", "Mental health records", "Safety", "StudentMentalHealth",
+                Select("student-mental-health")),
+            CountAggregateMetric("high-risk-mental-health", "High-risk mental health records", "Safety", "StudentMentalHealth",
+                Select("student-mental-health", (_, _, status) => string.Equals(status, "High", StringComparison.OrdinalIgnoreCase))),
+            CountAggregateMetric("health-visit-records", "Health office visits", "Safety", "StudentHealthVisits",
+                Select("student-health-visits")),
+            CountAggregateMetric("bus-late-records", "Late bus check-ins", "Safety", "StudentBusAttendance",
+                Select("student-bus-attendance", (type, _, _) => type == "Late")),
+            CountAggregateMetric("bus-seatbelt-violations", "Bus seatbelt violations", "Safety", "StudentBusAttendance",
+                Select("student-bus-attendance", (type, _, _) => type == "No seatbelt")),
+            CountAggregateMetric("bus-late-to-school", "Late morning bus check-ins", "Safety", "StudentBusAttendance",
+                Select("student-bus-attendance", (type, _, status) => type == "Late" && status == "To school")),
+            CountAggregateMetric("bus-late-from-school", "Late afternoon bus check-ins", "Safety", "StudentBusAttendance",
+                Select("student-bus-attendance", (type, _, status) => type == "Late" && status == "From school"))
         ];
-        return metrics.Where(metric => WantsMetric(requestedMetricIds, metric.Id)).ToList();
+        return metrics.Where(item => WantsMetric(requestedMetricIds, item.Id)).ToList();
+    }
+
+    private static DashboardMetricDto CountAggregateMetric(string id, string label, string category,
+        string source, IEnumerable<(DateTime Day, int Count)> values)
+    {
+        var rows = values.ToList();
+        var points = rows.GroupBy(item => item.Day)
+            .OrderBy(group => group.Key)
+            .Select(group => new DashboardMetricPointDto { PeriodStart = group.Key,
+                Value = group.Sum(item => item.Count) }).ToList();
+        return new DashboardMetricDto
+        {
+            Id = id, Label = label, Category = category, Source = source, Dataset = source,
+            Unit = "records", Value = rows.Sum(item => item.Count),
+            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
+            Series = points
+        };
     }
 
     private static List<DashboardMetricDto> ImportedMetricCatalog() =>
@@ -1712,9 +1597,9 @@ public class DashboardController : ControllerBase
     ];
 
     /// <summary>
-    /// Canvas grade and assignment metrics. The normal path reads ETL-materialized monthly rows;
-    /// the raw warehouse calculation remains as a first-deployment fallback. Both paths honour
-    /// the same visibility and dashboard filters as the other imported sources.
+    /// Canvas grade and assignment metrics are served only from ETL-materialized monthly rows.
+    /// A deployment before its first Canvas sync returns unavailable values instead of running
+    /// an expensive raw warehouse calculation in a user request.
     /// </summary>
     private async Task<List<DashboardMetricDto>> CanvasDataMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
@@ -1722,8 +1607,8 @@ public class DashboardController : ControllerBase
         IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
         IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
     {
-        // A migration can be deployed before the first post-deploy Canvas run. Keep the existing
-        // raw calculation as a correctness fallback until ETL has materialized the summary table.
+        // A migration can be deployed before the first post-deploy Canvas run. The report must
+        // remain unavailable until ETL materializes the summary table.
         if (await _context.CanvasDashboardMetricAggregates.AsNoTracking()
             .AnyAsync(cancellationToken))
         {
@@ -1732,9 +1617,14 @@ public class DashboardController : ControllerBase
                 requestedMetricIds, cancellationToken);
         }
 
-        return await RawCanvasDataMetrics(
-            year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
-            yearAliases, termAliases, requestedMetricIds, cancellationToken);
+        return CanvasMetricCatalog()
+            .Where(metric => WantsMetric(requestedMetricIds, metric.Id))
+            .Select(metric =>
+            {
+                metric.Value = null;
+                metric.UnavailableReason = "aggregate_unavailable";
+                return metric;
+            }).ToList();
     }
 
     private async Task<List<DashboardMetricDto>> CanvasAggregateMetrics(
@@ -1866,431 +1756,6 @@ public class DashboardController : ControllerBase
         return results;
     }
 
-    private async Task<List<DashboardMetricDto>> RawCanvasDataMetrics(
-        string? year, string? term, string? cycle, string? campus, string? level, string? grade,
-        string? homeroom, int? studentId, string? program, string? subject,
-        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
-        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
-    {
-        // Canvas records carry no measurement cycle, so a cycle-scoped report has no Canvas rows.
-        if (HasFilter(cycle))
-        {
-            return [];
-        }
-
-        var submissions = _context.CanvasSubmissions.AsNoTracking()
-            .Where(item => item.StudentProfileId != null).AsQueryable();
-        var scores = _context.CanvasCourseScores.AsNoTracking()
-            .Where(item => item.StudentProfileId != null).AsQueryable();
-        submissions = _userAccess.ApplyStudentScope(submissions, item => item.Student);
-        scores = _userAccess.ApplyStudentScope(scores, item => item.Student);
-
-        if (studentId.HasValue)
-        {
-            submissions = submissions.Where(item => item.StudentProfileId == studentId.Value);
-            scores = scores.Where(item => item.StudentProfileId == studentId.Value);
-        }
-        if (HasFilter(campus))
-        {
-            submissions = submissions.Where(item => item.Student!.Campus == campus);
-            scores = scores.Where(item => item.Student!.Campus == campus);
-        }
-        if (HasFilter(level))
-        {
-            submissions = submissions.Where(item => item.Student!.EducationLevel == level);
-            scores = scores.Where(item => item.Student!.EducationLevel == level);
-        }
-        if (HasFilter(grade))
-        {
-            submissions = submissions.Where(item =>
-                (item.Assignment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel ??
-                 item.Student.CanvasGradeLevel) == grade);
-            scores = scores.Where(item =>
-                (item.Enrollment!.Course!.CanvasGradeLevel ?? item.Student!.GradeLevel ??
-                 item.Student.CanvasGradeLevel) == grade);
-        }
-        if (HasFilter(homeroom))
-        {
-            submissions = submissions.Where(item => item.Student!.Homeroom == homeroom);
-            scores = scores.Where(item => item.Student!.Homeroom == homeroom);
-        }
-        if (HasFilter(program))
-        {
-            submissions = submissions.Where(item => item.Student!.Program == program);
-            scores = scores.Where(item => item.Student!.Program == program);
-        }
-        if (HasFilter(subject))
-        {
-            submissions = submissions.Where(item => item.Assignment!.Course!.Name != null &&
-                item.Assignment.Course.Name.Trim() == subject!.Trim());
-            scores = scores.Where(item => item.Enrollment!.Course!.Name != null &&
-                item.Enrollment.Course.Name.Trim() == subject!.Trim());
-        }
-        if (HasFilter(year))
-        {
-            var academicYear = DashboardPeriodNormalizer.AcademicYear(year!);
-            var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(academicYear);
-            submissions = submissions.WhereMatchesAny(
-                    item => item.Assignment!.Course!.EnrollmentTermName, yearAliases, item =>
-                        (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) >= yearStart &&
-                        (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) < yearEnd)
-                .Where(item =>
-                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) == null ||
-                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) >= yearStart &&
-                    (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.GradedAt ?? item.SubmittedAt) < yearEnd);
-            scores = scores.WhereMatchesAny(item => item.Enrollment!.Course!.EnrollmentTermName,
-                yearAliases, item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= yearStart &&
-                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < yearEnd)
-                .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) >= yearStart &&
-                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) < yearEnd);
-        }
-        if (HasFilter(term))
-        {
-            var period = await ResolvePeriod(year, term, DateTime.UtcNow);
-            submissions = submissions.Where(item =>
-                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) >= period.Start &&
-                (item.CachedDueDate ?? item.Assignment!.DueAt ?? item.SubmittedAt) < period.End);
-            scores = scores.WhereMatchesAny(item => item.GradingPeriodTitle, termAliases);
-        }
-
-        var needsSubmissionMetrics = WantsAnyMetric(requestedMetricIds,
-            "canvas-submission-score-percent-avg", "canvas-assignments-submitted",
-            "canvas-assignments-graded", "canvas-submitted-assignments-graded",
-            "canvas-assignments-missing", "canvas-assignments-late");
-        var needsScoreMetrics = WantsAnyMetric(requestedMetricIds,
-            "canvas-final-score-avg", "canvas-current-score-avg");
-        if (needsSubmissionMetrics && requestedMetricIds.Count > 0)
-        {
-            var wantsSubmissionScore = requestedMetricIds.Contains("canvas-submission-score-percent-avg");
-            var wantsSubmitted = requestedMetricIds.Contains("canvas-assignments-submitted");
-            var wantsGraded = requestedMetricIds.Contains("canvas-assignments-graded");
-            var wantsSubmittedGraded = requestedMetricIds.Contains("canvas-submitted-assignments-graded");
-            var wantsMissing = requestedMetricIds.Contains("canvas-assignments-missing");
-            var wantsLate = requestedMetricIds.Contains("canvas-assignments-late");
-            submissions = submissions.Where(item =>
-                (wantsSubmissionScore && item.WorkflowState == "graded" && item.Score != null &&
-                    item.Assignment!.PointsPossible > 0) ||
-                (wantsSubmitted && item.SubmittedAt != null) ||
-                (wantsGraded && item.WorkflowState == "graded") ||
-                (wantsSubmittedGraded && item.WorkflowState == "graded" && item.SubmittedAt != null) ||
-                (wantsMissing && item.Missing && item.Excused != true) ||
-                (wantsLate && item.Late));
-        }
-        if (needsScoreMetrics && requestedMetricIds.Count > 0)
-        {
-            var wantsFinalScore = requestedMetricIds.Contains("canvas-final-score-avg");
-            var wantsCurrentScore = requestedMetricIds.Contains("canvas-current-score-avg");
-            scores = scores.Where(item =>
-                (wantsFinalScore && item.FinalScore != null) ||
-                (wantsCurrentScore && item.CurrentScore != null));
-        }
-        (DateTime Start, DateTime End)? selectedYearRange = null;
-        if (HasFilter(year))
-        {
-            selectedYearRange = DashboardPeriodNormalizer.AcademicYearRange(
-                DashboardPeriodNormalizer.AcademicYear(year!));
-        }
-        var metrics = new List<DashboardMetricDto>();
-        var hasSelectedYear = selectedYearRange.HasValue;
-        var selectedYearStart = selectedYearRange?.Start ?? default;
-        var selectedYearEnd = selectedYearRange?.End ?? default;
-
-        IQueryable<DateTime?> SubmissionDate(
-            IQueryable<CanvasSubmission> source,
-            bool preferGradedDate)
-        {
-            if (!hasSelectedYear)
-            {
-                return source.Select(item => preferGradedDate
-                    ? item.GradedAt ?? item.SubmittedAt
-                    : item.SubmittedAt);
-            }
-
-            return source.Select(item =>
-                (preferGradedDate ? item.GradedAt ?? item.SubmittedAt : item.SubmittedAt) >= selectedYearStart &&
-                (preferGradedDate ? item.GradedAt ?? item.SubmittedAt : item.SubmittedAt) < selectedYearEnd
-                    ? preferGradedDate ? item.GradedAt ?? item.SubmittedAt : item.SubmittedAt
-                    : (item.CachedDueDate ?? item.Assignment!.DueAt) >= selectedYearStart &&
-                      (item.CachedDueDate ?? item.Assignment!.DueAt) < selectedYearEnd
-                        ? item.CachedDueDate ?? item.Assignment!.DueAt
-                        : null);
-        }
-
-        if (WantsMetric(requestedMetricIds, "canvas-final-score-avg"))
-        {
-            var finalScores = CanvasReportingPeriodService.FilterUsableScores(scores);
-            var finalMonthly = finalScores
-                .Where(item => (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt) != null)
-                .GroupBy(item => new
-                {
-                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Year,
-                    (item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt)!.Value.Month
-                })
-                .Select(group => new MetricMonthlyAggregate
-                {
-                    Year = group.Key.Year,
-                    Month = group.Key.Month,
-                    Value = group.Average(item => item.FinalScore!.Value),
-                    Count = group.Count()
-                });
-            var metric = await AverageMetricFromQuery(
-                "canvas-final-score-avg", "Average Canvas final_score", "Academics", "Canvas", "%",
-                finalMonthly, finalScores.Select(item => item.FinalScore),
-                "CanvasEnrollmentGrades", cancellationToken);
-            metrics.Add(DocumentMetric(metric,
-                "Average of usable Canvas grades.final_score values. Empty zero placeholders without points or a grade label are excluded; explicit zero grades are preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
-                "enrollment.grades.final_score", "grading_period.end_date", "course.end_at"));
-        }
-        if (WantsMetric(requestedMetricIds, "canvas-current-score-avg"))
-        {
-            var currentScores = CanvasReportingPeriodService.FilterUsableCurrentScores(scores);
-            var currentScoreGroups = await currentScores
-                .Select(item => new
-                {
-                    item.CurrentScore,
-                    ReportingDate = item.GradingPeriodEndDate ?? item.Enrollment!.Course!.EndAt
-                })
-                .GroupBy(item => new
-                {
-                    HasDate = item.ReportingDate != null,
-                    Year = item.ReportingDate != null ? item.ReportingDate.Value.Year : 0,
-                    Month = item.ReportingDate != null ? item.ReportingDate.Value.Month : 0
-                })
-                .Select(group => new MetricMonthlyAggregate
-                {
-                    Year = group.Key.Year,
-                    Month = group.Key.Month,
-                    Value = group.Average(item => item.CurrentScore!.Value),
-                    Count = group.Count()
-                })
-                .ToListAsync(cancellationToken);
-            var datedScoreGroups = currentScoreGroups
-                .Where(row => row.Year > 0 && row.Month > 0)
-                .OrderBy(row => row.Year)
-                .ThenBy(row => row.Month)
-                .ToList();
-            var currentScoreCount = currentScoreGroups.Sum(row => row.Count);
-            var currentScoreAverage = currentScoreCount == 0
-                ? (decimal?)null
-                : Math.Round((decimal)(currentScoreGroups.Sum(row => row.Value * row.Count) / currentScoreCount), 1);
-            var currentScorePoints = datedScoreGroups.Select(row => new DashboardMetricPointDto
-            {
-                PeriodStart = new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-                Value = Math.Round((decimal)row.Value, 1)
-            }).ToList();
-            var metric = new DashboardMetricDto
-            {
-                Id = "canvas-current-score-avg",
-                Label = "Average Canvas current_score",
-                Category = "Academics",
-                Source = "Canvas",
-                Dataset = "CanvasEnrollmentGrades",
-                Unit = "%",
-                Value = currentScoreAverage,
-                Trend = currentScorePoints.Count > 1
-                    ? currentScorePoints[^1].Value - currentScorePoints[^2].Value
-                    : null,
-                Series = currentScorePoints
-            };
-            metrics.Add(DocumentMetric(metric,
-                "Average of usable Canvas grades.current_score values. Empty zero placeholders without points or a grade label are excluded; explicit zero grades are preserved. The monthly series uses the Canvas grading-period end_date, falling back to the Canvas course end_at for an overall course grade.",
-                "enrollment.grades.current_score", "grading_period.end_date", "course.end_at"));
-        }
-        if (WantsMetric(requestedMetricIds, "canvas-submission-score-percent-avg"))
-        {
-            var scoreSubmissions = submissions.Where(item => item.WorkflowState == "graded" &&
-                item.Score != null && item.Assignment!.PointsPossible > 0 &&
-                (item.GradedAt != null || item.SubmittedAt != null));
-            if (hasSelectedYear)
-            {
-                scoreSubmissions = scoreSubmissions.Where(item =>
-                    ((item.GradedAt ?? item.SubmittedAt) >= selectedYearStart &&
-                     (item.GradedAt ?? item.SubmittedAt) < selectedYearEnd) ||
-                    ((item.CachedDueDate ?? item.Assignment!.DueAt) >= selectedYearStart &&
-                     (item.CachedDueDate ?? item.Assignment!.DueAt) < selectedYearEnd));
-            }
-            var scoreMonthly = scoreSubmissions
-                .GroupBy(item => new
-                {
-                    (hasSelectedYear && !((item.GradedAt ?? item.SubmittedAt) >= selectedYearStart &&
-                                          (item.GradedAt ?? item.SubmittedAt) < selectedYearEnd)
-                        ? item.CachedDueDate ?? item.Assignment!.DueAt
-                        : item.GradedAt ?? item.SubmittedAt)!.Value.Year,
-                    (hasSelectedYear && !((item.GradedAt ?? item.SubmittedAt) >= selectedYearStart &&
-                                          (item.GradedAt ?? item.SubmittedAt) < selectedYearEnd)
-                        ? item.CachedDueDate ?? item.Assignment!.DueAt
-                        : item.GradedAt ?? item.SubmittedAt)!.Value.Month
-                })
-                .Select(group => new MetricMonthlyAggregate
-                {
-                    Year = group.Key.Year,
-                    Month = group.Key.Month,
-                    Value = group.Average(item => item.Score!.Value /
-                        item.Assignment!.PointsPossible!.Value * 100),
-                    Count = group.Count()
-                });
-            var metric = await AverageMetricFromQuery(
-                "canvas-submission-score-percent-avg", "Average Canvas submission score percentage",
-                "Academics", "Canvas", "%", scoreMonthly,
-                scoreSubmissions.Select(item => (double?)(item.Score!.Value /
-                    item.Assignment!.PointsPossible!.Value * 100)),
-                "CanvasSubmissionsAndAssignments", cancellationToken);
-            metrics.Add(DocumentMetric(metric,
-                "Reporting calculation: average of Canvas submission.score / Canvas assignment.points_possible × 100 for submissions whose Canvas workflow_state is graded.",
-                "submission.score", "submission.workflow_state", "submission.graded_at",
-                "submission.submitted_at", "assignment.points_possible"));
-        }
-        var wantsSubmittedCount = WantsMetric(requestedMetricIds, "canvas-assignments-submitted");
-        var wantsSubmittedGradedCount = WantsMetric(requestedMetricIds, "canvas-submitted-assignments-graded");
-        var wantsLateCount = WantsMetric(requestedMetricIds, "canvas-assignments-late");
-        if (wantsSubmittedCount || wantsSubmittedGradedCount || wantsLateCount)
-        {
-            var sharedCounts = await submissions
-                .Where(item =>
-                    (wantsSubmittedCount && item.SubmittedAt != null) ||
-                    (wantsSubmittedGradedCount && item.WorkflowState == "graded" && item.SubmittedAt != null) ||
-                    (wantsLateCount && item.Late))
-                .Select(item => new
-                {
-                    EventDate = !hasSelectedYear
-                        ? item.SubmittedAt
-                        : item.SubmittedAt >= selectedYearStart && item.SubmittedAt < selectedYearEnd
-                            ? item.SubmittedAt
-                            : (item.CachedDueDate ?? item.Assignment!.DueAt) >= selectedYearStart &&
-                              (item.CachedDueDate ?? item.Assignment!.DueAt) < selectedYearEnd
-                                ? item.CachedDueDate ?? item.Assignment!.DueAt
-                                : null,
-                    IsSubmitted = item.SubmittedAt != null,
-                    IsSubmittedGraded = item.WorkflowState == "graded" && item.SubmittedAt != null,
-                    item.Late
-                })
-                .Where(item => item.EventDate != null)
-                .GroupBy(item => new { item.EventDate!.Value.Year, item.EventDate.Value.Month })
-                .Select(group => new CanvasSubmissionCountAggregate
-                {
-                    Year = group.Key.Year,
-                    Month = group.Key.Month,
-                    Submitted = group.Sum(item => item.IsSubmitted ? 1 : 0),
-                    SubmittedGraded = group.Sum(item => item.IsSubmittedGraded ? 1 : 0),
-                    Late = group.Sum(item => item.Late ? 1 : 0)
-                })
-                .OrderBy(row => row.Year)
-                .ThenBy(row => row.Month)
-                .ToListAsync(cancellationToken);
-
-            List<DashboardMetricPointDto> CountPoints(Func<CanvasSubmissionCountAggregate, int> value) =>
-                sharedCounts
-                    .Where(row => value(row) > 0)
-                    .Select(row => new DashboardMetricPointDto
-                    {
-                        PeriodStart = new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-                        Value = value(row)
-                    }).ToList();
-
-            DashboardMetricDto CountMetricFromSharedRows(
-                string id, string label, Func<CanvasSubmissionCountAggregate, int> value)
-            {
-                var points = CountPoints(value);
-                return new DashboardMetricDto
-                {
-                    Id = id,
-                    Label = label,
-                    Category = "Academics",
-                    Source = "Canvas",
-                    Dataset = "CanvasSubmissionsAndAssignments",
-                    Unit = "submissions",
-                    Value = points.Sum(point => point.Value),
-                    Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
-                    Series = points
-                };
-            }
-
-            if (wantsSubmittedCount)
-            {
-                metrics.Add(DocumentMetric(
-                    CountMetricFromSharedRows("canvas-assignments-submitted",
-                        "Canvas submissions with submitted_at", row => row.Submitted),
-                    "Count of Canvas submission records whose submitted_at is non-null.",
-                    "submission.submitted_at"));
-            }
-            if (wantsSubmittedGradedCount)
-            {
-                metrics.Add(DocumentMetric(
-                    CountMetricFromSharedRows("canvas-submitted-assignments-graded",
-                        "Submitted Canvas activities graded", row => row.SubmittedGraded),
-                    "Count of submitted Canvas activities whose workflow_state is graded. The submitted_at date is used so the numerator and submitted denominator cover the same reporting population.",
-                    "submission.workflow_state", "submission.submitted_at"));
-            }
-            if (wantsLateCount)
-            {
-                metrics.Add(DocumentMetric(
-                    CountMetricFromSharedRows("canvas-assignments-late",
-                        "Canvas submissions flagged late", row => row.Late),
-                    "Count of Canvas submission records where late=true. Records without submitted_at contribute to the total but not the monthly series.",
-                    "submission.late", "submission.submitted_at"));
-            }
-        }
-        if (WantsMetric(requestedMetricIds, "canvas-assignments-graded"))
-        {
-            var dates = SubmissionDate(
-                submissions.Where(item => item.WorkflowState == "graded"),
-                preferGradedDate: true);
-            var metric = await CountMetricFromQuery(
-                "canvas-assignments-graded", "Canvas submissions with workflow_state=graded", "Academics", "Canvas",
-                dates, "submissions", "CanvasSubmissionsAndAssignments", !hasSelectedYear, cancellationToken);
-            metrics.Add(DocumentMetric(metric,
-                "Count of Canvas submission records whose workflow_state is graded. Undated graded records contribute to the total but not the monthly series.",
-                "submission.workflow_state", "submission.graded_at", "submission.submitted_at"));
-        }
-        if (WantsMetric(requestedMetricIds, "canvas-assignments-missing"))
-        {
-            var missingGroups = await submissions
-                .Where(item => item.Missing && item.Excused != true)
-                .Select(item => new { DueAt = item.CachedDueDate ?? item.Assignment!.DueAt })
-                .GroupBy(item => new
-                {
-                    HasDate = item.DueAt != null,
-                    Year = item.DueAt != null ? item.DueAt.Value.Year : 0,
-                    Month = item.DueAt != null ? item.DueAt.Value.Month : 0
-                })
-                .Select(group => new
-                {
-                    group.Key.HasDate,
-                    group.Key.Year,
-                    group.Key.Month,
-                    Value = group.Count()
-                })
-                .ToListAsync(cancellationToken);
-            var missingPoints = missingGroups
-                .Where(row => row.HasDate)
-                .OrderBy(row => row.Year)
-                .ThenBy(row => row.Month)
-                .Select(row => new DashboardMetricPointDto
-                {
-                    PeriodStart = new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-                    Value = row.Value
-                })
-                .ToList();
-            var metric = new DashboardMetricDto
-            {
-                Id = "canvas-assignments-missing",
-                Label = "Canvas submissions flagged missing",
-                Category = "Academics",
-                Source = "Canvas",
-                Dataset = "CanvasSubmissionsAndAssignments",
-                Unit = "submissions",
-                Value = missingGroups.Sum(row => row.Value),
-                Trend = missingPoints.Count > 1 ? missingPoints[^1].Value - missingPoints[^2].Value : null,
-                Series = missingPoints
-            };
-            metrics.Add(DocumentMetric(metric,
-                "Count of Canvas submission records where missing=true and excused is not true. Records without a Canvas due date contribute to the total but not the monthly series.",
-                "submission.missing", "submission.excused", "submission.cached_due_date", "assignment.due_at"));
-        }
-
-        return metrics;
-    }
-
     private static List<DashboardMetricDto> CanvasMetricCatalog() =>
     [
         CatalogMetric(
@@ -2351,143 +1816,6 @@ public class DashboardController : ControllerBase
         SupportsDrilldown = true
     };
 
-    private static DashboardMetricDto DocumentMetric(
-        DashboardMetricDto metric, string definition, params string[] sourceFields)
-    {
-        metric.Definition = definition;
-        metric.SourceFields = sourceFields.ToList();
-        return metric;
-    }
-
-    private static async Task<DashboardMetricDto> AverageMetricFromQuery(
-        string id, string label, string category, string source, string unit,
-        IQueryable<MetricMonthlyAggregate> monthlyQuery, IQueryable<double?> overallValues,
-        string dataset,
-        CancellationToken cancellationToken)
-    {
-        var monthly = await monthlyQuery
-            .OrderBy(row => row.Year)
-            .ThenBy(row => row.Month)
-            .ToListAsync(cancellationToken);
-        var points = monthly.Select(row => new DashboardMetricPointDto
-        {
-            PeriodStart = new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-            Value = Math.Round((decimal)row.Value, 1)
-        }).ToList();
-        var average = await overallValues.AverageAsync(cancellationToken);
-        decimal? value = average.HasValue ? Math.Round((decimal)average.Value, 1) : null;
-
-        return new DashboardMetricDto
-        {
-            Id = id,
-            Label = label,
-            Category = category,
-            Source = source,
-            Dataset = dataset,
-            Unit = unit,
-            Value = value,
-            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
-            Series = points
-        };
-    }
-
-    private static async Task<DashboardMetricDto> CountMetricFromQuery(
-        string id, string label, string category, string source,
-        IQueryable<DateTime?> dates, string unit, string dataset, bool includeUndatedInTotal,
-        CancellationToken cancellationToken)
-    {
-        var monthly = await dates.Where(date => date != null)
-            .GroupBy(date => new { date!.Value.Year, date.Value.Month })
-            .Select(group => new
-            {
-                group.Key.Year,
-                group.Key.Month,
-                Value = group.Count()
-            })
-            .OrderBy(row => row.Year)
-            .ThenBy(row => row.Month)
-            .ToListAsync(cancellationToken);
-        var points = monthly.Select(row => new DashboardMetricPointDto
-        {
-            PeriodStart = new DateTime(row.Year, row.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-            Value = row.Value
-        }).ToList();
-        var value = includeUndatedInTotal
-            ? await dates.CountAsync(cancellationToken)
-            : monthly.Sum(row => row.Value);
-
-        return new DashboardMetricDto
-        {
-            Id = id,
-            Label = label,
-            Category = category,
-            Source = source,
-            Dataset = dataset,
-            Unit = unit,
-            Value = value,
-            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
-            Series = points
-        };
-    }
-
-    private static DashboardMetricDto AverageMetric(
-        string id, string label, string category, string source, string unit,
-        IEnumerable<(DateTime Date, double Value)> samples, string? dataset = null)
-    {
-        var values = samples.ToList();
-        var points = values
-            .GroupBy(sample => new DateTime(sample.Date.Year, sample.Date.Month, 1, 0, 0, 0, DateTimeKind.Utc))
-            .OrderBy(group => group.Key)
-            .Select(group => new DashboardMetricPointDto
-            {
-                PeriodStart = group.Key,
-                Value = Math.Round((decimal)group.Average(sample => sample.Value), 1)
-            })
-            .ToList();
-
-        return new DashboardMetricDto
-        {
-            Id = id,
-            Label = label,
-            Category = category,
-            Source = source,
-            Dataset = dataset ?? source,
-            Unit = unit,
-            Value = values.Count == 0 ? null : Math.Round((decimal)values.Average(sample => sample.Value), 1),
-            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
-            Series = points
-        };
-    }
-
-    private static DashboardMetricDto CountMetric(
-        string id, string label, string category, string source, IEnumerable<DateTime> dates,
-        string unit = "records", string? dataset = null)
-    {
-        var values = dates.ToList();
-        var points = values
-            .GroupBy(date => new DateTime(date.Year, date.Month, 1, 0, 0, 0, DateTimeKind.Utc))
-            .OrderBy(group => group.Key)
-            .Select(group => new DashboardMetricPointDto
-            {
-                PeriodStart = group.Key,
-                Value = group.Count()
-            })
-            .ToList();
-
-        return new DashboardMetricDto
-        {
-            Id = id,
-            Label = label,
-            Category = category,
-            Source = source,
-            Dataset = dataset ?? source,
-            Unit = unit,
-            Value = values.Count,
-            Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
-            Series = points
-        };
-    }
-
     private static bool HasFilter(string? value) =>
         !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "all", StringComparison.OrdinalIgnoreCase);
 
@@ -2522,75 +1850,45 @@ public class DashboardController : ControllerBase
         var lastSuccessfulCanvasSyncAtUtc = await LastSuccessfulCanvasSyncAtUtc();
         var access = _userAccess.Current;
 
-        var studentsQuery = VisibleStudents();
-        if (access.CanAccessAcademic)
+        if (!await _context.ImportedReportBuilds.AsNoTracking().AnyAsync())
+            return StatusCode(503, new { Message = "Report aggregates are being prepared." });
+        var students = await VisibleStudents().ToListAsync();
+        var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(
+            period.Year, period.Term is "hk1" or "hk2" ? period.Term : null, now);
+        var snapshots = await _userAccess.ApplyStudentScope(
+                _context.StudentRiskSnapshots.AsNoTracking()
+                    .Where(item => item.AcademicYear == canvasPeriod.AcademicYear && item.Term == canvasPeriod.Term),
+                item => item.Student)
+            .ToDictionaryAsync(item => item.StudentProfileId);
+        var canvasAverages = snapshots.Where(item => item.Value.AverageCanvasScore.HasValue)
+            .ToDictionary(item => item.Key, item => item.Value.AverageCanvasScore!.Value);
+        var facts = _userAccess.ApplyStudentScope(_context.ImportedReportAggregates.AsNoTracking(),
+            item => item.Student);
+        var yearAliases = await AcademicYearAliases(period.Year);
+        var termAliases = period.Term == "all" ? [] : await TermAliases(period.Term);
+        var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(period.Year);
+        var behaviours = facts.Where(item => item.Source == "student-behaviours")
+            .WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null && item.EventDay >= yearStart && item.EventDay < yearEnd);
+        var projects = facts.Where(item => item.Source == "student-projects")
+            .WhereMatchesAny(item => item.AcademicYear, yearAliases,
+                item => item.AcademicYear == null && item.EventDay >= period.Start && item.EventDay < period.End);
+        if (period.Term != "all")
         {
-            studentsQuery = studentsQuery
-                .Include(student => student.Behaviours)
-                .Include(student => student.Projects);
-            if (access.CanAccessBus)
-                studentsQuery = studentsQuery.Include(student => student.BusAttendanceRecords);
+            behaviours = behaviours.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null && item.EventDay >= period.Start && item.EventDay < period.End);
+            projects = projects.WhereMatchesAny(item => item.Term, termAliases,
+                item => item.Term == null && item.AcademicYear == null &&
+                    item.EventDay >= period.Start && item.EventDay < period.End);
         }
-        var students = await studentsQuery.AsSplitQuery().ToListAsync();
-        var settings = await ClassificationSettings();
-        var studentIds = students.Select(student => student.Id).ToList();
-        var canvasAverages = new Dictionary<int, decimal>();
-        if (access.CanAccessAcademic)
-        {
-            var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(
-                period.Year,
-                period.Term is "hk1" or "hk2" ? period.Term : null,
-                now);
-            var canvasScoreQuery = _userAccess.ApplyStudentScope(
-                _context.CanvasCourseScores.AsNoTracking(), score => score.Student)
-                .Where(score => score.StudentProfileId != null
-                    && studentIds.Contains(score.StudentProfileId.Value));
-            var periodScores = CanvasReportingPeriodService.FilterScores(canvasScoreQuery, canvasPeriod);
-            var canvasScores = await CanvasReportingPeriodService.FilterUsableScores(periodScores)
-                .Select(score => new
-                {
-                    StudentId = score.StudentProfileId!.Value,
-                    Value = (decimal)score.FinalScore!.Value
-                })
-                .ToListAsync();
-            canvasAverages = canvasScores
-                .GroupBy(score => score.StudentId)
-                .ToDictionary(group => group.Key, group => Math.Round(group.Average(score => score.Value), 1));
-        }
-
-        var healthVisits = _userAccess.ApplyStudentScope(
-            _context.StudentHealthVisits.AsNoTracking(), item => item.Student);
-        var mentalHealth = _userAccess.ApplyStudentScope(
-            _context.StudentMentalHealthRecords.AsNoTracking(), item => item.Student);
-        var busAttendance = _userAccess.ApplyStudentScope(
-            _context.StudentBusAttendanceRecords.AsNoTracking(), item => item.Student);
-        var behaviourDates = new List<DateTime>();
-        var behavioursLast30Days = 0;
-        if (access.CanAccessAcademic)
-        {
-            // Count from the behaviour table itself instead of the Student.Behaviours
-            // navigation collection. Imported rows may intentionally remain unmatched while
-            // staff audit them, and those rows still appear on the behaviour records page.
-            var yearAliases = await AcademicYearAliases(period.Year);
-            var scopedBehaviourQuery = _userAccess.ApplyStudentScope(
-                _context.StudentBehaviours.AsNoTracking(), item => item.Student);
-            var recentSince = now.AddDays(-30);
-            behavioursLast30Days = await scopedBehaviourQuery.CountAsync(
-                item => item.IncidentDate >= recentSince);
-            var (yearStart, yearEnd) = DashboardPeriodNormalizer.AcademicYearRange(period.Year);
-            var behaviourQuery = scopedBehaviourQuery
-                .WhereMatchesAny(item => item.AcademicYear, yearAliases,
-                    item => item.AcademicYear == null && item.IncidentDate >= yearStart &&
-                        item.IncidentDate < yearEnd);
-            if (period.Term != "all")
-            {
-                var termAliases = await TermAliases(period.Term);
-                behaviourQuery = behaviourQuery.WhereMatchesAny(item => item.Term, termAliases,
-                    item => item.Term == null && item.IncidentDate >= period.Start &&
-                        item.IncidentDate < period.End);
-            }
-            behaviourDates = await behaviourQuery.Select(item => item.IncidentDate).ToListAsync();
-        }
+        var behaviourRows = access.CanAccessAcademic
+            ? await behaviours.Select(item => new { item.EventDay, item.RecordCount }).ToListAsync()
+            : [];
+        var behavioursLast30Days = access.CanAccessAcademic
+            ? await facts.Where(item => item.Source == "student-behaviours")
+                .SumAsync(item => (int?)item.Recent30Count) ?? 0
+            : 0;
+        var datedFacts = facts.Where(item => item.EventDay >= period.Start && item.EventDay < period.End);
 
         var overview = new DashboardOverviewDto
         {
@@ -2601,50 +1899,37 @@ public class DashboardController : ControllerBase
             CanAccessAcademic = access.CanAccessAcademic,
             CanAccessHealth = access.CanAccessHealth,
             CanAccessBus = access.CanAccessBus,
-            TotalBehaviours = behaviourDates.Count,
+            TotalBehaviours = behaviourRows.Sum(item => item.RecordCount),
             BehavioursLast30Days = behavioursLast30Days,
             TotalProjects = access.CanAccessAcademic
-                ? students.Sum(student => student.Projects.Count(project => InPeriod(project, period))) : 0,
+                ? await projects.SumAsync(item => (int?)item.RecordCount) ?? 0 : 0,
             ActiveProjects = access.CanAccessAcademic
-                ? students.Sum(student => student.Projects.Count(project => InPeriod(project, period) &&
-                    !StudentDataEntryOptions.IsCompletedProjectStatus(project.Status))) : 0,
+                ? await projects.SumAsync(item => (int?)item.AttentionCount) ?? 0 : 0,
             TotalHealthVisits = access.CanAccessHealth
-                ? await healthVisits.CountAsync(item => item.ExamTime >= period.Start && item.ExamTime < period.End) : 0,
+                ? await datedFacts.Where(item => item.Source == "student-health-visits" && item.StudentProfileId != null)
+                    .SumAsync(item => (int?)item.RecordCount) ?? 0 : 0,
             TotalMentalHealthRecords = access.CanAccessHealth
-                ? await mentalHealth.CountAsync(item => item.RecordDate >= period.Start && item.RecordDate < period.End) : 0,
+                ? await datedFacts.Where(item => item.Source == "student-mental-health")
+                    .SumAsync(item => (int?)item.RecordCount) ?? 0 : 0,
             TotalBusRecords = access.CanAccessBus
-                ? await busAttendance.CountAsync(item => item.AttendanceDate >= period.Start && item.AttendanceDate < period.End) : 0
+                ? await datedFacts.Where(item => item.Source == "student-bus-attendance")
+                    .SumAsync(item => (int?)item.RecordCount) ?? 0 : 0
         };
 
         var gradeBuckets = new Dictionary<string, DashboardGradeDto>();
         var gradeCanvasScores = new Dictionary<string, List<decimal>>();
         var classBuckets = new Dictionary<string, DashboardClassDto>();
         var classCanvasScores = new Dictionary<string, List<decimal>>();
-        var riskSince = now.AddDays(-settings.RiskWindowDays);
-        var commendationSince = now.AddDays(-settings.CommendationWindowDays);
         var attentionCandidates = new List<(StudentProfile Student, string RiskLevel, int SignalCount)>();
 
         foreach (var student in students)
         {
-            var concernCount = access.CanAccessAcademic
-                ? student.Behaviours.Count(behaviour => behaviour.IncidentDate >= riskSince
-                    && StudentClassificationService.IsConcerningBehaviour(behaviour))
-                : 0;
-            var riskBusViolationCount = access.CanAccessBus
-                ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= riskSince) : 0;
-            var risk = StudentClassificationService.ClassifyRisk(
-                new StudentSignalSummary(
-                    concernCount,
-                    access.CanAccessAcademic
-                        ? student.Behaviours.Count(behaviour => behaviour.IncidentDate >= commendationSince
-                            && StudentClassificationService.IsCommendationBehaviour(behaviour))
-                        : 0,
-                    canvasAverages.GetValueOrDefault(student.Id),
-                    riskBusViolationCount,
-                    access.CanAccessBus
-                        ? student.BusAttendanceRecords.Count(record => record.AttendanceDate >= commendationSince) : 0),
-                settings);
-            if (access.CanAccessAcademic) switch (risk.Level)
+            snapshots.TryGetValue(student.Id, out var snapshot);
+            var riskLevel = snapshot is null ? "None" : access.CanAccessBus
+                ? snapshot.RiskLevelWithBus : snapshot.RiskLevelWithoutBus;
+            var concernCount = snapshot?.RiskConcerningCount ?? 0;
+            var riskBusViolationCount = access.CanAccessBus ? snapshot?.RiskBusCount ?? 0 : 0;
+            if (access.CanAccessAcademic) switch (riskLevel)
             {
                 case "High":
                     overview.AtRiskHigh++;
@@ -2657,9 +1942,9 @@ public class DashboardController : ControllerBase
                     break;
             }
 
-            if (access.CanAccessAcademic && risk.Level != "None")
+            if (access.CanAccessAcademic && riskLevel != "None")
             {
-                attentionCandidates.Add((student, risk.Level, concernCount + riskBusViolationCount));
+                attentionCandidates.Add((student, riskLevel, concernCount + riskBusViolationCount));
             }
 
             var resolvedGrade = student.GradeLevel ?? student.CanvasGradeLevel;
@@ -2694,7 +1979,7 @@ public class DashboardController : ControllerBase
                 }
                 classScores.Add(canvasAverage);
             }
-            if (access.CanAccessAcademic && risk.Level != "None")
+            if (access.CanAccessAcademic && riskLevel != "None")
             {
                 bucket.AtRisk++;
                 classBucket.AtRisk++;
@@ -2717,7 +2002,8 @@ public class DashboardController : ControllerBase
             }
         }
         overview.BehaviourTrend = access.CanAccessAcademic
-            ? BuildTrend(behaviourDates, period.Start, period.End, now) : [];
+            ? BuildAggregateTrend(behaviourRows.Select(item => (item.EventDay, item.RecordCount)),
+                period.Start, period.End, now) : [];
         overview.GradeDistribution = gradeBuckets.Values
             .OrderBy(grade => grade.Grade, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -2893,6 +2179,26 @@ public class DashboardController : ControllerBase
             }
         }
 
+        return points;
+    }
+
+    private static List<DashboardTrendPointDto> BuildAggregateTrend(
+        IEnumerable<(DateTime Day, int Count)> measures, DateTime start, DateTime end, DateTime now)
+    {
+        var points = new List<DashboardTrendPointDto>();
+        var index = new Dictionary<(int Year, int Month), DashboardTrendPointDto>();
+        var cursor = new DateTime(start.Year, start.Month, 1);
+        var limit = end < now ? end : now;
+        while (cursor <= limit && points.Count < 12)
+        {
+            var point = new DashboardTrendPointDto { Year = cursor.Year, Month = cursor.Month };
+            points.Add(point);
+            index[(cursor.Year, cursor.Month)] = point;
+            cursor = cursor.AddMonths(1);
+        }
+        foreach (var measure in measures)
+            if (index.TryGetValue((measure.Day.Year, measure.Day.Month), out var point))
+                point.Total += measure.Count;
         return points;
     }
 

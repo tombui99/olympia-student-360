@@ -10,6 +10,7 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// </summary>
 public sealed class CanvasDashboardAggregateService
 {
+    public const int ReportSchemaVersion = 2;
     public const string FinalScoreAverage = "canvas-final-score-avg";
     public const string CurrentScoreAverage = "canvas-current-score-avg";
     public const string SubmissionScoreAverage = "canvas-submission-score-percent-avg";
@@ -26,7 +27,59 @@ public sealed class CanvasDashboardAggregateService
         _db = db;
     }
 
-    public async Task<int> RebuildAsync(CancellationToken cancellationToken)
+    public Task<int> RebuildAsync(CancellationToken cancellationToken) =>
+        WithRebuildLockAsync(() => RebuildCoreAsync(cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Deployment backfill. Check readiness again while holding the same lock as ETL so
+    /// multiple API instances never build an already completed aggregate twice.
+    /// </summary>
+    public Task<int?> BackfillIfNeededAsync(CancellationToken cancellationToken) =>
+        WithRebuildLockAsync(async () =>
+        {
+            if (await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
+                    .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion, cancellationToken))
+                return (int?)null;
+            return await RebuildCoreAsync(cancellationToken);
+        }, cancellationToken);
+
+    private async Task<T> WithRebuildLockAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
+    {
+        await _db.Database.OpenConnectionAsync(cancellationToken);
+        var connection = _db.Database.GetDbConnection();
+        var acquired = false;
+        try
+        {
+            // The lock is shared by the ETL and API deployment backfill. A short timed
+            // wait keeps shutdown cancellation responsive during a long-running build.
+            while (!acquired)
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = "SELECT GET_LOCK('olympia_canvas_report_aggregates', 5)";
+                var result = await command.ExecuteScalarAsync(cancellationToken);
+                acquired = Convert.ToInt32(result) == 1;
+            }
+            return await operation();
+        }
+        finally
+        {
+            try
+            {
+                if (acquired)
+                {
+                    await using var release = connection.CreateCommand();
+                    release.CommandText = "SELECT RELEASE_LOCK('olympia_canvas_report_aggregates')";
+                    await release.ExecuteScalarAsync(CancellationToken.None);
+                }
+            }
+            finally
+            {
+                await _db.Database.CloseConnectionAsync();
+            }
+        }
+    }
+
+    private async Task<int> RebuildCoreAsync(CancellationToken cancellationToken)
     {
         var periods = await _db.AcademicPeriods.AsNoTracking()
             .Select(item => new ReportingPeriod(
@@ -43,6 +96,7 @@ public sealed class CanvasDashboardAggregateService
             {
                 StudentProfileId = item.StudentProfileId!.Value,
                 item.CanvasCourseId,
+                item.CanvasAssignmentId,
                 CourseTerm = item.Assignment!.Course!.EnrollmentTermName,
                 item.WorkflowState,
                 item.Score,
@@ -65,34 +119,35 @@ public sealed class CanvasDashboardAggregateService
             if (item.SubmittedAt is not null)
             {
                 Add(accumulators, AssignmentsSubmitted, item.StudentProfileId, item.CanvasCourseId,
-                    academicYear, term, item.SubmittedAt, filterDate, 1, 0);
+                    item.CanvasAssignmentId, academicYear, term, item.SubmittedAt, filterDate, 1, 0);
             }
             if (item.WorkflowState == "graded")
             {
                 var gradedDate = item.GradedAt ?? item.SubmittedAt;
                 Add(accumulators, AssignmentsGraded, item.StudentProfileId, item.CanvasCourseId,
-                    academicYear, term, gradedDate, filterDate, 1, 0);
+                    item.CanvasAssignmentId, academicYear, term, gradedDate, filterDate, 1, 0);
                 if (item.SubmittedAt is not null)
                 {
                     Add(accumulators, SubmittedAssignmentsGraded, item.StudentProfileId,
-                        item.CanvasCourseId, academicYear, term, item.SubmittedAt, filterDate, 1, 0);
+                        item.CanvasCourseId, item.CanvasAssignmentId, academicYear, term,
+                        item.SubmittedAt, filterDate, 1, 0);
                 }
                 if (item.Score is not null && item.PointsPossible > 0 && gradedDate is not null)
                 {
                     Add(accumulators, SubmissionScoreAverage, item.StudentProfileId,
-                        item.CanvasCourseId, academicYear, term, gradedDate, filterDate,
+                        item.CanvasCourseId, item.CanvasAssignmentId, academicYear, term, gradedDate, filterDate,
                         item.Score.Value / item.PointsPossible.Value * 100, 1);
                 }
             }
             if (item.Missing && item.Excused != true)
             {
                 Add(accumulators, AssignmentsMissing, item.StudentProfileId, item.CanvasCourseId,
-                    academicYear, term, item.DueAt, filterDate, 1, 0);
+                    item.CanvasAssignmentId, academicYear, term, item.DueAt, filterDate, 1, 0);
             }
             if (item.Late)
             {
                 Add(accumulators, AssignmentsLate, item.StudentProfileId, item.CanvasCourseId,
-                    academicYear, term, item.SubmittedAt, filterDate, 1, 0);
+                    item.CanvasAssignmentId, academicYear, term, item.SubmittedAt, filterDate, 1, 0);
             }
         }
 
@@ -130,12 +185,12 @@ public sealed class CanvasDashboardAggregateService
             if (item.FinalScore is not null && (item.FinalScore != 0 || hasGradeEvidence))
             {
                 Add(accumulators, FinalScoreAverage, item.StudentProfileId, item.CanvasCourseId,
-                    academicYear, term, reportingDate, reportingDate, item.FinalScore.Value, 1);
+                    null, academicYear, term, reportingDate, reportingDate, item.FinalScore.Value, 1);
             }
             if (item.CurrentScore is not null && (item.CurrentScore != 0 || hasGradeEvidence))
             {
                 Add(accumulators, CurrentScoreAverage, item.StudentProfileId, item.CanvasCourseId,
-                    academicYear, term, reportingDate, reportingDate, item.CurrentScore.Value, 1);
+                    null, academicYear, term, reportingDate, reportingDate, item.CurrentScore.Value, 1);
             }
         }
 
@@ -145,6 +200,7 @@ public sealed class CanvasDashboardAggregateService
             MetricKey = item.Key.MetricKey,
             StudentProfileId = item.Key.StudentProfileId,
             CanvasCourseId = item.Key.CanvasCourseId,
+            CanvasAssignmentId = item.Key.CanvasAssignmentId,
             AcademicYear = item.Key.AcademicYear,
             Term = item.Key.Term,
             PeriodStart = item.Key.PeriodStart,
@@ -162,6 +218,13 @@ public sealed class CanvasDashboardAggregateService
             await _db.SaveChangesAsync(cancellationToken);
             _db.ChangeTracker.Clear();
         }
+        await _db.CanvasDashboardAggregateBuilds.ExecuteDeleteAsync(cancellationToken);
+        _db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
+        {
+            SchemaVersion = ReportSchemaVersion,
+            CompletedAtUtc = DateTime.UtcNow
+        });
+        await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return rows.Length;
     }
@@ -171,6 +234,7 @@ public sealed class CanvasDashboardAggregateService
         string metricKey,
         int studentProfileId,
         long canvasCourseId,
+        long? canvasAssignmentId,
         string academicYear,
         string term,
         DateTime? eventDate,
@@ -180,8 +244,8 @@ public sealed class CanvasDashboardAggregateService
     {
         var periodStart = Month(eventDate);
         var academicPeriodStart = AcademicPeriod(eventDate, filterDate, academicYear);
-        var key = new AggregateKey(metricKey, studentProfileId, canvasCourseId, academicYear,
-            term, periodStart, academicPeriodStart);
+        var key = new AggregateKey(metricKey, studentProfileId, canvasCourseId, canvasAssignmentId,
+            academicYear, term, periodStart, academicPeriodStart);
         if (!values.TryGetValue(key, out var aggregate))
         {
             aggregate = new AggregateValue();
@@ -255,6 +319,7 @@ public sealed class CanvasDashboardAggregateService
         string MetricKey,
         int StudentProfileId,
         long CanvasCourseId,
+        long? CanvasAssignmentId,
         string AcademicYear,
         string Term,
         DateTime? PeriodStart,

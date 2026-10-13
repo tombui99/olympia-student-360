@@ -27,10 +27,13 @@ import {
 } from './supplemental-report.component';
 import { HealthReportComponent } from './health-report.component';
 import { BehaviourReportComponent } from './behaviour-report.component';
+import { LearningReviewReportComponent } from './learning-review-report.component';
+import { LearningReportKey } from './learning-reports.service';
 
 type StaticReportId =
   | 'learning-diligence'
   | 'support-classes'
+  | LearningReportKey
   | 'support-students'
   | 'behaviour-analysis'
   | 'mental-wellbeing'
@@ -97,7 +100,7 @@ interface ClassDrilldownPage {
 
 @Component({
   selector: 'app-static-reports',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent],
   template: `
     <section class="print-region space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -296,6 +299,11 @@ interface ClassDrilldownPage {
                 {{ languageService.t('reports.retry') }}
               </button>
             </section>
+          } @else if (reportLoading()) {
+            <section class="flex min-h-40 items-center justify-center gap-3 rounded-xl border border-[#e7e0eb] bg-white p-6 text-sm font-semibold text-[#5f5368] shadow-[0_12px_35px_rgba(50,18,79,0.07)]" role="status">
+              <span class="block h-6 w-6 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>
+              {{ languageService.t('reports.loading') }}
+            </section>
           } @else {
             @switch (activeReport()) {
               @case ('learning-diligence') {
@@ -304,6 +312,10 @@ interface ClassDrilldownPage {
               @case ('support-classes') {
                 <ng-container [ngTemplateOutlet]="supportClasses"></ng-container>
               }
+              @case ('missing-frequency') { <app-learning-review-report reportKey="missing-frequency" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('homework-achievement') { <app-learning-review-report reportKey="homework-achievement" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('reading-completion') { <app-learning-review-report reportKey="reading-completion" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('grading-coverage') { <app-learning-review-report reportKey="grading-coverage" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
               @case ('support-students') {
                 <ng-container [ngTemplateOutlet]="supportStudents"></ng-container>
               }
@@ -822,6 +834,10 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       id: 'learning', titleKey: 'reports.group.learning', shortLabel: 'HT', items: [
         { id: 'learning-diligence', titleKey: 'reports.learning.title', descriptionKey: 'reports.learning.description' },
         { id: 'support-classes', titleKey: 'reports.classes.title', descriptionKey: 'reports.classes.description' },
+        { id: 'missing-frequency', titleKey: 'reports.learningReview.missing-frequency.title', descriptionKey: 'reports.learningReview.missing-frequency.menu' },
+        { id: 'homework-achievement', titleKey: 'reports.learningReview.homework-achievement.title', descriptionKey: 'reports.learningReview.homework-achievement.menu' },
+        { id: 'reading-completion', titleKey: 'reports.learningReview.reading-completion.title', descriptionKey: 'reports.learningReview.reading-completion.menu' },
+        { id: 'grading-coverage', titleKey: 'reports.learningReview.grading-coverage.title', descriptionKey: 'reports.learningReview.grading-coverage.menu' },
       ],
     },
     {
@@ -890,6 +906,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   readonly overview = signal<DashboardOverview | null>(null);
   readonly supportStudents = signal<AtRiskStudent[]>([]);
   readonly loading = signal(true);
+  readonly reportLoading = signal(false);
   readonly loadFailed = signal(false);
   readonly studentsLoading = signal(false);
   readonly studentsLoadFailed = signal(false);
@@ -921,6 +938,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   readonly studentSearch = signal('');
   private currentFilters: WorkspaceFilterSet = defaultFilterSet();
   private requestId = 0;
+  private initialLoadFinished = false;
   private studentRequestId = 0;
   private studentSearchTimer: number | undefined;
   private classDrilldownRequestId = 0;
@@ -1039,7 +1057,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     if (group && !this.expandedReportGroups().has(group.id)) {
       this.expandedReportGroups.update((expanded) => new Set(expanded).add(group.id));
     }
-    this.syncReportStateToQuery();
+    this.syncReportStateToQuery(changed);
     if (changed) this.loadReportData();
   }
 
@@ -1316,19 +1334,24 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
 
   loadReportData(): void {
     const requestId = ++this.requestId;
-    this.loading.set(true);
-    this.loadFailed.set(false);
     const report = this.activeReport();
     const needsMetrics = report === 'learning-diligence';
     const needsOverview = report === 'support-classes';
     const needsStudents = report === 'support-students';
 
-    // Health and supplemental reports own their data requests. Let them render immediately
+    // Learning review, behaviour, health, and supplemental reports own their data requests. Render immediately
     // instead of blocking on unrelated Canvas, overview, and at-risk queries.
     if (!needsMetrics && !needsOverview && !needsStudents) {
       this.loading.set(false);
+      this.reportLoading.set(false);
+      this.loadFailed.set(false);
+      this.initialLoadFinished = true;
       return;
     }
+
+    this.loading.set(!this.initialLoadFinished);
+    this.reportLoading.set(this.initialLoadFinished);
+    this.loadFailed.set(false);
 
     const params: Record<string, string> = {
       metricIds: [
@@ -1368,12 +1391,16 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
           this.selectedTerm = overview.periodTerm;
         }
         if (students) this.applyStudentPage(students);
+        this.initialLoadFinished = true;
         this.loading.set(false);
+        this.reportLoading.set(false);
       },
       error: () => {
         if (requestId !== this.requestId) return;
+        this.initialLoadFinished = true;
         this.loadFailed.set(true);
         this.loading.set(false);
+        this.reportLoading.set(false);
       },
     });
   }
@@ -1422,7 +1449,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     }
   }
 
-  private syncReportStateToQuery(): void {
+  private syncReportStateToQuery(clearLearningFilters = false): void {
     const expandedGroups = this.reportGroups
       .filter((group) => this.expandedReportGroups().has(group.id))
       .map((group) => group.id);
@@ -1433,6 +1460,11 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         groups: expandedGroups.length ? expandedGroups.join(',') : 'none',
         cohort: this.cohortView(),
         library: this.reportMenuCollapsed() ? 'collapsed' : null,
+        ...(clearLearningFilters ? {
+          lrReport: null, lrCourse: null, lrGroup: null, lrAssignment: null,
+          lrMonth: null, lrMaxMissing: null, lrMinScore: null,
+          lrMinCompletion: null, lrPage: null,
+        } : {}),
       },
       queryParamsHandling: 'merge',
       replaceUrl: true,

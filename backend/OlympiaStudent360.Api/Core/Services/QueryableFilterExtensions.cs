@@ -32,6 +32,21 @@ public static class QueryableFilterExtensions
         return query.Where(Expression.Lambda<Func<TEntity, bool>>(body, selector.Parameters));
     }
 
+    /// <summary>Numeric equivalent for bounded report selections.</summary>
+    public static IQueryable<TEntity> WhereMatchesAnyValue<TEntity, TValue>(
+        this IQueryable<TEntity> query,
+        Expression<Func<TEntity, TValue>> selector,
+        IEnumerable<TValue> values) where TValue : struct
+    {
+        Expression body = Expression.Constant(false);
+        foreach (var value in values.Distinct())
+        {
+            body = Expression.OrElse(body, Expression.Equal(
+                selector.Body, Expression.Constant(value, typeof(TValue))));
+        }
+        return query.Where(Expression.Lambda<Func<TEntity, bool>>(body, selector.Parameters));
+    }
+
     private sealed class ReplaceParameterVisitor(ParameterExpression source, ParameterExpression target)
         : ExpressionVisitor
     {

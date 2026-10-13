@@ -24,6 +24,13 @@ export interface ModuleRecordsPage {
   totalPages: number;
 }
 
+export interface SupplementalSummary {
+  totalCount: number;
+  distinctStudents: number;
+  attentionCount: number;
+  distribution: { label: string; records: number; students: number; share: number }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ModuleRecordsService {
   private readonly http = inject(HttpClient);
@@ -44,6 +51,13 @@ export class ModuleRecordsService {
       params = params.set('term', reportingTerm.trim());
     }
     return this.http.get<ModuleRecordsPage>(`${this.basePath}/api/module-records/${moduleId}`, { params });
+  }
+
+  supplementalSummary(moduleId: string, field: string, academicYear?: string, reportingTerm?: string) {
+    let params = new HttpParams().set('moduleId', moduleId).set('field', field);
+    if (academicYear?.trim()) params = params.set('academicYear', academicYear.trim());
+    if (reportingTerm?.trim() && reportingTerm !== 'all') params = params.set('term', reportingTerm.trim());
+    return this.http.get<SupplementalSummary>(`${this.basePath}/api/reports/supplemental/summary`, { params });
   }
 
   update(moduleId: string, id: number, values: Record<string, string | null>) {

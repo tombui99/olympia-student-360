@@ -288,6 +288,72 @@ public class StudentParentNote : BaseEntity
     public string UpdatedByName { get; set; } = default!;
 }
 
+/// <summary>Daily, student-grained report measures built outside HTTP requests.</summary>
+public class ImportedReportAggregate : BaseEntity
+{
+    public string Source { get; set; } = default!;
+    public int? StudentProfileId { get; set; }
+    public StudentProfile? Student { get; set; }
+    public string StudentKey { get; set; } = default!;
+    public string StudentName { get; set; } = default!;
+    public string? SISUserId { get; set; }
+    public string? Grade { get; set; }
+    public string? Homeroom { get; set; }
+    public string? CanvasGrade { get; set; }
+    public string? ClassName { get; set; }
+    public string? Campus { get; set; }
+    public string? EducationLevel { get; set; }
+    public string? Program { get; set; }
+    public string? Subject { get; set; }
+    public string? MeasurementCycle { get; set; }
+    public string? AcademicYear { get; set; }
+    public string? Term { get; set; }
+    public DateTime EventDay { get; set; }
+    public DateTime LatestEvent { get; set; }
+    public string? Type { get; set; }
+    public string? Category { get; set; }
+    public string? Status { get; set; }
+    public string? Diagnosis { get; set; }
+    public string? Symptoms { get; set; }
+    public string? EnteredBy { get; set; }
+    public int RecordCount { get; set; }
+    public int AttentionCount { get; set; }
+    public int Recent30Count { get; set; }
+}
+
+/// <summary>One change marker per source write; the background builder drains these after a successful swap.</summary>
+public class ImportedReportChange : BaseEntity { }
+
+public class ImportedReportBuild : BaseEntity
+{
+    public int LastChangeId { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
+}
+
+/// <summary>Daily-refreshed, period-specific risk and count measures for a student.</summary>
+public class StudentRiskSnapshot : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public string AcademicYear { get; set; } = default!;
+    public string Term { get; set; } = default!;
+    public DateTime AsOfUtc { get; set; }
+    public decimal? AverageCanvasScore { get; set; }
+    public int BehaviourCount { get; set; }
+    public int PositiveBehaviourCount { get; set; }
+    public int ConcerningBehaviourCount { get; set; }
+    public int ProjectCount { get; set; }
+    public int MentalHealthCount { get; set; }
+    public int RiskConcerningCount { get; set; }
+    public int RiskBusCount { get; set; }
+    public string RiskLevelWithBus { get; set; } = default!;
+    public string RiskLevelWithoutBus { get; set; } = default!;
+    public string RiskFlagsWithBusJson { get; set; } = default!;
+    public string RiskFlagsWithoutBusJson { get; set; } = default!;
+    public int RiskFlagCountWithBus { get; set; }
+    public int RiskFlagCountWithoutBus { get; set; }
+}
+
 public class StudentBehaviour : BaseEntity
 {
     public int? ImportHistoryId { get; set; }
@@ -584,6 +650,13 @@ public class CanvasDashboardMetricAggregate : BaseEntity
     public StudentProfile Student { get; set; } = default!;
     public long CanvasCourseId { get; set; }
     public CanvasCourse Course { get; set; } = default!;
+    /// <summary>
+    /// Assignment-grain lineage for submission metrics. Keeping this dimension in the persisted
+    /// aggregate lets configurable reports select real Canvas activities without reading the raw
+    /// submissions table. Course-score aggregates intentionally leave it null.
+    /// </summary>
+    public long? CanvasAssignmentId { get; set; }
+    public CanvasAssignment? Assignment { get; set; }
     public string AcademicYear { get; set; } = default!;
     public string Term { get; set; } = "";
     /// <summary>Natural Canvas event month, used when no academic year is selected.</summary>
@@ -593,6 +666,13 @@ public class CanvasDashboardMetricAggregate : BaseEntity
     public double ValueSum { get; set; }
     /// <summary>Denominator for average metrics; zero for additive count metrics.</summary>
     public int SampleCount { get; set; }
+}
+
+/// <summary>Written only when an ETL rebuild completes with the current aggregate dimensions.</summary>
+public class CanvasDashboardAggregateBuild : BaseEntity
+{
+    public int SchemaVersion { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
 }
 
 /// <summary>Durable high-water mark and last-run status for one Canvas account.</summary>
