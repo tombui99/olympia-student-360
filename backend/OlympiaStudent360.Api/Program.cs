@@ -100,8 +100,10 @@ builder.Services.AddScoped<UserAccessService>();
 builder.Services.AddScoped<StudentRecordFieldOptionService>();
 builder.Services.AddScoped<CanvasDashboardAggregateService>();
 builder.Services.AddScoped<ImportedReportAggregateService>();
+builder.Services.AddScoped<ErpMealReportAggregateService>();
 builder.Services.AddHostedService<CanvasReportBackfillWorker>();
 builder.Services.AddHostedService<ImportedReportAggregateWorker>();
+builder.Services.AddHostedService<ErpMealReportAggregateWorker>();
 builder.Services.Configure<TranscriptSubjectOptions>(
     builder.Configuration.GetSection("TranscriptSubjects"));
 builder.Services.AddSingleton<TranscriptSubjectResolver>();

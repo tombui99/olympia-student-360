@@ -12,7 +12,15 @@ import { SearchableMultiSelectComponent } from './searchable-multi-select.compon
   selector: 'app-learning-review-report',
   imports: [FormsModule, SearchableMultiSelectComponent],
   template: `
-    <section class="overflow-visible rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
+    <section class="relative overflow-visible rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
+      @if (loading() && result()) {
+        <div class="no-print absolute inset-0 z-30 flex justify-center rounded-xl bg-white/70 pt-36" role="status">
+          <div class="flex h-fit items-center gap-3 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#5f5368] shadow-md">
+            <span class="h-6 w-6 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>
+            {{ t('reports.loading') }}
+          </div>
+        </div>
+      }
       <div class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
         <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ periodLabel }}</p>
         <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ t('reports.learningReview.' + reportKey + '.title') }}</h3>
@@ -79,10 +87,12 @@ import { SearchableMultiSelectComponent } from './searchable-multi-select.compon
         </div>
       </form>
       @if (error()) { <p class="m-5 rounded-md bg-red-50 p-3 text-sm text-red-700">{{ error() }}</p> }
-      @if (loading()) {
-        <div class="flex items-center gap-2 border-b border-[#eee8f1] px-5 py-3 text-sm text-[#6f6877]" role="status">
-          <span class="h-4 w-4 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>
-          {{ t('reports.loading') }}
+      @if (loading() && !result()) {
+        <div class="grid min-h-[360px] place-items-center" role="status">
+          <div class="flex items-center gap-3 text-sm font-semibold text-[#5f5368]">
+            <span class="h-7 w-7 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>
+            {{ t('reports.loading') }}
+          </div>
         </div>
       }
       @if (result(); as data) {

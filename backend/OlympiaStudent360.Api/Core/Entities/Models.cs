@@ -829,3 +829,105 @@ public class WorkspacePreference : BaseEntity
     public string? Subject { get; set; }
     public string ChartOrderJson { get; set; } = "[]";
 }
+
+/// <summary>One ERP report row. Reports can overlap, so the report name is part of its identity.</summary>
+public class ErpMealStatus : BaseEntity
+{
+    public string Feed { get; set; } = default!;
+    public string SourceRecordKey { get; set; } = default!;
+    public int? StudentProfileId { get; set; }
+    public StudentProfile? Student { get; set; }
+    public string ErpStudentId { get; set; } = default!;
+    public string? StudentName { get; set; }
+    public string? Email { get; set; }
+    public string? ClassCode { get; set; }
+    public DateTime MealDate { get; set; }
+    public string Meal { get; set; } = default!;
+    public string? OrderStatus { get; set; }
+    public string? TicketStatus { get; set; }
+    public string MatchStatus { get; set; } = default!;
+    public DateTime ImportedAtUtc { get; set; }
+}
+
+/// <summary>One ERP canteen export line, including repeated purchases of the same product.</summary>
+public class ErpCanteenPurchase : BaseEntity
+{
+    public string SourceRecordKey { get; set; } = default!;
+    public int? StudentProfileId { get; set; }
+    public StudentProfile? Student { get; set; }
+    public string ErpStudentId { get; set; } = default!;
+    public string? StudentName { get; set; }
+    public string? ClassCode { get; set; }
+    public DateTime PurchaseDate { get; set; }
+    public string? ProductCode { get; set; }
+    public string? ProductName { get; set; }
+    public int Quantity { get; set; }
+    public string MatchStatus { get; set; } = default!;
+    public DateTime ImportedAtUtc { get; set; }
+}
+
+public class ErpMealSyncRun : BaseEntity
+{
+    public string Feed { get; set; } = default!;
+    public string SourceDescription { get; set; } = default!;
+    public string Status { get; set; } = default!;
+    public int ReceivedRows { get; set; }
+    public int InsertedRows { get; set; }
+    public int UpdatedRows { get; set; }
+    public int UnmatchedRows { get; set; }
+    public int ConflictRows { get; set; }
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public string? Error { get; set; }
+}
+
+/// <summary>Persisted student/day/meal measures read by the meal reports.</summary>
+public class ErpMealDailyAggregate : BaseEntity
+{
+    public string StudentKey { get; set; } = default!;
+    public int? StudentProfileId { get; set; }
+    public StudentProfile? Student { get; set; }
+    public string ErpStudentId { get; set; } = default!;
+    public string StudentName { get; set; } = default!;
+    public string? Grade { get; set; }
+    public string? ClassName { get; set; }
+    public DateTime EventDay { get; set; }
+    public DateTime WeekStart { get; set; }
+    public DateTime MonthStart { get; set; }
+    /// <summary>Empty for canteen purchases, otherwise the ERP meal label.</summary>
+    public string Meal { get; set; } = default!;
+    public int OrderedNoTicketCount { get; set; }
+    public int NoOrderCount { get; set; }
+    public int CoffeeLineCount { get; set; }
+    public int CoffeeUnitCount { get; set; }
+}
+
+/// <summary>One deduplicated meal event or one Coffee Shop-coded item line for report drill-down.</summary>
+public class ErpMealReportDetail : BaseEntity
+{
+    public string Report { get; set; } = default!;
+    public string StudentKey { get; set; } = default!;
+    public int? StudentProfileId { get; set; }
+    public StudentProfile? Student { get; set; }
+    public string ErpStudentId { get; set; } = default!;
+    public string StudentName { get; set; } = default!;
+    public string? Grade { get; set; }
+    public string? ClassName { get; set; }
+    public DateTime EventDay { get; set; }
+    public DateTime WeekStart { get; set; }
+    public DateTime MonthStart { get; set; }
+    public string? Meal { get; set; }
+    public string? OrderStatus { get; set; }
+    public string? TicketStatus { get; set; }
+    public string? ProductCode { get; set; }
+    public string? ProductName { get; set; }
+    public int Quantity { get; set; }
+    public int SourceRowId { get; set; }
+}
+
+public class ErpMealReportBuild : BaseEntity
+{
+    public int LastSyncRunId { get; set; }
+    public int LastStudentChangeId { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
+}

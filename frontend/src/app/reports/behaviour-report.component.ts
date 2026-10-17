@@ -24,7 +24,15 @@ type BehaviourBreakdownTab = 'types' | 'grades';
   selector: 'app-behaviour-report',
   imports: [FormsModule, RouterLink],
   template: `
-    <section class="space-y-4">
+    <section class="relative space-y-4" [attr.aria-busy]="loading()">
+      @if (loading() && summary()) {
+        <div class="no-print absolute inset-0 z-10 flex justify-center bg-white/70 pt-36" role="status">
+          <div class="flex h-fit items-center gap-3 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#5f5368] shadow-md"><span class="h-6 w-6 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>{{ languageService.t('reports.loading') }}</div>
+        </div>
+      }
+      @if (loadFailed() && summary()) {
+        <div class="rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{{ languageService.t('reports.loadError') }} <button class="ml-2 font-semibold underline" type="button" (click)="loadSummary()">{{ languageService.t('reports.retry') }}</button></div>
+      }
       <article class="overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
         <header class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
           <div class="flex flex-wrap items-start justify-between gap-3">
@@ -37,11 +45,11 @@ type BehaviourBreakdownTab = 'types' | 'grades';
           </div>
         </header>
 
-        @if (loading()) {
+        @if (loading() && !summary()) {
           <div class="grid min-h-72 place-items-center" role="status">
             <div class="text-center"><span class="mx-auto block h-9 w-9 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span><p class="mt-3 text-sm font-semibold text-[#5f5368]">{{ languageService.t('reports.loading') }}</p></div>
           </div>
-        } @else if (loadFailed()) {
+        } @else if (loadFailed() && !summary()) {
           <div class="grid min-h-64 place-items-center p-8 text-center">
             <div><p class="text-sm font-semibold text-red-700">{{ languageService.t('reports.loadError') }}</p><button class="mt-4 rounded-md border border-red-200 px-4 py-2 text-xs font-semibold text-red-700" type="button" (click)="loadSummary()">{{ languageService.t('reports.retry') }}</button></div>
           </div>
@@ -94,7 +102,7 @@ type BehaviourBreakdownTab = 'types' | 'grades';
         }
       </article>
 
-      @if (!loading() && summary(); as data) {
+      @if (summary(); as data) {
         <article id="behaviour-breakdown" class="overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
           <div class="no-print border-b border-[#e7e0eb] bg-[#faf8fb] px-3 pt-3 sm:px-5" role="tablist" [attr.aria-label]="languageService.t('reports.behaviour.breakdownTabs')">
             <div class="flex gap-1 overflow-x-auto">

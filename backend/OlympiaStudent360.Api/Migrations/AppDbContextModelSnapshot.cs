@@ -1465,6 +1465,413 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("DashboardPreferences");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpCanteenPurchase", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("ClassCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ErpStudentId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("ImportedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("MatchStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("ProductCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ProductName")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<DateTime>("PurchaseDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceRecordKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("StudentName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ErpStudentId");
+
+                    b.HasIndex("PurchaseDate");
+
+                    b.HasIndex("SourceRecordKey")
+                        .IsUnique();
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.ToTable("ErpCanteenPurchases");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealDailyAggregate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("ClassName")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int>("CoffeeLineCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CoffeeUnitCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ErpStudentId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("EventDay")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Grade")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Meal")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("MonthStart")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("NoOrderCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("OrderedNoTicketCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StudentKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)");
+
+                    b.Property<string>("StudentName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("WeekStart")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MonthStart");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("WeekStart");
+
+                    b.HasIndex("EventDay", "Grade", "ClassName");
+
+                    b.HasIndex("StudentKey", "EventDay", "Meal")
+                        .IsUnique();
+
+                    b.ToTable("ErpMealDailyAggregates");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealReportBuild", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CompletedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("LastStudentChangeId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LastSyncRunId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ErpMealReportBuilds");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealReportDetail", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("ClassName")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ErpStudentId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("EventDay")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Grade")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Meal")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("MonthStart")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("OrderStatus")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ProductCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ProductName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Report")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<int>("SourceRowId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StudentKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)");
+
+                    b.Property<string>("StudentName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TicketStatus")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("WeekStart")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("Report", "MonthStart");
+
+                    b.HasIndex("Report", "WeekStart");
+
+                    b.HasIndex("Report", "EventDay", "StudentKey");
+
+                    b.HasIndex("Report", "Grade", "ClassName");
+
+                    b.ToTable("ErpMealReportDetails");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("ClassCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("ErpStudentId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Feed")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar(40)");
+
+                    b.Property<DateTime>("ImportedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("MatchStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("Meal")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("MealDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("OrderStatus")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("SourceRecordKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("StudentName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TicketStatus")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ErpStudentId");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("Feed", "SourceRecordKey")
+                        .IsUnique();
+
+                    b.HasIndex("MealDate", "Meal");
+
+                    b.ToTable("ErpMealStatuses");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealSyncRun", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("ConflictRows")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<string>("Feed")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar(40)");
+
+                    b.Property<int>("InsertedRows")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ReceivedRows")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceDescription")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int>("UnmatchedRows")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("UpdatedRows")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Feed", "StartedAtUtc");
+
+                    b.ToTable("ErpMealSyncRuns");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ImportHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -3159,6 +3566,46 @@ namespace OlympiaStudent360.Api.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Metric");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpCanteenPurchase", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealDailyAggregate", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealReportDetail", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.ErpMealStatus", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Student");
                 });

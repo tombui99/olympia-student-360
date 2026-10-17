@@ -29,6 +29,7 @@ import { HealthReportComponent } from './health-report.component';
 import { BehaviourReportComponent } from './behaviour-report.component';
 import { LearningReviewReportComponent } from './learning-review-report.component';
 import { LearningReportKey } from './learning-reports.service';
+import { ErpMealReportComponent } from './erp-meal-report.component';
 
 type StaticReportId =
   | 'learning-diligence'
@@ -40,6 +41,10 @@ type StaticReportId =
   | 'health-diagnoses'
   | 'health-frequent-students'
   | 'health-student-visits'
+  | 'meal-ordered-no-ticket'
+  | 'meal-ordered-not-eaten'
+  | 'meal-no-order'
+  | 'meal-coffee-frequency'
   | 'learning-projects'
   | 'student-activities'
   | 'bus-safety';
@@ -100,7 +105,7 @@ interface ClassDrilldownPage {
 
 @Component({
   selector: 'app-static-reports',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent, ErpMealReportComponent],
   template: `
     <section class="print-region space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -285,8 +290,9 @@ interface ClassDrilldownPage {
             </div>
           </section>
 
+          <div class="min-h-[560px]" [attr.aria-busy]="loading() || reportLoading()">
           @if (loading()) {
-            <section class="grid min-h-80 place-items-center rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" role="status">
+            <section class="grid min-h-[560px] place-items-center rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" role="status">
               <div class="text-center">
                 <span class="mx-auto block h-10 w-10 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span>
                 <p class="mt-4 text-sm font-semibold text-[#5f5368]">{{ languageService.t('reports.loading') }}</p>
@@ -300,7 +306,7 @@ interface ClassDrilldownPage {
               </button>
             </section>
           } @else if (reportLoading()) {
-            <section class="flex min-h-40 items-center justify-center gap-3 rounded-xl border border-[#e7e0eb] bg-white p-6 text-sm font-semibold text-[#5f5368] shadow-[0_12px_35px_rgba(50,18,79,0.07)]" role="status">
+            <section class="flex min-h-[560px] items-center justify-center gap-3 rounded-xl border border-[#e7e0eb] bg-white p-6 text-sm font-semibold text-[#5f5368] shadow-[0_12px_35px_rgba(50,18,79,0.07)]" role="status">
               <span class="block h-6 w-6 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>
               {{ languageService.t('reports.loading') }}
             </section>
@@ -331,6 +337,10 @@ interface ClassDrilldownPage {
               @case ('health-student-visits') {
                 <app-health-report report="student-visits" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
               }
+              @case ('meal-ordered-no-ticket') { <app-erp-meal-report report="ordered-no-ticket" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('meal-ordered-not-eaten') { <app-erp-meal-report report="ordered-not-eaten" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('meal-no-order') { <app-erp-meal-report report="no-order" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('meal-coffee-frequency') { <app-erp-meal-report report="coffee-frequency" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
               @default {
                 @if (activeSupplementalReport(); as report) {
                   <app-supplemental-report
@@ -343,6 +353,7 @@ interface ClassDrilldownPage {
               }
             }
           }
+          </div>
         </main>
       </div>
     </section>
@@ -540,7 +551,7 @@ interface ClassDrilldownPage {
     </ng-template>
 
     <ng-template #supportStudents>
-      <section class="overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
+      <section class="relative overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="studentsLoading()">
         <ng-container *ngTemplateOutlet="reportHeader; context: { titleKey: 'reports.students.title', descriptionKey: 'reports.students.longDescription' }"></ng-container>
         <div class="no-print border-b border-[#eee8f1] px-5 py-4 sm:px-6">
           <label class="relative block max-w-md">
@@ -549,11 +560,19 @@ interface ClassDrilldownPage {
             <input class="w-full rounded-md border border-[#d8d0df] py-2.5 pl-10 pr-3 text-sm outline-none focus:border-[#8a5aa7] focus:ring-2 focus:ring-[#eee5f3]" type="search" [ngModel]="studentSearch()" (ngModelChange)="onStudentSearchChange($event)" [placeholder]="languageService.t('reports.search')" />
           </label>
         </div>
-        @if (studentsLoading()) {
+        @if (studentsLoading() && studentTotalCount() > 0) {
+          <div class="no-print absolute inset-0 z-10 flex justify-center bg-white/70 pt-36" role="status">
+            <div class="flex h-fit items-center gap-3 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#5f5368] shadow-md"><span class="h-6 w-6 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>{{ languageService.t('reports.loading') }}</div>
+          </div>
+        }
+        @if (studentsLoadFailed() && studentTotalCount() > 0) {
+          <div class="m-5 rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{{ languageService.t('reports.loadError') }} <button class="ml-2 font-semibold underline" type="button" (click)="loadSupportStudents(studentPage())">{{ languageService.t('reports.retry') }}</button></div>
+        }
+        @if (studentsLoading() && studentTotalCount() === 0) {
           <div class="grid min-h-56 place-items-center p-8" role="status">
             <span class="block h-9 w-9 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span>
           </div>
-        } @else if (studentsLoadFailed()) {
+        } @else if (studentsLoadFailed() && studentTotalCount() === 0) {
           <div class="grid min-h-56 place-items-center p-8 text-center">
             <div><p class="text-sm text-red-700">{{ languageService.t('reports.loadError') }}</p><button class="mt-3 rounded-md border border-red-200 px-4 py-2 text-xs font-semibold text-red-700" type="button" (click)="loadSupportStudents(studentPage())">{{ languageService.t('reports.retry') }}</button></div>
           </div>
@@ -867,6 +886,14 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         { id: 'health-diagnoses', titleKey: 'reports.health.diagnoses.title', descriptionKey: 'reports.health.diagnoses.menuDescription' },
         { id: 'health-frequent-students', titleKey: 'reports.health.frequent-students.title', descriptionKey: 'reports.health.frequent-students.menuDescription' },
         { id: 'health-student-visits', titleKey: 'reports.health.student-visits.title', descriptionKey: 'reports.health.student-visits.menuDescription' },
+      ],
+    },
+    {
+      id: 'meals', titleKey: 'reports.group.meals', shortLabel: 'SA', items: [
+        { id: 'meal-ordered-no-ticket', titleKey: 'reports.meals.ordered-no-ticket.title', descriptionKey: 'reports.meals.ordered-no-ticket.description' },
+        { id: 'meal-ordered-not-eaten', titleKey: 'reports.meals.ordered-not-eaten.title', descriptionKey: 'reports.meals.ordered-not-eaten.description' },
+        { id: 'meal-no-order', titleKey: 'reports.meals.no-order.title', descriptionKey: 'reports.meals.no-order.description' },
+        { id: 'meal-coffee-frequency', titleKey: 'reports.meals.coffee-frequency.title', descriptionKey: 'reports.meals.coffee-frequency.description' },
       ],
     },
     {

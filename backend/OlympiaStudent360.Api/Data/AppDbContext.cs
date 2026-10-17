@@ -68,10 +68,100 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ImportedReportChange> ImportedReportChanges { get; set; }
     public DbSet<ImportedReportBuild> ImportedReportBuilds { get; set; }
     public DbSet<StudentRiskSnapshot> StudentRiskSnapshots { get; set; }
+    public DbSet<ErpMealStatus> ErpMealStatuses { get; set; }
+    public DbSet<ErpCanteenPurchase> ErpCanteenPurchases { get; set; }
+    public DbSet<ErpMealSyncRun> ErpMealSyncRuns { get; set; }
+    public DbSet<ErpMealDailyAggregate> ErpMealDailyAggregates { get; set; }
+    public DbSet<ErpMealReportDetail> ErpMealReportDetails { get; set; }
+    public DbSet<ErpMealReportBuild> ErpMealReportBuilds { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<ErpMealStatus>(row =>
+        {
+            row.Property(x => x.Feed).HasMaxLength(40);
+            row.Property(x => x.SourceRecordKey).HasMaxLength(128);
+            row.Property(x => x.ErpStudentId).HasMaxLength(50);
+            row.Property(x => x.StudentName).HasMaxLength(255);
+            row.Property(x => x.Email).HasMaxLength(255);
+            row.Property(x => x.ClassCode).HasMaxLength(100);
+            row.Property(x => x.Meal).HasMaxLength(50);
+            row.Property(x => x.OrderStatus).HasMaxLength(100);
+            row.Property(x => x.TicketStatus).HasMaxLength(100);
+            row.Property(x => x.MatchStatus).HasMaxLength(20);
+            row.HasIndex(x => new { x.Feed, x.SourceRecordKey }).IsUnique();
+            row.HasIndex(x => new { x.MealDate, x.Meal });
+            row.HasIndex(x => x.ErpStudentId);
+            row.HasIndex(x => x.StudentProfileId);
+            row.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ErpCanteenPurchase>(row =>
+        {
+            row.Property(x => x.SourceRecordKey).HasMaxLength(128);
+            row.Property(x => x.ErpStudentId).HasMaxLength(50);
+            row.Property(x => x.StudentName).HasMaxLength(255);
+            row.Property(x => x.ClassCode).HasMaxLength(100);
+            row.Property(x => x.ProductCode).HasMaxLength(100);
+            row.Property(x => x.ProductName).HasMaxLength(500);
+            row.Property(x => x.MatchStatus).HasMaxLength(20);
+            row.HasIndex(x => x.SourceRecordKey).IsUnique();
+            row.HasIndex(x => x.PurchaseDate);
+            row.HasIndex(x => x.ErpStudentId);
+            row.HasIndex(x => x.StudentProfileId);
+            row.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ErpMealSyncRun>(run =>
+        {
+            run.Property(x => x.Feed).HasMaxLength(40);
+            run.Property(x => x.SourceDescription).HasMaxLength(255);
+            run.Property(x => x.Status).HasMaxLength(20);
+            run.Property(x => x.Error).HasMaxLength(2000);
+            run.HasIndex(x => new { x.Feed, x.StartedAtUtc });
+        });
+
+        modelBuilder.Entity<ErpMealDailyAggregate>(row =>
+        {
+            row.Property(x => x.StudentKey).HasMaxLength(80);
+            row.Property(x => x.ErpStudentId).HasMaxLength(50);
+            row.Property(x => x.StudentName).HasMaxLength(255);
+            row.Property(x => x.Grade).HasMaxLength(50);
+            row.Property(x => x.ClassName).HasMaxLength(100);
+            row.Property(x => x.Meal).HasMaxLength(50);
+            row.HasIndex(x => new { x.StudentKey, x.EventDay, x.Meal }).IsUnique();
+            row.HasIndex(x => new { x.EventDay, x.Grade, x.ClassName });
+            row.HasIndex(x => x.WeekStart);
+            row.HasIndex(x => x.MonthStart);
+            row.HasIndex(x => x.StudentProfileId);
+            row.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ErpMealReportDetail>(row =>
+        {
+            row.Property(x => x.Report).HasMaxLength(30);
+            row.Property(x => x.StudentKey).HasMaxLength(80);
+            row.Property(x => x.ErpStudentId).HasMaxLength(50);
+            row.Property(x => x.StudentName).HasMaxLength(255);
+            row.Property(x => x.Grade).HasMaxLength(50);
+            row.Property(x => x.ClassName).HasMaxLength(100);
+            row.Property(x => x.Meal).HasMaxLength(50);
+            row.Property(x => x.OrderStatus).HasMaxLength(100);
+            row.Property(x => x.TicketStatus).HasMaxLength(100);
+            row.Property(x => x.ProductCode).HasMaxLength(100);
+            row.Property(x => x.ProductName).HasMaxLength(255);
+            row.HasIndex(x => new { x.Report, x.EventDay, x.StudentKey });
+            row.HasIndex(x => new { x.Report, x.WeekStart });
+            row.HasIndex(x => new { x.Report, x.MonthStart });
+            row.HasIndex(x => new { x.Report, x.Grade, x.ClassName });
+            row.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
 
         modelBuilder.Entity<ApplicationUser>()
             .Property(u => u.FullName)

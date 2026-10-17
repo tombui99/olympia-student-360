@@ -15,7 +15,7 @@ import {
   selector: 'app-health-report',
   imports: [FormsModule, RouterLink],
   template: `
-    <section class="overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
+    <section class="relative overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
       <div class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -59,11 +59,19 @@ import {
         </div>
       </div>
 
-      @if (loading()) {
+      @if (loading() && rows().length) {
+        <div class="no-print absolute inset-0 z-10 flex justify-center bg-white/70 pt-36" role="status">
+          <div class="flex h-fit items-center gap-3 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#5f5368] shadow-md"><span class="h-6 w-6 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>{{ languageService.t('reports.loading') }}</div>
+        </div>
+      }
+      @if (loadFailed() && rows().length) {
+        <div class="m-5 rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{{ languageService.t('reports.loadError') }} <button class="ml-2 font-semibold underline" type="button" (click)="load(page())">{{ languageService.t('reports.retry') }}</button></div>
+      }
+      @if (loading() && !rows().length) {
         <div class="grid min-h-72 place-items-center" role="status">
           <div class="text-center"><span class="mx-auto block h-9 w-9 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span><p class="mt-3 text-sm font-semibold text-[#5f5368]">{{ languageService.t('reports.loading') }}</p></div>
         </div>
-      } @else if (loadFailed()) {
+      } @else if (loadFailed() && !rows().length) {
         <div class="grid min-h-64 place-items-center p-8 text-center">
           <div><p class="text-sm font-semibold text-red-700">{{ languageService.t('reports.loadError') }}</p><button class="mt-4 rounded-md border border-red-200 px-4 py-2 text-xs font-semibold text-red-700" type="button" (click)="load(page())">{{ languageService.t('reports.retry') }}</button></div>
         </div>

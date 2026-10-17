@@ -1,5 +1,7 @@
 # Olympia Student 360
 
+ERP student meal warehouse setup and export import: [docs/erp-meal-etl.md](docs/erp-meal-etl.md).
+
 Olympia Student 360 is a full-stack starter platform for The Olympia Schools student analytics dashboard. It gives teachers, principals, and school leadership a secure login flow and a protected dashboard shell that can later connect to a MySQL data warehouse populated from Canvas LMS, student report files, and future school information sources.
 
 This repository intentionally implements only the foundation:

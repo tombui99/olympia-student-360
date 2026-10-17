@@ -41,7 +41,7 @@ interface DistributionRow {
   selector: 'app-supplemental-report',
   imports: [NgClass, RouterLink],
   template: `
-    <section class="overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
+    <section class="relative overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
       <div class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -55,14 +55,22 @@ interface DistributionRow {
         </div>
       </div>
 
-      @if (loading()) {
+      @if (loading() && loaded()) {
+        <div class="no-print absolute inset-0 z-10 flex justify-center bg-white/70 pt-36" role="status">
+          <div class="flex h-fit items-center gap-3 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#5f5368] shadow-md"><span class="h-6 w-6 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>{{ languageService.t('reports.loading') }}</div>
+        </div>
+      }
+      @if (loadFailed() && loaded()) {
+        <div class="m-5 rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{{ languageService.t('reports.loadError') }} <button class="ml-2 font-semibold underline" type="button" (click)="load()">{{ languageService.t('reports.retry') }}</button></div>
+      }
+      @if (loading() && !loaded()) {
         <div class="grid min-h-72 place-items-center" role="status">
           <div class="text-center">
             <span class="mx-auto block h-9 w-9 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span>
             <p class="mt-3 text-sm font-semibold text-[#5f5368]">{{ languageService.t('reports.loading') }}</p>
           </div>
         </div>
-      } @else if (loadFailed()) {
+      } @else if (loadFailed() && !loaded()) {
         <div class="grid min-h-64 place-items-center p-8 text-center">
           <div>
             <p class="text-sm font-semibold text-red-700">{{ languageService.t('reports.loadError') }}</p>
@@ -175,6 +183,7 @@ export class SupplementalReportComponent implements OnChanges {
   readonly records = signal<ModuleRecord[]>([]);
   readonly totalCount = signal(0);
   readonly loading = signal(true);
+  readonly loaded = signal(false);
   readonly loadFailed = signal(false);
   private requestId = 0;
 
@@ -206,6 +215,7 @@ export class SupplementalReportComponent implements OnChanges {
         this.distinctStudents.set(summary.distinctStudents);
         this.attentionCount.set(summary.attentionCount);
         this.distribution.set(summary.distribution);
+        this.loaded.set(true);
         this.loading.set(false);
       },
       error: () => {
