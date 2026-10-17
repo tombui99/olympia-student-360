@@ -61,19 +61,32 @@ jobs:
           docker push "$image:latest"
 
       - name: Start App Runner deployment
+        id: deployment
         if: env.APP_RUNNER_SERVICE_ARN != ''
-        run: aws apprunner start-deployment --service-arn "$APP_RUNNER_SERVICE_ARN"
+        run: |
+          operation_id=$(aws apprunner start-deployment \
+            --service-arn "$APP_RUNNER_SERVICE_ARN" \
+            --query 'OperationId' --output text)
+          test -n "$operation_id"
+          test "$operation_id" != "None"
+          echo "operation_id=$operation_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for App Runner
         if: env.APP_RUNNER_SERVICE_ARN != ''
         run: |
+          operation_id="${{ steps.deployment.outputs.operation_id }}"
           for attempt in {1..60}; do
-            status=$(aws apprunner describe-service \
+            status=$(aws apprunner list-operations \
               --service-arn "$APP_RUNNER_SERVICE_ARN" \
-              --query 'Service.Status' --output text)
-            echo "App Runner status: $status"
-            if [ "$status" = "RUNNING" ]; then exit 0; fi
-            if [[ "$status" == *"FAILED" ]] || [ "$status" = "DELETED" ]; then exit 1; fi
+              --query "OperationSummaryList[?Id=='$operation_id'].Status | [0]" \
+              --output text)
+            echo "App Runner deployment $operation_id: $status"
+            if [ "$status" = "SUCCEEDED" ]; then exit 0; fi
+            if [ "$status" = "FAILED" ] || \
+               [ "$status" = "ROLLBACK_SUCCEEDED" ] || \
+               [ "$status" = "ROLLBACK_FAILED" ]; then
+              exit 1
+            fi
             sleep 10
           done
           echo "Timed out waiting for App Runner deployment."
