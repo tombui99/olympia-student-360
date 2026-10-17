@@ -21,7 +21,7 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
         "missing-frequency", "homework-achievement", "reading-completion", "grading-coverage"
     ];
 
-    private const int PageSize = 15;
+    private const int MaximumPageSize = 1000;
 
     [HttpGet("options")]
     public async Task<ActionResult<LearningReportOptions>> Options(CancellationToken cancellationToken)
@@ -73,12 +73,13 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
         if (!access.Current.CanAccessAcademic) return Forbid();
         var error = Validate(request);
         if (error is not null) return BadRequest(error);
+        var pageSize = Math.Clamp(request.PageSize, 1, request.Export ? MaximumPageSize : 100);
 
         // No raw warehouse fallback: an empty ETL aggregate produces an explicit unavailable result.
         if (!await db.CanvasDashboardAggregateBuilds.AsNoTracking()
                 .AnyAsync(item => item.SchemaVersion >= CanvasDashboardAggregateService.ReportSchemaVersion,
                     cancellationToken))
-            return Ok(new LearningReportResult([], 0, false, "aggregate_unavailable", request.Page, PageSize));
+            return Ok(new LearningReportResult([], 0, false, "aggregate_unavailable", request.Page, pageSize));
 
         var year = DashboardPeriodNormalizer.AcademicYear(request.AcademicYear!);
         var facts = access.ApplyStudentScope(
@@ -105,10 +106,10 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
             facts = facts.Where(item => item.CanvasAssignmentId != null)
                 .WhereMatchesAnyValue(item => item.CanvasAssignmentId!.Value, request.AssignmentIds);
         if (request.ReportKey == "reading-completion" && request.AssignmentIds.Count == 0)
-            return Ok(new LearningReportResult([], 0, true, "select_assignments", request.Page, PageSize));
+            return Ok(new LearningReportResult([], 0, true, "select_assignments", request.Page, pageSize));
 
         if (request.ReportKey == "grading-coverage")
-            return Ok(await GradingCoverage(facts, request, cancellationToken));
+            return Ok(await GradingCoverage(facts, request, pageSize, cancellationToken));
 
         var keys = request.ReportKey switch
         {
@@ -151,10 +152,10 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
                 item.Submitted * 100 >= request.MinCompletion * (item.Submitted + item.Missing))
         };
         var total = await grouped.CountAsync(cancellationToken);
-        var pageNumber = Math.Min(request.Page, Math.Max(1, (int)Math.Ceiling(total / (double)PageSize)));
+        var pageNumber = Math.Min(request.Page, Math.Max(1, (int)Math.Ceiling(total / (double)pageSize)));
         var page = await grouped.OrderBy(item => item.Grade).ThenBy(item => item.Homeroom)
             .ThenBy(item => item.Name).ThenBy(item => item.StudentId)
-            .Skip((pageNumber - 1) * PageSize).Take(PageSize).ToListAsync(cancellationToken);
+            .Skip((pageNumber - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
         var rows = page.Select(item =>
         {
             var score = item.ScoreCount > 0 ? item.ScoreSum / item.ScoreCount : (double?)null;
@@ -164,11 +165,12 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
                 item.Grade, item.Homeroom, (int)item.Missing, (int)item.Submitted,
                 0, Round(score), Round(completion), "review");
         }).ToList();
-        return Ok(new LearningReportResult(rows, total, true, null, pageNumber, PageSize));
+        return Ok(new LearningReportResult(rows, total, true, null, pageNumber, pageSize));
     }
 
     private static async Task<LearningReportResult> GradingCoverage(
         IQueryable<CanvasDashboardMetricAggregate> facts, LearningReportQuery request,
+        int pageSize,
         CancellationToken cancellationToken)
     {
         var grouped = facts.Where(item =>
@@ -185,9 +187,9 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
                     ? item.ValueSum : 0)
             });
         var total = await grouped.CountAsync(cancellationToken);
-        var pageNumber = Math.Min(request.Page, Math.Max(1, (int)Math.Ceiling(total / (double)PageSize)));
+        var pageNumber = Math.Min(request.Page, Math.Max(1, (int)Math.Ceiling(total / (double)pageSize)));
         var page = await grouped.OrderBy(item => item.Name).ThenBy(item => item.CanvasCourseId)
-            .Skip((pageNumber - 1) * PageSize).Take(PageSize).ToListAsync(cancellationToken);
+            .Skip((pageNumber - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
         var rows = page.Select(item =>
         {
             var rate = item.Submitted > 0 ? item.Graded / item.Submitted * 100 : (double?)null;
@@ -195,7 +197,7 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
                 (int)item.Submitted, (int)item.Graded, null, Round(rate),
                 rate >= request.MinCompletion ? "green" : "review");
         }).ToList();
-        return new LearningReportResult(rows, total, true, null, pageNumber, PageSize);
+        return new LearningReportResult(rows, total, true, null, pageNumber, pageSize);
     }
 
     private static double? Round(double? value) => value.HasValue ? Math.Round(value.Value, 1) : null;
@@ -223,7 +225,8 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
         if (query.MaxMissing is < 0 or > 1000 || query.MinScore is < 0 or > 100 ||
             query.MinCompletion is < 0 or > 100)
             return "Invalid report thresholds.";
-        if (query.Page is < 1 or > 100000)
+        var maximumPageSize = query.Export ? MaximumPageSize : 100;
+        if (query.Page is < 1 or > 100000 || query.PageSize is < 1 || query.PageSize > maximumPageSize)
             return "Invalid report page.";
         return null;
     }
@@ -242,6 +245,8 @@ public sealed record LearningReportQuery
     public double MinScore { get; init; } = 80;
     public double MinCompletion { get; init; } = 90;
     public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 15;
+    public bool Export { get; init; }
 }
 
 public sealed record LearningCourseOption(long Id, string Name);

@@ -23,11 +23,12 @@ public sealed class ModuleRecordsController(
         [FromQuery] int pageSize = 20,
         [FromQuery] string? search = null,
         [FromQuery] string? academicYear = null,
-        [FromQuery(Name = "term")] string? reportingTerm = null)
+        [FromQuery(Name = "term")] string? reportingTerm = null,
+        [FromQuery] bool export = false)
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId)) return NotFound();
         page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        pageSize = Math.Clamp(pageSize, 1, export ? 1000 : 100);
         var searchTerm = Clean(search);
         if (searchTerm?.Length > 100) searchTerm = searchTerm[..100];
         var period = await ResolvePeriod(academicYear, reportingTerm);

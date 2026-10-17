@@ -2,7 +2,11 @@ import { NgClass } from '@angular/common';
 import { Component, HostListener, inject, Input, OnChanges, OnDestroy, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
+import { ToastService } from '../core/toast/toast.service';
+import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
+import { ReportExportButtonComponent } from './report-export-button.component';
 import {
   ErpMealReportsService, MealGroupBy, MealReportDetail, MealReportDetailsPage,
   MealReportOptions, MealReportPage, MealReportQuery, MealReportRow, MealReportType, MealTypeFilter,
@@ -12,14 +16,21 @@ type TimeMode = 'period' | 'day' | 'month' | 'range';
 
 @Component({
   selector: 'app-erp-meal-report',
-  imports: [FormsModule, NgClass, RouterLink],
+  imports: [FormsModule, NgClass, RouterLink, ReportExportButtonComponent],
   template: `
     <section class="relative overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
       <header class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
-        <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ periodLabel }}</p>
-        <h3 class="mt-2 text-xl font-semibold text-[#32124f]">{{ languageService.t(titleKey()) }}</h3>
-        <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ languageService.t(descriptionKey()) }}</p>
-        <span class="mt-3 inline-flex rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ languageService.t('reports.meals.source') }}</span>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ periodLabel }}</p>
+            <h3 class="mt-2 text-xl font-semibold text-[#32124f]">{{ languageService.t(titleKey()) }}</h3>
+            <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ languageService.t(descriptionKey()) }}</p>
+          </div>
+          <div class="flex flex-col items-end gap-2">
+            <app-report-export-button [exporting]="exporting()" [disabled]="report === 'ordered-not-eaten' || !data()?.totalCount" (exportRequested)="exportExcel()" />
+            <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ languageService.t('reports.meals.source') }}</span>
+          </div>
+        </div>
       </header>
 
       @if (report === 'ordered-not-eaten') {
@@ -236,11 +247,14 @@ export class ErpMealReportComponent implements OnChanges, OnDestroy {
 
   readonly languageService = inject(LanguageService);
   private readonly service = inject(ErpMealReportsService);
+  private readonly excel = inject(ReportExcelExportService);
+  private readonly toast = inject(ToastService);
   readonly groupOptions: MealGroupBy[] = ['student', 'week', 'month', 'grade', 'class'];
   readonly data = signal<MealReportPage | null>(null);
   readonly options = signal<MealReportOptions>({ grades: [], classes: [] });
   readonly loading = signal(false);
   readonly failed = signal(false);
+  readonly exporting = signal(false);
   readonly page = signal(1);
   readonly detailsOpen = signal(false);
   readonly selectedRow = signal<MealReportRow | null>(null);
@@ -343,6 +357,59 @@ export class ErpMealReportComponent implements OnChanges, OnDestroy {
         this.loading.set(false);
       },
     });
+  }
+
+  async exportExcel(): Promise<void> {
+    if (this.report === 'ordered-not-eaten' || !this.validDates() || !this.data()?.totalCount || this.exporting()) return;
+    const { from, to } = this.effectiveRange();
+    const baseQuery: MealReportQuery = {
+      report: this.report,
+      groupBy: this.groupBy,
+      from,
+      to,
+      meal: this.report === 'coffee-frequency' ? undefined : this.meal || undefined,
+      grade: this.grade,
+      className: this.className,
+      search: this.search.trim(),
+      page: 1,
+      pageSize: 20,
+    };
+    this.exporting.set(true);
+    try {
+      const rows = await this.excel.collectPages(async (page, pageSize) => {
+        const response = await firstValueFrom(this.service.summary({ ...baseQuery, page, pageSize }, true));
+        return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
+      });
+      const title = this.languageService.t(this.titleKey());
+      this.excel.download({
+        fileName: `${title}-${from}-${to}`,
+        title,
+        period: `${from} – ${to}`,
+        filters: [
+          [this.languageService.t('reports.meals.groupBy'), this.languageService.t(`reports.meals.group.${this.groupBy}`)],
+          [this.languageService.t('reports.meals.mealFilter'), this.meal ? this.languageService.t(`reports.meals.meal.${this.meal}`) : this.languageService.t('reports.meals.allMeals')],
+          [this.languageService.t('reports.meals.grade'), this.grade || this.languageService.t('reports.meals.allGrades')],
+          [this.languageService.t('reports.meals.class'), this.className || this.languageService.t('reports.meals.allClasses')],
+          [this.languageService.t('reports.meals.studentSearch'), this.search.trim()],
+        ],
+        columns: [
+          { header: this.languageService.t(`reports.meals.group.${this.groupBy}`), value: row => row.label },
+          { header: 'ERP / SIS ID', value: row => row.erpStudentId },
+          { header: this.languageService.t('reports.meals.grade'), value: row => row.grade },
+          { header: this.languageService.t('reports.meals.class'), value: row => row.className },
+          { header: this.languageService.t('reports.meals.from'), value: row => row.periodStart },
+          { header: this.languageService.t('reports.meals.latest'), value: row => row.latestDay },
+          { header: this.languageService.t(this.countLabelKey()), value: row => row.count },
+          { header: this.languageService.t('reports.meals.units'), value: row => row.units },
+          { header: this.languageService.t('reports.meals.students'), value: row => row.studentCount },
+        ],
+        rows,
+      });
+    } catch (error) {
+      this.toast.error(this.languageService.t(error instanceof ReportExportLimitError ? 'reports.exportLimit' : 'reports.exportError'));
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   pageLabel(result: MealReportPage): string {

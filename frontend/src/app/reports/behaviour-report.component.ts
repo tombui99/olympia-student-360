@@ -2,6 +2,8 @@ import { Component, computed, HostListener, inject, Input, OnChanges, OnDestroy,
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LanguageService } from '../core/language/language.service';
+import { ReportExcelExportService } from './report-excel-export.service';
+import { ReportExportButtonComponent } from './report-export-button.component';
 import {
   BehaviourCategory,
   BehaviourDrilldownDimension,
@@ -22,7 +24,7 @@ type BehaviourBreakdownTab = 'types' | 'grades';
 
 @Component({
   selector: 'app-behaviour-report',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, ReportExportButtonComponent],
   template: `
     <section class="relative space-y-4" [attr.aria-busy]="loading()">
       @if (loading() && summary()) {
@@ -41,7 +43,10 @@ type BehaviourBreakdownTab = 'types' | 'grades';
               <h3 class="mt-2 text-xl font-semibold text-[#32124f]">{{ languageService.t('reports.behaviour.title') }}</h3>
               <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ languageService.t('reports.behaviour.description') }}</p>
             </div>
-            <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ languageService.t('reports.behaviour.source') }}</span>
+            <div class="flex flex-col items-end gap-2">
+              <app-report-export-button [exporting]="exporting()" [disabled]="!summary()" (exportRequested)="exportExcel()" />
+              <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ languageService.t('reports.behaviour.source') }}</span>
+            </div>
           </div>
         </header>
 
@@ -218,9 +223,11 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
   @Input() periodLabel = '';
 
   private readonly reports = inject(BehaviourReportsService);
+  private readonly excel = inject(ReportExcelExportService);
   readonly languageService = inject(LanguageService);
   readonly summary = signal<BehaviourReportSummary | null>(null);
   readonly loading = signal(true);
+  readonly exporting = signal(false);
   readonly loadFailed = signal(false);
   readonly breakdownTab = signal<BehaviourBreakdownTab>('types');
   readonly showAllTypes = signal(false);
@@ -282,6 +289,36 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
         this.loading.set(false);
       },
     });
+  }
+
+  exportExcel(): void {
+    const summary = this.summary();
+    if (!summary || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      this.excel.download({
+        fileName: `${this.languageService.t('reports.behaviour.title')}-${this.academicYear}-${this.term}`,
+        title: this.languageService.t('reports.behaviour.title'),
+        period: this.periodLabel,
+        filters: [
+          [this.languageService.t('reports.behaviour.totalRecords'), summary.totalRecords],
+          [this.languageService.t('reports.behaviour.students'), summary.studentCount],
+        ],
+        columns: [
+          { header: this.languageService.t('reports.table.student'), value: row => row.studentName },
+          { header: 'SIS ID', value: row => row.sisUserId },
+          { header: this.languageService.t('reports.table.grade'), value: row => row.grade },
+          { header: this.languageService.t('reports.table.class'), value: row => row.homeroom },
+          { header: this.languageService.t('reports.behaviour.totalRecords'), value: row => row.recordCount },
+          { header: this.languageService.t('reports.behaviour.positive'), value: row => row.positiveCount },
+          { header: this.languageService.t('reports.behaviour.concerning'), value: row => row.concerningCount },
+          { header: this.languageService.t('reports.behaviour.other'), value: row => row.otherCount },
+        ],
+        rows: summary.byStudent,
+      });
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   openDrilldown(dimension: BehaviourDrilldownDimension, value: string, title: string): void {

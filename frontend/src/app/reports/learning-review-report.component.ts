@@ -1,16 +1,20 @@
 import { Component, computed, inject, Input, OnChanges, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
+import { ToastService } from '../core/toast/toast.service';
 import {
   LearningAssignmentOption, LearningReportKey, LearningReportOptions,
   LearningReportQuery, LearningReportResult, LearningReportsService,
 } from './learning-reports.service';
 import { SearchableMultiSelectComponent } from './searchable-multi-select.component';
+import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
+import { ReportExportButtonComponent } from './report-export-button.component';
 
 @Component({
   selector: 'app-learning-review-report',
-  imports: [FormsModule, SearchableMultiSelectComponent],
+  imports: [FormsModule, SearchableMultiSelectComponent, ReportExportButtonComponent],
   template: `
     <section class="relative overflow-visible rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
       @if (loading() && result()) {
@@ -21,10 +25,13 @@ import { SearchableMultiSelectComponent } from './searchable-multi-select.compon
           </div>
         </div>
       }
-      <div class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
-        <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ periodLabel }}</p>
-        <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ t('reports.learningReview.' + reportKey + '.title') }}</h3>
-        <p class="mt-1 text-sm leading-6 text-[#6f6877]">{{ t('reports.learningReview.' + reportKey + '.description') }}</p>
+      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#eee8f1] px-5 py-5 sm:px-6">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ periodLabel }}</p>
+          <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ t('reports.learningReview.' + reportKey + '.title') }}</h3>
+          <p class="mt-1 text-sm leading-6 text-[#6f6877]">{{ t('reports.learningReview.' + reportKey + '.description') }}</p>
+        </div>
+        <app-report-export-button [exporting]="exporting()" [disabled]="!result()?.aggregateAvailable || !result()?.totalCount" (exportRequested)="exportExcel()" />
       </div>
       <form class="no-print grid gap-4 border-b border-[#eee8f1] bg-[#fdfbfe] p-5 sm:grid-cols-2 xl:grid-cols-3" (ngSubmit)="run()">
         <app-searchable-multi-select
@@ -167,6 +174,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   @Input({ required: true }) periodLabel = '';
   private readonly reports = inject(LearningReportsService);
   private readonly language = inject(LanguageService);
+  private readonly excel = inject(ReportExcelExportService);
+  private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly months = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -187,6 +196,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   readonly totalPages = computed(() => Math.max(1,
     Math.ceil((this.result()?.totalCount ?? 0) / (this.result()?.pageSize ?? 15))));
   readonly loading = signal(false);
+  readonly exporting = signal(false);
   readonly error = signal<string | null>(null);
   query: LearningReportQuery = this.defaultQuery();
   private loadedKey: LearningReportKey | null = null;
@@ -278,6 +288,57 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     this.query.page = page;
     this.syncQueryToUrl();
     this.fetchPage();
+  }
+  async exportExcel(): Promise<void> {
+    const applied = this.appliedQuery;
+    if (!applied || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const rows = await this.excel.collectPages(async (page, pageSize) => {
+        const response = await firstValueFrom(this.reports.run({ ...applied, page, pageSize, export: true }));
+        return {
+          items: response.rows,
+          totalCount: response.totalCount,
+          totalPages: Math.ceil(response.totalCount / response.pageSize),
+        };
+      });
+      const title = this.t(`reports.learningReview.${this.reportKey}.title`);
+      const courseNames = (this.options()?.courses ?? [])
+        .filter(course => applied.courseIds.includes(course.id)).map(course => course.name);
+      const assignmentNames = this.assignments()
+        .filter(assignment => applied.assignmentIds.includes(assignment.id)).map(assignment => assignment.name);
+      this.excel.download({
+        fileName: `${title}-${this.academicYear}-${this.term}`,
+        title,
+        period: this.periodLabel,
+        filters: [
+          [this.t('reports.learningReview.month'), applied.month ?? this.t('reports.learningReview.allMonths')],
+          [this.t('reports.learningReview.courses'), courseNames.length ? courseNames.join(', ') : this.t('reports.learningReview.allCoursesShort')],
+          [this.t('reports.learningReview.assignmentGroups'), applied.assignmentGroupNames.length ? applied.assignmentGroupNames.join(', ') : this.t('reports.learningReview.allGroupsShort')],
+          [this.t('reports.learningReview.assignments'), assignmentNames.length ? assignmentNames.join(', ') : this.t('reports.learningReview.noAssignmentsSelected')],
+          [this.t('reports.learningReview.maxMissing'), applied.maxMissing],
+          [this.t('reports.learningReview.minScore'), applied.minScore],
+          [this.t('reports.learningReview.minRate'), applied.minCompletion],
+        ],
+        columns: [
+          { header: this.t(this.reportKey === 'grading-coverage' ? 'reports.learningReview.course' : 'reports.learningReview.student'), value: row => row.name },
+          { header: 'SIS ID', value: row => row.sisUserId },
+          { header: this.t('reports.table.grade'), value: row => row.grade },
+          { header: this.t('reports.table.class'), value: row => row.homeroom },
+          { header: this.t('reports.learningReview.missing'), value: row => row.missing },
+          { header: this.t('reports.learningReview.submitted'), value: row => row.submitted },
+          { header: this.t('reports.learningReview.graded'), value: row => row.graded },
+          { header: this.t('reports.learningReview.score'), value: row => row.score },
+          { header: this.t('reports.learningReview.rate'), value: row => row.rate },
+          { header: this.t('reports.table.status'), value: row => this.t(`reports.learningReview.status.${row.status}`) },
+        ],
+        rows,
+      });
+    } catch (error) {
+      this.toast.error(this.t(error instanceof ReportExportLimitError ? 'reports.exportLimit' : 'reports.exportError'));
+    } finally {
+      this.exporting.set(false);
+    }
   }
   private fetchPage(): void {
     if (!this.valid()) { this.result.set(null); this.loading.set(false); return; }

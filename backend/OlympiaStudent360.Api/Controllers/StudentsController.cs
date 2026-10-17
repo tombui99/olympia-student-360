@@ -181,9 +181,12 @@ public class StudentsController : ControllerBase
         [FromQuery] string? grade = null,
         [FromQuery] string? homeroom = null,
         [FromQuery] string? academicYear = null,
-        [FromQuery] string? term = null)
+        [FromQuery] string? term = null,
+        [FromQuery] bool export = false)
     {
-        (page, pageSize) = NormalizePaging(page, pageSize);
+        (page, pageSize) = export
+            ? (Math.Max(1, page), Math.Clamp(pageSize, 1, 1000))
+            : NormalizePaging(page, pageSize);
         var searchTerm = search?.Trim();
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {

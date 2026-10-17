@@ -2,9 +2,10 @@ import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { Component, computed, HostListener, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { catchError, forkJoin, Observable, of } from 'rxjs';
+import { catchError, firstValueFrom, forkJoin, Observable, of } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { AuthenticationService } from '../core/auth/auth.service';
+import { ToastService } from '../core/toast/toast.service';
 import {
   DashboardOverview,
   DashboardOverviewService,
@@ -30,6 +31,8 @@ import { BehaviourReportComponent } from './behaviour-report.component';
 import { LearningReviewReportComponent } from './learning-review-report.component';
 import { LearningReportKey } from './learning-reports.service';
 import { ErpMealReportComponent } from './erp-meal-report.component';
+import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
+import { ReportExportButtonComponent } from './report-export-button.component';
 
 type StaticReportId =
   | 'learning-diligence'
@@ -105,7 +108,7 @@ interface ClassDrilldownPage {
 
 @Component({
   selector: 'app-static-reports',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent, ErpMealReportComponent],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent, ErpMealReportComponent, ReportExportButtonComponent],
   template: `
     <section class="print-region space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -366,9 +369,12 @@ interface ClassDrilldownPage {
             <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ languageService.t(titleKey) }}</h3>
             <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ languageService.t(descriptionKey) }}</p>
           </div>
-          <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#6d3a91]">
-            {{ languageService.t('reports.fixedDefinition') }}
-          </span>
+          <div class="flex flex-col items-end gap-2">
+            <app-report-export-button [exporting]="exporting()" [disabled]="!canExportStaticReport()" (exportRequested)="exportStaticReport()" />
+            <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#6d3a91]">
+              {{ languageService.t('reports.fixedDefinition') }}
+            </span>
+          </div>
         </div>
       </div>
     </ng-template>
@@ -847,6 +853,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   readonly languageService = inject(LanguageService);
   private readonly authService = inject(AuthenticationService);
+  private readonly excel = inject(ReportExcelExportService);
+  private readonly toast = inject(ToastService);
 
   readonly reportGroups: ReportMenuGroup[] = [
     {
@@ -934,6 +942,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   readonly supportStudents = signal<AtRiskStudent[]>([]);
   readonly loading = signal(true);
   readonly reportLoading = signal(false);
+  readonly exporting = signal(false);
   readonly loadFailed = signal(false);
   readonly studentsLoading = signal(false);
   readonly studentsLoadFailed = signal(false);
@@ -1638,6 +1647,96 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     const key = `dashboard.period.term.${term}`;
     const translated = this.languageService.t(key);
     return translated === key ? term : translated;
+  }
+
+  canExportStaticReport(): boolean {
+    if (this.activeReport() === 'learning-diligence') return this.learningRows().some(row => row.value !== null);
+    if (this.activeReport() === 'support-classes') return this.filteredClassRows().length > 0;
+    if (this.activeReport() === 'support-students') return this.studentTotalCount() > 0;
+    return false;
+  }
+
+  async exportStaticReport(): Promise<void> {
+    if (!this.canExportStaticReport() || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const report = this.activeReport();
+      if (report === 'learning-diligence') {
+        const title = this.languageService.t('reports.learning.title');
+        this.excel.download({
+          fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
+          title,
+          period: this.periodLabel(),
+          columns: [
+            { header: this.languageService.t('reports.table.indicator'), value: row => this.languageService.t(row.indicatorKey) },
+            { header: this.languageService.t('reports.table.result'), value: row => row.value },
+            { header: this.languageService.t('reports.table.volume'), value: row => this.formatVolume(row) },
+            { header: this.languageService.t('reports.table.benchmark'), value: row => this.languageService.t(row.targetKey) },
+            { header: this.languageService.t('reports.table.status'), value: row => this.statusLabel(row.status) },
+          ],
+          rows: this.learningRows(),
+        });
+        return;
+      }
+
+      if (report === 'support-classes') {
+        const title = this.languageService.t('reports.classes.title');
+        this.excel.download({
+          fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
+          title,
+          period: this.periodLabel(),
+          filters: [
+            [this.languageService.t('reports.classes.viewLabel'), this.languageService.t(this.cohortView() === 'grade' ? 'reports.classes.gradeView' : 'reports.classes.classView')],
+            [this.languageService.t('reports.classes.search'), this.classSearch()],
+          ],
+          columns: [
+            { header: this.languageService.t(this.cohortView() === 'grade' ? 'reports.table.grade' : 'reports.table.class'), value: row => row.label },
+            { header: this.languageService.t('reports.table.grade'), value: row => row.grade },
+            { header: this.languageService.t('reports.table.students'), value: row => row.students },
+            { header: this.languageService.t('reports.table.canvasAverage'), value: row => row.averageCanvasScorePercentage },
+            { header: this.languageService.t('reports.table.needSupport'), value: row => row.atRisk },
+            { header: this.languageService.t('reports.table.riskRate'), value: row => row.students ? row.atRisk / row.students * 100 : null },
+            { header: this.languageService.t('reports.table.status'), value: row => this.statusLabel(this.classStatus(row)) },
+            { header: this.languageService.t('reports.table.followUp'), value: row => this.classFollowUpKey(row) },
+          ],
+          rows: this.filteredClassRows(),
+        });
+        return;
+      }
+
+      if (report === 'support-students') {
+        const rows = await this.excel.collectPages(async (page, pageSize) => {
+          const response = await firstValueFrom(this.studentsService.atRisk(
+            page, pageSize, this.studentSearch(), '', this.selectedYear, this.selectedTerm, '', true,
+          ));
+          return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
+        });
+        const title = this.languageService.t('reports.students.title');
+        this.excel.download({
+          fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
+          title,
+          period: this.periodLabel(),
+          filters: [[this.languageService.t('reports.search'), this.studentSearch()]],
+          columns: [
+            { header: this.languageService.t('reports.table.student'), value: row => row.fullName },
+            { header: 'SIS ID', value: row => row.sisStudentCode || row.sisUserId },
+            { header: this.languageService.t('reports.table.grade'), value: row => row.gradeLevel },
+            { header: this.languageService.t('reports.table.class'), value: row => row.homeroom },
+            { header: this.languageService.t('reports.table.canvasAverage'), value: row => row.averageCanvasScorePercentage },
+            { header: this.languageService.t('reports.table.riskLevel'), value: row => this.riskLabel(row.riskLevel) },
+            { header: this.languageService.t('reports.table.signals'), value: row => row.riskFlagCount },
+            { header: this.languageService.t('reports.behaviour.positive'), value: row => row.positiveBehaviourCount },
+            { header: this.languageService.t('reports.behaviour.concerning'), value: row => row.concerningBehaviourCount },
+            { header: this.languageService.t('reports.students.progressReview'), value: row => row.flags.map(flag => `${flag.code}: ${flag.value}`).join('; ') },
+          ],
+          rows,
+        });
+      }
+    } catch (error) {
+      this.toast.error(this.languageService.t(error instanceof ReportExportLimitError ? 'reports.exportLimit' : 'reports.exportError'));
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   printReport(): void {

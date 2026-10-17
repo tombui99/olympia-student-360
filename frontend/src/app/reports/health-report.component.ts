@@ -1,7 +1,11 @@
 import { Component, HostListener, inject, Input, OnChanges, OnDestroy, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
+import { ToastService } from '../core/toast/toast.service';
+import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
+import { ReportExportButtonComponent } from './report-export-button.component';
 import {
   HealthReportDetailsQuery,
   HealthReportGrouping,
@@ -13,7 +17,7 @@ import {
 
 @Component({
   selector: 'app-health-report',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, ReportExportButtonComponent],
   template: `
     <section class="relative overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
       <div class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
@@ -23,9 +27,12 @@ import {
             <h3 class="mt-2 text-xl font-semibold text-[#32124f]">{{ languageService.t(titleKey()) }}</h3>
             <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ languageService.t(descriptionKey()) }}</p>
           </div>
-          <span class="rounded-full bg-[#eef8f4] px-3 py-1 text-xs font-semibold text-emerald-800">
-            {{ languageService.t('reports.health.source') }}
-          </span>
+          <div class="flex flex-col items-end gap-2">
+            <app-report-export-button [exporting]="exporting()" [disabled]="!totalCount()" (exportRequested)="exportExcel()" />
+            <span class="rounded-full bg-[#eef8f4] px-3 py-1 text-xs font-semibold text-emerald-800">
+              {{ languageService.t('reports.health.source') }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -184,6 +191,8 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
   @Input() periodLabel = '';
 
   private readonly reports = inject(HealthReportsService);
+  private readonly excel = inject(ReportExcelExportService);
+  private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly languageService = inject(LanguageService);
@@ -193,6 +202,7 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
   readonly rows = signal<HealthReportRow[]>([]);
   readonly loading = signal(true);
   readonly loadFailed = signal(false);
+  readonly exporting = signal(false);
   readonly page = signal(1);
   readonly totalCount = signal(0);
   readonly totalPages = signal(0);
@@ -284,6 +294,45 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
         this.loading.set(false);
       },
     });
+  }
+
+  async exportExcel(): Promise<void> {
+    if (!this.report || !this.academicYear || !this.totalCount() || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const rows = await this.excel.collectPages(async (page, pageSize) => {
+        const response = await firstValueFrom(this.reports.summary(
+          this.report, this.groupBy(), this.academicYear, this.term, this.search(), page, pageSize, true,
+        ));
+        return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
+      });
+      const title = this.languageService.t(this.titleKey());
+      this.excel.download({
+        fileName: `${title}-${this.academicYear}-${this.term}`,
+        title,
+        period: this.periodLabel,
+        filters: [
+          [this.languageService.t('reports.health.groupBy'), this.languageService.t(`reports.health.groupBy.${this.groupBy()}`)],
+          [this.languageService.t('reports.health.search'), this.search()],
+        ],
+        columns: [
+          { header: this.languageService.t('reports.health.period'), value: row => this.formatPeriod(row) },
+          { header: this.languageService.t('reports.table.student'), value: row => row.studentName },
+          { header: 'SIS ID', value: row => row.sisUserId },
+          { header: this.languageService.t('reports.health.class'), value: row => row.className },
+          { header: this.languageService.t('reports.health.classification'), value: row => row.classification },
+          { header: this.languageService.t('reports.health.diagnosis'), value: row => row.diagnosis },
+          { header: this.languageService.t('reports.health.visits'), value: row => row.visitCount },
+          { header: this.languageService.t('reports.health.students'), value: row => row.studentCount },
+          { header: this.languageService.t('reports.health.latestVisit'), value: row => this.formatDateTime(row.latestVisit) },
+        ],
+        rows,
+      });
+    } catch (error) {
+      this.toast.error(this.languageService.t(error instanceof ReportExportLimitError ? 'reports.exportLimit' : 'reports.exportError'));
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   openDetails(row: HealthReportRow): void {

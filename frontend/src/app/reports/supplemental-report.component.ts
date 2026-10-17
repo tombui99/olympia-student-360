@@ -1,12 +1,15 @@
 import { NgClass } from '@angular/common';
 import { Component, computed, inject, Input, OnChanges, signal, SimpleChanges } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { firstValueFrom, forkJoin } from 'rxjs';
 import {
   ModuleRecord,
   ModuleRecordsService,
 } from '../module-records/module-records.service';
 import { LanguageService } from '../core/language/language.service';
+import { ToastService } from '../core/toast/toast.service';
+import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
+import { ReportExportButtonComponent } from './report-export-button.component';
 
 export type SupplementalModuleId =
   | 'student-behaviours'
@@ -39,7 +42,7 @@ interface DistributionRow {
 
 @Component({
   selector: 'app-supplemental-report',
-  imports: [NgClass, RouterLink],
+  imports: [NgClass, RouterLink, ReportExportButtonComponent],
   template: `
     <section class="relative overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
       <div class="border-b border-[#eee8f1] px-5 py-5 sm:px-6">
@@ -49,9 +52,12 @@ interface DistributionRow {
             <h3 class="mt-2 text-xl font-semibold text-[#32124f]">{{ languageService.t(report.titleKey) }}</h3>
             <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ languageService.t(report.descriptionKey) }}</p>
           </div>
-          <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#6d3a91]">
-            {{ sourceLabel() }}
-          </span>
+          <div class="flex flex-col items-end gap-2">
+            <app-report-export-button [exporting]="exporting()" [disabled]="!totalCount()" (exportRequested)="exportExcel()" />
+            <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#6d3a91]">
+              {{ sourceLabel() }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -179,12 +185,15 @@ export class SupplementalReportComponent implements OnChanges {
   @Input() periodLabel = '';
 
   private readonly recordsService = inject(ModuleRecordsService);
+  private readonly excel = inject(ReportExcelExportService);
+  private readonly toast = inject(ToastService);
   readonly languageService = inject(LanguageService);
   readonly records = signal<ModuleRecord[]>([]);
   readonly totalCount = signal(0);
   readonly loading = signal(true);
   readonly loaded = signal(false);
   readonly loadFailed = signal(false);
+  readonly exporting = signal(false);
   private requestId = 0;
 
   readonly distinctStudents = signal(0);
@@ -224,6 +233,42 @@ export class SupplementalReportComponent implements OnChanges {
         this.loading.set(false);
       },
     });
+  }
+
+  async exportExcel(): Promise<void> {
+    if (!this.report || !this.totalCount() || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const rows = await this.excel.collectPages(async (page, pageSize) => {
+        const response = await firstValueFrom(this.recordsService.list(
+          this.report.moduleId, page, pageSize, '', this.academicYear, this.term, true,
+        ));
+        return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
+      });
+      const title = this.languageService.t(this.report.titleKey);
+      this.excel.download({
+        fileName: `${title}-${this.academicYear}-${this.term}`,
+        title,
+        period: this.periodLabel,
+        filters: [[this.languageService.t('reports.supplemental.breakdown'), this.dimensionLabel()]],
+        columns: [
+          { header: this.languageService.t('reports.supplemental.date'), value: row => this.formatDate(row.values[this.report.dateField]) },
+          { header: this.languageService.t('reports.table.student'), value: row => row.studentName },
+          { header: 'SIS ID', value: row => row.sisUserId },
+          { header: this.languageService.t('reports.table.grade'), value: row => row.canvasGradeLevel || row.gradeLevel },
+          { header: this.languageService.t('reports.table.class'), value: row => row.homeroom },
+          { header: this.report.primaryField, value: row => row.values[this.report.primaryField] },
+          { header: this.report.secondaryField, value: row => row.values[this.report.secondaryField] },
+          { header: this.languageService.t('reports.supplemental.group'), value: row => row.values[this.report.dimensionField || this.report.primaryField] },
+          { header: this.languageService.t('moduleRecords.enteredBy'), value: row => row.enteredByName },
+        ],
+        rows,
+      });
+    } catch (error) {
+      this.toast.error(this.languageService.t(error instanceof ReportExportLimitError ? 'reports.exportLimit' : 'reports.exportError'));
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   sourceLabel(): string {

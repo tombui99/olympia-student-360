@@ -2003,5 +2003,10 @@
   "reports.meals.no-order.countLabel": "Meals marked not ordered",
   "reports.meals.no-order.countMeaning": "One count = one student on one date for one meal marked not ordered by the ERP. Breakfast and lunch count separately.",
   "reports.meals.coffee-frequency.countLabel": "Coffee Shop-coded item lines",
-  "reports.meals.coffee-frequency.countMeaning": "One line = one exported item with a CFS_ or CF_ product code; it is not a receipt."
+  "reports.meals.coffee-frequency.countMeaning": "One line = one exported item with a CFS_ or CF_ product code; it is not a receipt.",
+  "reports.exportExcel": "Export Excel",
+  "reports.exporting": "Preparing export…",
+  "reports.exportedAt": "Exported at",
+  "reports.exportError": "The Excel export could not be created.",
+  "reports.exportLimit": "This filtered report has too many rows to export safely. Narrow the filters and try again."
 }

@@ -80,6 +80,7 @@ export class HealthReportsService {
     search: string,
     page: number,
     pageSize: number,
+    exportMode = false,
   ) {
     let params = new HttpParams()
       .set('report', report)
@@ -87,6 +88,7 @@ export class HealthReportsService {
       .set('academicYear', academicYear)
       .set('page', page)
       .set('pageSize', pageSize);
+    if (exportMode) params = params.set('export', true);
     if (term && term !== 'all') params = params.set('term', term);
     if (search.trim()) params = params.set('search', search.trim());
     return this.http.get<HealthReportPage>(`${this.basePath}/api/reports/health-visits/summary`, { params });

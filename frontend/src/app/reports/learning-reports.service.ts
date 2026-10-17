@@ -19,6 +19,8 @@ export interface LearningReportQuery {
   minScore: number;
   minCompletion: number;
   page: number;
+  pageSize?: number;
+  export?: boolean;
 }
 
 export interface LearningCourseOption { id: number; name: string; }

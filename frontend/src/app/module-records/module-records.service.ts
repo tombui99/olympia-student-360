@@ -43,6 +43,7 @@ export class ModuleRecordsService {
     search: string,
     academicYear?: string,
     reportingTerm?: string,
+    exportMode = false,
   ) {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) params = params.set('search', search.trim());
@@ -50,6 +51,7 @@ export class ModuleRecordsService {
     if (reportingTerm?.trim() && reportingTerm !== 'all') {
       params = params.set('term', reportingTerm.trim());
     }
+    if (exportMode) params = params.set('export', true);
     return this.http.get<ModuleRecordsPage>(`${this.basePath}/api/module-records/${moduleId}`, { params });
   }
 

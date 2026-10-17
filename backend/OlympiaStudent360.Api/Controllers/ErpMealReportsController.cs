@@ -45,6 +45,7 @@ public sealed class ErpMealReportsController(AppDbContext db, UserAccessService 
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] bool export = false,
         CancellationToken cancellationToken = default)
     {
         if (!access.Current.CanAccessAcademic) return Forbid();
@@ -54,7 +55,7 @@ public sealed class ErpMealReportsController(AppDbContext db, UserAccessService 
             mealFilter == "invalid" || !ValidRange(from, to))
             return BadRequest("Invalid meal report filters.");
         page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        pageSize = Math.Clamp(pageSize, 1, export ? 1000 : 100);
         var build = await db.ErpMealReportBuilds.AsNoTracking()
             .OrderByDescending(x => x.Id).FirstOrDefaultAsync(cancellationToken);
         if (build is null)

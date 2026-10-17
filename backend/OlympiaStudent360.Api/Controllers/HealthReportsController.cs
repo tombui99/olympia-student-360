@@ -38,11 +38,12 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
         [FromQuery(Name = "term")] string? reportingTerm = null,
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] bool export = false)
     {
         if (!KnownReport(report) || !KnownGrouping(groupBy)) return BadRequest();
         page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        pageSize = Math.Clamp(pageSize, 1, export ? 1000 : 100);
         var year = string.IsNullOrWhiteSpace(academicYear)
             ? DashboardPeriodNormalizer.AcademicYear(DateTime.UtcNow)
             : academicYear;

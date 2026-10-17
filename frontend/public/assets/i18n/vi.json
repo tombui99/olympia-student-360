@@ -2003,5 +2003,10 @@
   "reports.meals.no-order.countLabel": "Lượt không đặt ăn",
   "reports.meals.no-order.countMeaning": "Một lượt là một bữa ăn của một học sinh trong một ngày được ERP ghi nhận không đặt. Bữa sáng và trưa tính riêng.",
   "reports.meals.coffee-frequency.countLabel": "Dòng hàng mã Coffee Shop",
-  "reports.meals.coffee-frequency.countMeaning": "Một dòng là một mặt hàng có mã CFS_ hoặc CF_ trong file ERP; không phải một hóa đơn."
+  "reports.meals.coffee-frequency.countMeaning": "Một dòng là một mặt hàng có mã CFS_ hoặc CF_ trong file ERP; không phải một hóa đơn.",
+  "reports.exportExcel": "Xuất Excel",
+  "reports.exporting": "Đang tạo tệp…",
+  "reports.exportedAt": "Thời điểm xuất",
+  "reports.exportError": "Không thể tạo tệp Excel.",
+  "reports.exportLimit": "Báo cáo sau khi lọc vẫn có quá nhiều dòng để xuất an toàn. Vui lòng thu hẹp bộ lọc rồi thử lại."
 }

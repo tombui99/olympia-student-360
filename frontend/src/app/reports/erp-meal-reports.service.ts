@@ -85,11 +85,12 @@ export class ErpMealReportsService {
     });
   }
 
-  summary(query: MealReportQuery) {
+  summary(query: MealReportQuery, exportMode = false) {
     let params = new HttpParams()
       .set('report', query.report).set('groupBy', query.groupBy)
       .set('from', query.from).set('to', query.to)
       .set('page', query.page).set('pageSize', query.pageSize);
+    if (exportMode) params = params.set('export', true);
     if (query.meal) params = params.set('meal', query.meal);
     if (query.grade) params = params.set('grade', query.grade);
     if (query.className) params = params.set('className', query.className);
