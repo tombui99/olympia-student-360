@@ -7,16 +7,19 @@ namespace OlympiaStudent360.Api.Data;
 
 public static class DbInitializer
 {
-    public static async Task Seed(WebApplication app)
+    public static async Task Seed(
+        IServiceProvider services,
+        IConfiguration configuration,
+        CancellationToken cancellationToken = default)
     {
-        using var scope = app.Services.CreateScope();
+        using var scope = services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DbInitializer");
 
-        await context.Database.MigrateAsync();
-        await SeedStudentRecordFieldOptions(context);
+        await context.Database.MigrateAsync(cancellationToken);
+        await SeedStudentRecordFieldOptions(context, cancellationToken);
 
         await RenameRole("Principal", "SchoolAdministration", userManager, roleManager, logger);
 
@@ -32,15 +35,16 @@ public static class DbInitializer
         await RemoveUnsupportedRole("Leadership", userManager, roleManager, logger);
         await RemoveUnsupportedRole("Nurse", userManager, roleManager, logger);
 
-        var adminPassword = app.Configuration["SeedAdmin:Password"];
+        var adminPassword = configuration["SeedAdmin:Password"];
         if (string.IsNullOrWhiteSpace(adminPassword))
         {
             logger.LogWarning("SeedAdmin:Password is not configured. Skipping default admin user seeding.");
             return;
         }
 
-        var adminUsername = app.Configuration["SeedAdmin:Username"] ?? "admin";
-        var adminUser = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == adminUsername);
+        var adminUsername = configuration["SeedAdmin:Username"] ?? "admin";
+        var adminUser = await userManager.Users.FirstOrDefaultAsync(
+            u => u.UserName == adminUsername, cancellationToken);
         if (adminUser != null)
         {
             return;
@@ -49,8 +53,8 @@ public static class DbInitializer
         adminUser = new ApplicationUser
         {
             UserName = adminUsername,
-            Email = app.Configuration["SeedAdmin:Email"] ?? "admin@olympia.edu.vn",
-            FullName = app.Configuration["SeedAdmin:FullName"] ?? "Olympia Administrator",
+            Email = configuration["SeedAdmin:Email"] ?? "admin@olympia.edu.vn",
+            FullName = configuration["SeedAdmin:FullName"] ?? "Olympia Administrator",
             EmailConfirmed = true
         };
 
@@ -65,13 +69,16 @@ public static class DbInitializer
         logger.LogWarning("Default admin user was not seeded: {Errors}", errors);
     }
 
-    private static async Task SeedStudentRecordFieldOptions(AppDbContext context)
+    private static async Task SeedStudentRecordFieldOptions(
+        AppDbContext context,
+        CancellationToken cancellationToken)
     {
         var additions = new List<StudentRecordFieldOption>();
 
         if (!await context.StudentRecordFieldOptions.AnyAsync(item =>
                 item.ModuleId == StudentRecordFieldOptionService.BehaviourModule &&
-                item.FieldKey == StudentRecordFieldOptionService.BehaviourTypeField))
+                item.FieldKey == StudentRecordFieldOptionService.BehaviourTypeField,
+            cancellationToken))
         {
             var sortOrder = 0;
             additions.AddRange(StudentClassificationService.PositiveBehaviourTypes.Select(value =>
@@ -97,21 +104,23 @@ public static class DbInitializer
         AddProjectOptionsIfMissing(
             await context.StudentRecordFieldOptions.AnyAsync(item =>
                 item.ModuleId == StudentRecordFieldOptionService.ProjectModule &&
-                item.FieldKey == StudentRecordFieldOptionService.ProjectSubjectField),
+                item.FieldKey == StudentRecordFieldOptionService.ProjectSubjectField,
+            cancellationToken),
             StudentRecordFieldOptionService.ProjectSubjectField,
             StudentDataEntryOptions.ProjectSubjects,
             additions);
         AddProjectOptionsIfMissing(
             await context.StudentRecordFieldOptions.AnyAsync(item =>
                 item.ModuleId == StudentRecordFieldOptionService.ProjectModule &&
-                item.FieldKey == StudentRecordFieldOptionService.ProjectStatusField),
+                item.FieldKey == StudentRecordFieldOptionService.ProjectStatusField,
+            cancellationToken),
             StudentRecordFieldOptionService.ProjectStatusField,
             StudentDataEntryOptions.ProjectStatuses,
             additions);
 
         if (additions.Count == 0) return;
         context.StudentRecordFieldOptions.AddRange(additions);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     private static void AddProjectOptionsIfMissing(

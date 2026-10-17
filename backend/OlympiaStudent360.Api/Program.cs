@@ -10,6 +10,8 @@ using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
+var rebuildImportedAggregatesOnly = args.Contains(
+    "--rebuild-imported-report-aggregates-only", StringComparer.Ordinal);
 
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
@@ -101,9 +103,14 @@ builder.Services.AddScoped<StudentRecordFieldOptionService>();
 builder.Services.AddScoped<CanvasDashboardAggregateService>();
 builder.Services.AddScoped<ImportedReportAggregateService>();
 builder.Services.AddScoped<ErpMealReportAggregateService>();
-builder.Services.AddHostedService<CanvasReportBackfillWorker>();
-builder.Services.AddHostedService<ImportedReportAggregateWorker>();
-builder.Services.AddHostedService<ErpMealReportAggregateWorker>();
+builder.Services.AddSingleton<ApplicationInitializationState>();
+if (!rebuildImportedAggregatesOnly)
+{
+    builder.Services.AddHostedService<DatabaseInitializationWorker>();
+    builder.Services.AddHostedService<CanvasReportBackfillWorker>();
+    builder.Services.AddHostedService<ImportedReportAggregateWorker>();
+    builder.Services.AddHostedService<ErpMealReportAggregateWorker>();
+}
 builder.Services.Configure<TranscriptSubjectOptions>(
     builder.Configuration.GetSection("TranscriptSubjects"));
 builder.Services.AddSingleton<TranscriptSubjectResolver>();
@@ -141,6 +148,7 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+var initialization = app.Services.GetRequiredService<ApplicationInitializationState>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -154,28 +162,37 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowAngular");
 app.UseHttpsRedirection();
 app.UseRateLimiter();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api") && !initialization.IsReady)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            code = "database_initializing",
+            message = initialization.Status == "failed"
+                ? "Database initialization failed. Check the application logs."
+                : "Database initialization is still in progress."
+        });
+        return;
+    }
+
+    await next();
+});
 app.UseAuthentication();
 app.UseMiddleware<UserAccessMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "healthy",
+    databaseInitialization = initialization.Status
+}));
 
-try
+if (rebuildImportedAggregatesOnly)
 {
-    await DbInitializer.Seed(app);
-}
-catch (Exception ex)
-{
-    app.Logger.LogError(ex, "An error occurred while migrating or seeding the database.");
-    if (app.Environment.IsProduction())
-    {
-        throw;
-    }
-}
-
-if (args.Contains("--rebuild-imported-report-aggregates-only", StringComparer.Ordinal))
-{
+    await DbInitializer.Seed(app.Services, app.Configuration);
     using var scope = app.Services.CreateScope();
     var count = await scope.ServiceProvider.GetRequiredService<ImportedReportAggregateService>()
         .RebuildAsync();

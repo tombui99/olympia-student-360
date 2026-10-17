@@ -9,10 +9,12 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// </summary>
 public sealed class CanvasReportBackfillWorker(
     IServiceScopeFactory scopeFactory,
+    ApplicationInitializationState initialization,
     ILogger<CanvasReportBackfillWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await initialization.WaitUntilReadyAsync(stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
