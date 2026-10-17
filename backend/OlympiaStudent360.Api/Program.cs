@@ -103,10 +103,8 @@ builder.Services.AddScoped<StudentRecordFieldOptionService>();
 builder.Services.AddScoped<CanvasDashboardAggregateService>();
 builder.Services.AddScoped<ImportedReportAggregateService>();
 builder.Services.AddScoped<ErpMealReportAggregateService>();
-builder.Services.AddSingleton<ApplicationInitializationState>();
 if (!rebuildImportedAggregatesOnly)
 {
-    builder.Services.AddHostedService<DatabaseInitializationWorker>();
     builder.Services.AddHostedService<CanvasReportBackfillWorker>();
     builder.Services.AddHostedService<ImportedReportAggregateWorker>();
     builder.Services.AddHostedService<ErpMealReportAggregateWorker>();
@@ -148,7 +146,6 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
-var initialization = app.Services.GetRequiredService<ApplicationInitializationState>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -162,23 +159,6 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowAngular");
 app.UseHttpsRedirection();
 app.UseRateLimiter();
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/api") && !initialization.IsReady)
-    {
-        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            code = "database_initializing",
-            message = initialization.Status == "failed"
-                ? "Database initialization failed. Check the application logs."
-                : "Database initialization is still in progress."
-        });
-        return;
-    }
-
-    await next();
-});
 app.UseAuthentication();
 app.UseMiddleware<UserAccessMiddleware>();
 app.UseAuthorization();
@@ -187,7 +167,7 @@ app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
-    databaseInitialization = initialization.Status,
+    databaseInitialization = "ready",
     deploymentSha = Environment.GetEnvironmentVariable("DEPLOYMENT_SHA") ?? "local"
 }));
 
@@ -201,4 +181,7 @@ if (rebuildImportedAggregatesOnly)
     return;
 }
 
+// Finish schema migration and seeding before Kestrel starts accepting traffic. App Runner
+// keeps the previous healthy revision in service until this process is ready.
+await DbInitializer.Seed(app.Services, app.Configuration);
 app.Run();

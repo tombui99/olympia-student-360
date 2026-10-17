@@ -5,12 +5,10 @@ namespace OlympiaStudent360.Api.Core.Services;
 
 public sealed class ErpMealReportAggregateWorker(
     IServiceScopeFactory scopeFactory,
-    ApplicationInitializationState initialization,
     ILogger<ErpMealReportAggregateWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await initialization.WaitUntilReadyAsync(stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
             try

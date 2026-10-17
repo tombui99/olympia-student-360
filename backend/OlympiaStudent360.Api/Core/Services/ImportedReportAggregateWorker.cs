@@ -6,12 +6,10 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// <summary>Rebuilds report measures after source writes, never in the request path.</summary>
 public sealed class ImportedReportAggregateWorker(
     IServiceScopeFactory scopeFactory,
-    ApplicationInitializationState initialization,
     ILogger<ImportedReportAggregateWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await initialization.WaitUntilReadyAsync(stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
