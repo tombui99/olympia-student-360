@@ -187,7 +187,8 @@ app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
-    databaseInitialization = initialization.Status
+    databaseInitialization = initialization.Status,
+    deploymentSha = Environment.GetEnvironmentVariable("DEPLOYMENT_SHA") ?? "local"
 }));
 
 if (rebuildImportedAggregatesOnly)

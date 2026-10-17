@@ -14,8 +14,10 @@ RUN dotnet publish "OlympiaStudent360.Api.csproj" \
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+ARG DEPLOYMENT_SHA=local
 ENV ASPNETCORE_URLS=http://+:8080 \
-    DOTNET_EnableDiagnostics=0
+    DOTNET_EnableDiagnostics=0 \
+    DEPLOYMENT_SHA=$DEPLOYMENT_SHA
 EXPOSE 8080
 
 COPY --from=build /app/publish .

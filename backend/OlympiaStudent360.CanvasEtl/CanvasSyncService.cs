@@ -24,7 +24,7 @@ internal sealed partial class CanvasSyncService
 
     public async Task<CanvasSyncSummary> Run(bool replaceExisting, CancellationToken cancellationToken)
     {
-        await _db.Database.MigrateAsync(cancellationToken);
+        await _db.MigrateWithRecoveryAsync(cancellationToken);
 
         if (_options.SinceUtc is { } sinceUtc)
         {

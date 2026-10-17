@@ -62,7 +62,7 @@ try
     if (rebuildAggregatesOnly)
     {
         await using var aggregateDb = new AppDbContext(dbOptions);
-        await aggregateDb.Database.MigrateAsync();
+        await aggregateDb.MigrateWithRecoveryAsync();
         var rowCount = await new CanvasDashboardAggregateService(aggregateDb)
             .RebuildAsync(CancellationToken.None);
         Console.WriteLine($"Rebuilt {rowCount} pre-calculated Canvas dashboard metric rows.");

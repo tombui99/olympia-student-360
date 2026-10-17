@@ -100,7 +100,7 @@ public sealed class CanvasSyncController : ControllerBase
             return BadRequest(new { Message = "replaceExisting is valid only in sync-all mode." });
         }
 
-        await _db.Database.MigrateAsync(cancellationToken);
+        await _db.MigrateWithRecoveryAsync(cancellationToken);
         var candidateWatermarkUtc = DateTime.UtcNow;
         var sourceKey = $"canvas:{baseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";
         var state = await _db.CanvasSyncStates.SingleOrDefaultAsync(

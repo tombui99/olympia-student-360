@@ -16,7 +16,7 @@ public sealed class CanvasDirectImportRunner
         CanvasDirectImportRequest request,
         CancellationToken cancellationToken)
     {
-        await db.Database.MigrateAsync(cancellationToken);
+        await db.MigrateWithRecoveryAsync(cancellationToken);
 
         var startedAtUtc = DateTime.UtcNow;
         var sourceKey = $"canvas:{request.BaseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";

@@ -18,7 +18,7 @@ public static class DbInitializer
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DbInitializer");
 
-        await context.Database.MigrateAsync(cancellationToken);
+        await context.MigrateWithRecoveryAsync(cancellationToken);
         await SeedStudentRecordFieldOptions(context, cancellationToken);
 
         await RenameRole("Principal", "SchoolAdministration", userManager, roleManager, logger);

@@ -31,7 +31,7 @@ try
     if (string.IsNullOrWhiteSpace(connection))
         throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required to import.");
     await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseMySQL(connection).Options);
-    await db.Database.MigrateAsync();
+    await db.MigrateWithRecoveryAsync();
     var warehouse = new ErpMealWarehouseService(db);
     if (options.ContainsKey("--relink-only"))
     {
