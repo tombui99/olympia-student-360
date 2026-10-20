@@ -34,6 +34,92 @@ public sealed class MySqlTheoryAttribute : TheoryAttribute
 
 public sealed class MySqlResilienceTests
 {
+    [MySqlTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExistingCourseUpdatesDoNotWriteSisProfilesWhenStudentLookupsAreReused(bool holdStudentReadLock)
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        await using (var seed = test.Open())
+        {
+            var student = new StudentProfile
+            {
+                SISUserId = "test", CanvasUserId = 10, FullName = "SIS name", CanvasGradeLevel = "5"
+            };
+            seed.StudentProfiles.Add(student);
+            seed.CanvasSyncStates.Add(new CanvasSyncState
+            {
+                SourceKey = "canvas:canvas.test:1", LastSuccessfulWatermarkUtc = new DateTime(2026, 10, 1)
+            });
+            foreach (var courseId in new long[] { 100, 200 })
+            {
+                seed.CanvasCourses.Add(new CanvasCourse { CanvasCourseId = courseId, Name = "Existing" });
+                seed.CanvasEnrollments.Add(new CanvasEnrollment
+                {
+                    CanvasEnrollmentId = courseId, CanvasCourseId = courseId, CanvasUserId = 10, Student = student
+                });
+                for (var i = 1; i <= 64; i++)
+                {
+                    var assignmentId = courseId * 1000 + i;
+                    seed.CanvasAssignments.Add(new CanvasAssignment
+                    {
+                        CanvasAssignmentId = assignmentId, CanvasCourseId = courseId, PointsPossible = 10
+                    });
+                    seed.CanvasSubmissions.Add(new CanvasSubmission
+                    {
+                        CanvasSubmissionId = assignmentId, CanvasAssignmentId = assignmentId,
+                        CanvasCourseId = courseId, CanvasUserId = 10, Student = student, Score = 1
+                    });
+                }
+            }
+            await seed.SaveChangesAsync();
+        }
+        var observer = new CourseStudentWriteObserver();
+        var options = new DbContextOptionsBuilder<AppDbContext>(test.Options).AddInterceptors(observer).Options;
+        await using var db = new AppDbContext(options);
+        await using var reader = new MySqlConnection(db.Database.GetConnectionString());
+        await reader.OpenAsync();
+        await using var readerTransaction = await reader.BeginTransactionAsync();
+        if (holdStudentReadLock)
+        {
+            // A concurrent report reader may hold shared locks. Course facts only
+            // need compatible FK checks; an accidental SIS UPDATE blocks here.
+            await using var command = reader.CreateCommand();
+            command.Transaction = readerTransaction;
+            command.CommandText = "SELECT Id FROM StudentProfiles WHERE SISUserId='test' FOR SHARE";
+            await command.ExecuteScalarAsync();
+        }
+        using var handler = new FakeCanvasHandler(includeFacts: true);
+        using var http = new HttpClient(handler);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await new CanvasDirectImportRunner().Run(db, http,
+            new CanvasDirectImportRequest(new Uri("https://canvas.test"), "test-token", "1",
+                false, true, true, true, [1], "incremental", 120, null), deadline.Token);
+        await readerTransaction.RollbackAsync();
+        Assert.Equal(2, observer.CourseSaves);
+        Assert.Equal(0, observer.StudentWrites);
+        Assert.Equal(128, await db.CanvasSubmissions.CountAsync(item => item.Score == 8));
+        Assert.Equal("SIS name", (await db.StudentProfiles.SingleAsync()).FullName);
+    }
+
+    private sealed class CourseStudentWriteObserver : SaveChangesInterceptor
+    {
+        public int CourseSaves { get; private set; }
+        public int StudentWrites { get; private set; }
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken token = default)
+        {
+            var db = eventData.Context!;
+            if (db.ChangeTracker.Entries<CanvasCourse>().Any(entry => entry.State is EntityState.Added or EntityState.Modified))
+            {
+                CourseSaves++;
+                StudentWrites += db.ChangeTracker.Entries<StudentProfile>()
+                    .Count(entry => entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted);
+            }
+            return ValueTask.FromResult(result);
+        }
+    }
+
     [MySqlFact]
     public async Task WarehouseLockContentionTimesOutWithoutDisturbingOwnerAndCanBeRetried()
     {
@@ -379,7 +465,7 @@ public sealed class MySqlResilienceTests
         }
     }
 
-    private sealed class FakeCanvasHandler : HttpMessageHandler
+    private sealed class FakeCanvasHandler(bool includeFacts = false) : HttpMessageHandler
     {
         public int CourseListRequests { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
@@ -394,6 +480,15 @@ public sealed class MySqlResilienceTests
                 "/api/v1/accounts/1/courses" => "[{\"id\":100,\"name\":\"First\"},{\"id\":200,\"name\":\"Second\"}]",
                 _ when path.EndsWith("/enrollments") => "[{\"id\":" + path.Split('/')[4] + ",\"user_id\":10,\"type\":\"StudentEnrollment\",\"enrollment_state\":\"active\"}]",
                 _ when path.EndsWith("/grading_periods") => "{\"grading_periods\":[]}",
+                _ when includeFacts && path.EndsWith("/assignments") => System.Text.Json.JsonSerializer.Serialize(
+                    Enumerable.Range(1, 64).Select(i => new { id = long.Parse(path.Split('/')[4]) * 1000 + i, points_possible = 10, published = true })),
+                _ when includeFacts && path.EndsWith("/students/submissions") => System.Text.Json.JsonSerializer.Serialize(
+                    Enumerable.Range(1, 64).Select(i => new
+                    {
+                        id = long.Parse(path.Split('/')[4]) * 1000 + i,
+                        assignment_id = long.Parse(path.Split('/')[4]) * 1000 + i, user_id = 10,
+                        score = 8, workflow_state = "graded", submitted_at = "2026-10-10T00:00:00Z", graded_at = "2026-10-10T00:00:00Z"
+                    })),
                 _ => "[]"
             };
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

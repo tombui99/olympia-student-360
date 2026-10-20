@@ -309,6 +309,12 @@ session and elapsed wait every 30 seconds, and honors cancellation. Each failed 
 exception immediately before any retry. Course-batch and report-build progress logs distinguish
 Canvas reads, warehouse lock waits, and report materialization from a stalled process.
 
+Course writes link enrollments, scores, and submissions to SIS profiles by foreign-key ID only.
+The cross-course student lookup contains scalar identities, not cached EF entities: reattaching
+detached profile objects after clearing the tracker can issue unintended demographic updates
+and deadlock against the risk-report builder's student foreign-key locks. SIS fields remain
+untouched during course saves; Canvas identity linking and derived grade updates are separate.
+
 The API uses the same policy for ordinary database queries and saves, and retries startup
 migration/seeding with a fresh service scope after a transient failure. Run the regression
 checks with `dotnet test backend/OlympiaStudent360.Tests`; setting `OLYMPIA_TEST_MYSQL` to
