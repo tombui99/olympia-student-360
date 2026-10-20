@@ -138,7 +138,7 @@ public sealed class ScoreReportsController(
         var isCurrent = request.ViewKey == "current-course-score";
         var source = isCurrent ? CurrentSource : TestSource;
         var unit = request.ViewKey == "current-course-score" ? "percent" : "score10";
-        if (!await CanvasDashboardAggregateService.IsReadyForLatestCompletedSyncAsync(
+        if (!await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
                 db, cancellationToken))
             return Ok(EmptyResult(request.ViewKey, source, unit, "aggregate_unavailable", false));
 

@@ -20,11 +20,23 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: production
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: resilience-test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -presilience-test"
+          --health-interval=10s --health-timeout=5s --health-retries=10
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
       APP_RUNNER_SERVICE_ARN: ${{ vars.APP_RUNNER_SERVICE_ARN }}
+      ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
 
     steps:
       - name: Check out source
@@ -40,6 +52,11 @@ jobs:
           dotnet restore backend/OlympiaStudent360.sln
           dotnet build backend/OlympiaStudent360.sln --configuration Release --no-restore
 
+      - name: Verify database retries and Canvas report recovery
+        env:
+          OLYMPIA_TEST_MYSQL: Server=127.0.0.1;Port=3306;User=root;Password=resilience-test;SslMode=Disabled;AllowPublicKeyRetrieval=true
+        run: dotnet test backend/OlympiaStudent360.Tests/OlympiaStudent360.Tests.csproj --configuration Release --no-build --no-restore
+
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -50,7 +67,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push immutable and latest images
+      - name: Build immutable and latest images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
@@ -61,53 +78,109 @@ jobs:
             --tag "$image:$IMAGE_TAG" \
             --tag "$image:latest" \
             backend
+
+      - name: Load the deployed backend database connection
+        if: env.APP_RUNNER_SERVICE_ARN != ''
+        run: |
+          set -euo pipefail
+          if [ -n "${ConnectionStrings__DefaultConnection:-}" ]; then
+            exit 0
+          fi
+          service_json=$(aws apprunner describe-service --service-arn "$APP_RUNNER_SERVICE_ARN")
+          connection_string=$(jq -r '.Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables["ConnectionStrings__DefaultConnection"] // empty' <<< "$service_json")
+          secret_ref=$(jq -r '.Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentSecrets["ConnectionStrings__DefaultConnection"] // empty' <<< "$service_json")
+          if [ -z "$connection_string" ] && [ -n "$secret_ref" ]; then
+            case "$secret_ref" in
+              *:secretsmanager:*) connection_string=$(aws secretsmanager get-secret-value --secret-id "$secret_ref" --query SecretString --output text) ;;
+              *:ssm:*) connection_string=$(aws ssm get-parameter --name "$secret_ref" --with-decryption --query Parameter.Value --output text) ;;
+            esac
+          fi
+          if jq -e . >/dev/null 2>&1 <<< "$connection_string"; then
+            json_connection=$(jq -r '.ConnectionStrings__DefaultConnection // .ConnectionStrings.DefaultConnection // .DefaultConnection // empty' <<< "$connection_string")
+            if [ -n "$json_connection" ]; then connection_string="$json_connection"; fi
+          fi
+          if [ -z "$connection_string" ] || [ "$connection_string" = "None" ]; then
+            echo "Could not resolve the production database connection for pre-deployment migrations."
+            exit 1
+          fi
+          echo "::add-mask::$connection_string"
+          echo "ConnectionStrings__DefaultConnection=$connection_string" >> "$GITHUB_ENV"
+
+      - name: Apply database migrations before deployment
+        if: env.APP_RUNNER_SERVICE_ARN != ''
+        timeout-minutes: 20
+        run: >-
+          dotnet run --project backend/OlympiaStudent360.Api/OlympiaStudent360.Api.csproj
+          --configuration Release --no-build --no-launch-profile -- --migrate-database-only
+
+      - name: Push validated images after database migrations
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          image="$ECR_REGISTRY/$ECR_REPOSITORY"
           docker push "$image:$IMAGE_TAG"
           docker push "$image:latest"
 
       - name: Start App Runner deployment
+        id: deployment
         if: env.APP_RUNNER_SERVICE_ARN != ''
         run: |
-          aws apprunner start-deployment --service-arn "$APP_RUNNER_SERVICE_ARN"
+          operation_id=$(aws apprunner start-deployment \
+            --service-arn "$APP_RUNNER_SERVICE_ARN" \
+            --query 'OperationId' --output text)
+          test -n "$operation_id"
+          test "$operation_id" != "None"
+          echo "operation_id=$operation_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for App Runner
         if: env.APP_RUNNER_SERVICE_ARN != ''
+        timeout-minutes: 17
         env:
           EXPECTED_SHA: ${{ github.sha }}
+          DEPLOYMENT_OPERATION_ID: ${{ steps.deployment.outputs.operation_id }}
         run: |
-          service_url=$(aws apprunner describe-service \
-            --service-arn "$APP_RUNNER_SERVICE_ARN" \
-            --query 'Service.ServiceUrl' --output text)
-          test -n "$service_url"
-          test "$service_url" != "None"
-
-          for attempt in {1..90}; do
-            status=$(aws apprunner describe-service \
-              --service-arn "$APP_RUNNER_SERVICE_ARN" \
-              --query 'Service.Status' --output text)
-            deployed_sha=""
-            database_initialization=""
-            if [ "$status" = "RUNNING" ]; then
-              health_json=$(curl --fail --silent --show-error \
-                "https://$service_url/health" 2>/dev/null || true)
-              deployed_sha=$(jq -r '.deploymentSha // empty' <<< "$health_json" 2>/dev/null || true)
-              database_initialization=$(jq -r \
-                '.databaseInitialization // empty' <<< "$health_json" 2>/dev/null || true)
-            fi
-            echo "App Runner status: $status; deployed SHA: ${deployed_sha:-not ready}; database: ${database_initialization:-not ready}"
-            if [ "$deployed_sha" = "$EXPECTED_SHA" ] && \
-               [ "$database_initialization" = "ready" ]; then
-              exit 0
-            fi
-            if [ "$deployed_sha" = "$EXPECTED_SHA" ] && \
-               [ "$database_initialization" = "failed" ]; then
-              echo "The deployed image could not initialize its database."
-              exit 1
-            fi
-            if [ "$status" = "CREATE_FAILED" ] || \
-               [ "$status" = "DELETE_FAILED" ]; then
-              exit 1
-            fi
+          set -euo pipefail
+          export AWS_PAGER="" AWS_MAX_ATTEMPTS=2
+          service_url=$(aws apprunner describe-service --service-arn "$APP_RUNNER_SERVICE_ARN" \
+            --query 'Service.ServiceUrl' --output text --cli-connect-timeout 10 --cli-read-timeout 20)
+          if [ -z "$service_url" ] || [ "$service_url" = "None" ]; then
+            echo "App Runner did not return a service URL."
+            exit 1
+          fi
+          health_file=$(mktemp)
+          trap 'rm -f "$health_file"' EXIT
+          deadline=$((SECONDS + 900))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            operations=$(aws apprunner list-operations --service-arn "$APP_RUNNER_SERVICE_ARN" \
+              --output json --cli-connect-timeout 10 --cli-read-timeout 20)
+            status=$(jq -r --arg operation_id "$DEPLOYMENT_OPERATION_ID" \
+              '.OperationSummaryList[]? | select(.Id == $operation_id) | .Status' <<< "$operations")
+            status=${status:-PENDING}
+            echo "App Runner deployment $DEPLOYMENT_OPERATION_ID: $status"
+            case "$status" in
+              FAILED|ROLLBACK_SUCCEEDED|ROLLBACK_FAILED)
+                echo "Deployment failed ($status). Check App Runner deployment and application startup logs."
+                exit 1
+                ;;
+              SUCCEEDED)
+                : > "$health_file"
+                http_status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 \
+                  --header 'Cache-Control: no-cache' --output "$health_file" --write-out '%{http_code}' \
+                  "https://$service_url/health") || http_status=000
+                sha=$(jq -r '.deploymentSha // empty' "$health_file" 2>/dev/null) || sha=""
+                initialization=$(jq -r '.databaseInitialization // empty' "$health_file" 2>/dev/null) || initialization=""
+                echo "Serving SHA: ${sha:-not ready}; database: ${initialization:-not ready}; HTTP: $http_status"
+                if [ "$sha" = "$EXPECTED_SHA" ] && [ "$initialization" = "failed" ]; then
+                  echo "The deployed revision failed database initialization."
+                  exit 1
+                fi
+                if [[ "$http_status" == 2?? ]] && [ "$sha" = "$EXPECTED_SHA" ] && [ "$initialization" = "ready" ]; then
+                  exit 0
+                fi
+                ;;
+            esac
             sleep 10
           done
-          echo "Timed out waiting for App Runner to serve image $EXPECTED_SHA."
+          echo "Timed out waiting for deployment $DEPLOYMENT_OPERATION_ID to serve image $EXPECTED_SHA."
           exit 1

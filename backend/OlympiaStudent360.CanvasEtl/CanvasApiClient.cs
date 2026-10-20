@@ -16,14 +16,17 @@ internal sealed partial class CanvasApiClient
     {
         _httpClient = httpClient;
         _options = options;
-        _httpClient.BaseAddress = options.BaseUri;
-        _httpClient.Timeout = TimeSpan.FromMinutes(2);
+        // The database retry recreates this wrapper with the same HttpClient. Settings
+        // cannot be assigned again after that client has sent its first request.
+        if (_httpClient.BaseAddress != options.BaseUri) _httpClient.BaseAddress = options.BaseUri;
+        if (_httpClient.Timeout != TimeSpan.FromMinutes(2)) _httpClient.Timeout = TimeSpan.FromMinutes(2);
         _httpClient.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", options.AccessToken);
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "OlympiaStudent360-CanvasETL/1.0 (+https://theolympiaschools.edu.vn)");
-        _httpClient.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json"));
+        if (!_httpClient.DefaultRequestHeaders.UserAgent.Any(item => item.Product?.Name == "OlympiaStudent360-CanvasETL"))
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "OlympiaStudent360-CanvasETL/1.0 (+https://theolympiaschools.edu.vn)");
+        if (!_httpClient.DefaultRequestHeaders.Accept.Any(item => item.MediaType == "application/json"))
+            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
     public async Task<List<CanvasCourseDto>> GetCourses(CancellationToken cancellationToken)

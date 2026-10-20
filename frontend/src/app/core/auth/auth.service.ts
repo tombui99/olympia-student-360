@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { catchError, map, Observable, of, tap } from 'rxjs';
 import { AuthService as ApiAuthService } from '../../api/api/auth.service';
@@ -66,10 +67,14 @@ export class AuthenticationService {
         this.currentUserLoaded = true;
       }),
       map(() => true),
-      catchError(() => {
-        this.clearUserState();
-        this.currentUserLoaded = true;
-        return of(false);
+      catchError((error: HttpErrorResponse) => {
+        if (error.status === 401 || error.status === 403) {
+          this.clearUserState();
+          return of(false);
+        }
+        // A gateway or network outage does not invalidate the saved session.
+        // Keep it and leave currentUserLoaded false so the next navigation retries.
+        return of(this.isAuthenticated());
       }),
     );
   }

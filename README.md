@@ -157,6 +157,34 @@ dotnet run --project OlympiaStudent360.Api/OlympiaStudent360.Api.csproj
 
 The next backend startup will recreate the database. It will seed the admin user only when `SeedAdmin__Password` is set.
 
+### Backend deployments
+
+The backend workflow applies database migrations on the GitHub runner before publishing the
+image and starting App Runner. Large schema changes must finish before App Runner starts its
+HTTP health checks; otherwise startup can be killed while it is still migrating and the service
+rolls back. The migration step resolves the same `OLYMPIA_RDS_CONNECTION_STRING` override or
+deployed App Runner connection used by the Canvas ETL. The runner needs network access to RDS;
+the AWS role needs `apprunner:DescribeService`, `apprunner:ListOperations`, and the existing
+secret/parameter read permission when the connection is stored in Secrets Manager or SSM.
+
+The standalone command requires only the database configuration, without JWT settings or a web host:
+
+```bash
+dotnet run --project backend/OlympiaStudent360.Api --configuration Release --no-launch-profile -- --migrate-database-only
+```
+
+Migration commands have a ten-minute default timeout, scoped to migration work. Interrupted
+Canvas leadership-report migrations resume committed tables, columns, and indexes without
+dropping them, and record completion only after all operations finish. Normal API startup still
+checks the schema and seeds Identity for local/manual launches. A failed pre-deployment migration
+stops the workflow before publishing an image or starting a rollout.
+
+Deployment verification tracks the exact App Runner operation ID. `FAILED`, `ROLLBACK_SUCCEEDED`,
+and `ROLLBACK_FAILED` fail the workflow immediately. Success additionally requires `/health` to
+report the expected commit SHA and ready database initialization. A healthy older revision after
+rollback cannot satisfy this check. These checks use Bash, AWS CLI, jq, and curl directly in
+the workflow.
+
 ## Canvas Daily ETL
 
 The `OlympiaStudent360.CanvasEtl` command is a durable direct Canvas-to-MySQL import; it does not

@@ -1621,7 +1621,7 @@ public class DashboardController : ControllerBase
 
         // A migration can be deployed before the first post-deploy Canvas run. The report must
         // remain unavailable until ETL materializes the summary table.
-        if (await CanvasDashboardAggregateService.IsReadyForLatestCompletedSyncAsync(
+        if (await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
                 _context, cancellationToken))
         {
             return await CanvasAggregateMetrics(

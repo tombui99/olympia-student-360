@@ -66,20 +66,15 @@ public sealed class CanvasDashboardAggregateService
         RefreshIfNeededAsync(cancellationToken);
 
     /// <summary>
-    /// A report snapshot is readable only when its schema is current and its build marker covers
-    /// the newest durably completed Canvas ETL run. This prevents requests from serving a stale
-    /// snapshot while the retry worker is rebuilding after an interrupted post-ETL refresh.
+    /// Keep serving the last committed, compatible snapshot while a newer ETL run is being
+    /// materialized. Freshness determines whether the worker rebuilds, not whether users can
+    /// read reports. The replacement facts and build marker are published in one transaction.
     /// </summary>
-    public static async Task<bool> IsReadyForLatestCompletedSyncAsync(
+    public static async Task<bool> HasReadableSnapshotAsync(
         AppDbContext db, CancellationToken cancellationToken = default)
     {
-        var latestRunId = await db.CanvasSyncRuns.AsNoTracking()
-            .Where(item => item.Status == "completed")
-            .MaxAsync(item => (int?)item.Id, cancellationToken) ?? 0;
-        if (latestRunId == 0) return false;
         return await db.CanvasDashboardAggregateBuilds.AsNoTracking()
-            .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion &&
-                item.LastCompletedSyncRunId >= latestRunId, cancellationToken);
+            .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion, cancellationToken);
     }
 
     private async Task<T> WithWarehouseAndRebuildLockAsync<T>(
@@ -118,9 +113,7 @@ public sealed class CanvasDashboardAggregateService
             {
                 if (acquired)
                 {
-                    await using var release = connection.CreateCommand();
-                    release.CommandText = "SELECT RELEASE_LOCK('olympia_canvas_report_aggregates')";
-                    await release.ExecuteScalarAsync(CancellationToken.None);
+                    await ApplicationDatabase.ReleaseSessionLockAsync(connection, "olympia_canvas_report_aggregates");
                 }
             }
             finally
@@ -142,136 +135,150 @@ public sealed class CanvasDashboardAggregateService
                 item.StartDate,
                 item.EndDate))
             .ToListAsync(cancellationToken);
-        var accumulators = new Dictionary<AggregateKey, AggregateValue>();
-
-        await foreach (var item in _db.CanvasSubmissions.AsNoTracking()
-            .Where(item => item.StudentProfileId != null)
-            .Select(item => new
-            {
-                StudentProfileId = item.StudentProfileId!.Value,
-                item.CanvasCourseId,
-                item.CanvasAssignmentId,
-                CourseTerm = item.Assignment!.Course!.EnrollmentTermName,
-                item.WorkflowState,
-                item.Score,
-                PointsPossible = item.Assignment.PointsPossible,
-                item.SubmittedAt,
-                item.GradedAt,
-                DueAt = item.CachedDueDate ?? item.Assignment.DueAt,
-                item.Late,
-                item.Missing,
-                item.Excused
-            })
-            .AsAsyncEnumerable()
-            .WithCancellation(cancellationToken))
-        {
-            var filterDate = item.DueAt ?? item.GradedAt ?? item.SubmittedAt;
-            var termDate = item.DueAt ?? item.SubmittedAt;
-            var academicYear = AcademicYear(item.CourseTerm, filterDate);
-            var term = Term(periods, academicYear, termDate);
-
-            if (item.SubmittedAt is not null)
-            {
-                Add(accumulators, AssignmentsSubmitted, item.StudentProfileId, item.CanvasCourseId,
-                    item.CanvasAssignmentId, academicYear, term, item.SubmittedAt, filterDate, 1, 0);
-            }
-            if (item.WorkflowState == "graded")
-            {
-                var gradedDate = item.GradedAt ?? item.SubmittedAt;
-                Add(accumulators, AssignmentsGraded, item.StudentProfileId, item.CanvasCourseId,
-                    item.CanvasAssignmentId, academicYear, term, gradedDate, filterDate, 1, 0);
-                if (item.SubmittedAt is not null)
-                {
-                    Add(accumulators, SubmittedAssignmentsGraded, item.StudentProfileId,
-                        item.CanvasCourseId, item.CanvasAssignmentId, academicYear, term,
-                        item.SubmittedAt, filterDate, 1, 0);
-                }
-                if (item.Score is not null && item.PointsPossible > 0 && gradedDate is not null)
-                {
-                    Add(accumulators, SubmissionScoreAverage, item.StudentProfileId,
-                        item.CanvasCourseId, item.CanvasAssignmentId, academicYear, term, gradedDate, filterDate,
-                        item.Score.Value / item.PointsPossible.Value * 100, 1);
-                }
-            }
-            if (item.Missing && item.Excused != true)
-            {
-                Add(accumulators, AssignmentsMissing, item.StudentProfileId, item.CanvasCourseId,
-                    item.CanvasAssignmentId, academicYear, term, item.DueAt, filterDate, 1, 0);
-            }
-            if (item.Late)
-            {
-                Add(accumulators, AssignmentsLate, item.StudentProfileId, item.CanvasCourseId,
-                    item.CanvasAssignmentId, academicYear, term, item.SubmittedAt, filterDate, 1, 0);
-            }
-        }
-
-        await foreach (var item in _db.CanvasCourseScores.AsNoTracking()
-            .Where(item => item.StudentProfileId != null)
-            .Select(item => new
-            {
-                StudentProfileId = item.StudentProfileId!.Value,
-                CanvasCourseId = item.Enrollment!.CanvasCourseId,
-                CourseEndAt = item.Enrollment!.Course!.EndAt,
-                item.GradingPeriodTitle,
-                item.GradingPeriodEndDate,
-                item.CurrentScore,
-                item.FinalScore,
-                item.CurrentPoints,
-                item.CurrentGrade,
-                item.FinalGrade
-            })
-            .AsAsyncEnumerable()
-            .WithCancellation(cancellationToken))
-        {
-            var reportingDate = item.GradingPeriodEndDate ?? item.CourseEndAt;
-            // Score rows without a reporting date are still valid in an unfiltered overall view,
-            // but intentionally have no academic-year or monthly bucket.
-            var academicYear = reportingDate is null
-                ? ""
-                : DashboardPeriodNormalizer.AcademicYear(reportingDate.Value);
-            var term = string.IsNullOrWhiteSpace(item.GradingPeriodTitle)
-                ? ""
-                : DashboardPeriodNormalizer.Term(item.GradingPeriodTitle);
-            var hasGradeEvidence = item.CurrentPoints is not null and not 0
-                || !string.IsNullOrWhiteSpace(item.CurrentGrade)
-                || !string.IsNullOrWhiteSpace(item.FinalGrade);
-
-            if (item.FinalScore is not null && (item.FinalScore != 0 || hasGradeEvidence))
-            {
-                Add(accumulators, FinalScoreAverage, item.StudentProfileId, item.CanvasCourseId,
-                    null, academicYear, term, reportingDate, reportingDate, item.FinalScore.Value, 1);
-            }
-            if (item.CurrentScore is not null && (item.CurrentScore != 0 || hasGradeEvidence))
-            {
-                Add(accumulators, CurrentScoreAverage, item.StudentProfileId, item.CanvasCourseId,
-                    null, academicYear, term, reportingDate, reportingDate, item.CurrentScore.Value, 1);
-            }
-        }
-
-        var now = DateTime.UtcNow;
-        var rows = accumulators.Select(item => new CanvasDashboardMetricAggregate
-        {
-            MetricKey = item.Key.MetricKey,
-            StudentProfileId = item.Key.StudentProfileId,
-            CanvasCourseId = item.Key.CanvasCourseId,
-            CanvasAssignmentId = item.Key.CanvasAssignmentId,
-            AcademicYear = item.Key.AcademicYear,
-            Term = item.Key.Term,
-            PeriodStart = item.Key.PeriodStart,
-            AcademicPeriodStart = item.Key.AcademicPeriodStart,
-            ValueSum = item.Value.ValueSum,
-            SampleCount = item.Value.SampleCount,
-            CreatedAt = now
-        }).ToArray();
-
+        var courseIds = await _db.CanvasCourses.AsNoTracking()
+            .OrderBy(item => item.CanvasCourseId)
+            .Select(item => item.CanvasCourseId).ToArrayAsync(cancellationToken);
+        var rowCount = 0;
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         await _db.CanvasLeadershipReportAggregates.ExecuteDeleteAsync(cancellationToken);
         await _db.CanvasDashboardMetricAggregates.ExecuteDeleteAsync(cancellationToken);
-        foreach (var batch in rows.Chunk(1000))
+        // Bound peak memory to one course instead of retaining millions of assignment
+        // metric keys and a second full entity array in the API process. Keep publication
+        // atomic so readers can continue using the previous committed snapshot.
+        foreach (var courseId in courseIds)
         {
-            _db.CanvasDashboardMetricAggregates.AddRange(batch);
-            await _db.SaveChangesAsync(cancellationToken);
-            _db.ChangeTracker.Clear();
+            var accumulators = new Dictionary<AggregateKey, AggregateValue>();
+
+            await foreach (var item in _db.CanvasSubmissions.AsNoTracking()
+                // Assignments.CourseId and Submissions.AssignmentId are indexed; the
+                // denormalized Submissions.CourseId is not. Follow the assignment join
+                // so each batch can seek its course instead of rescanning all facts.
+                .Where(item => item.StudentProfileId != null && item.Assignment!.CanvasCourseId == courseId)
+                .Select(item => new
+                {
+                    StudentProfileId = item.StudentProfileId!.Value,
+                    item.CanvasCourseId,
+                    item.CanvasAssignmentId,
+                    CourseTerm = item.Assignment!.Course!.EnrollmentTermName,
+                    item.WorkflowState,
+                    item.Score,
+                    PointsPossible = item.Assignment.PointsPossible,
+                    item.SubmittedAt,
+                    item.GradedAt,
+                    DueAt = item.CachedDueDate ?? item.Assignment.DueAt,
+                    item.Late,
+                    item.Missing,
+                    item.Excused
+                })
+                .AsAsyncEnumerable()
+                .WithCancellation(cancellationToken))
+            {
+                var filterDate = item.DueAt ?? item.GradedAt ?? item.SubmittedAt;
+                var termDate = item.DueAt ?? item.SubmittedAt;
+                var academicYear = AcademicYear(item.CourseTerm, filterDate);
+                var term = Term(periods, academicYear, termDate);
+
+                if (item.SubmittedAt is not null)
+                {
+                    Add(accumulators, AssignmentsSubmitted, item.StudentProfileId, item.CanvasCourseId,
+                        item.CanvasAssignmentId, academicYear, term, item.SubmittedAt, filterDate, 1, 0);
+                }
+                if (item.WorkflowState == "graded")
+                {
+                    var gradedDate = item.GradedAt ?? item.SubmittedAt;
+                    Add(accumulators, AssignmentsGraded, item.StudentProfileId, item.CanvasCourseId,
+                        item.CanvasAssignmentId, academicYear, term, gradedDate, filterDate, 1, 0);
+                    if (item.SubmittedAt is not null)
+                    {
+                        Add(accumulators, SubmittedAssignmentsGraded, item.StudentProfileId,
+                            item.CanvasCourseId, item.CanvasAssignmentId, academicYear, term,
+                            item.SubmittedAt, filterDate, 1, 0);
+                    }
+                    if (item.Score is not null && item.PointsPossible > 0 && gradedDate is not null)
+                    {
+                        Add(accumulators, SubmissionScoreAverage, item.StudentProfileId,
+                            item.CanvasCourseId, item.CanvasAssignmentId, academicYear, term, gradedDate, filterDate,
+                            item.Score.Value / item.PointsPossible.Value * 100, 1);
+                    }
+                }
+                if (item.Missing && item.Excused != true)
+                {
+                    Add(accumulators, AssignmentsMissing, item.StudentProfileId, item.CanvasCourseId,
+                        item.CanvasAssignmentId, academicYear, term, item.DueAt, filterDate, 1, 0);
+                }
+                if (item.Late)
+                {
+                    Add(accumulators, AssignmentsLate, item.StudentProfileId, item.CanvasCourseId,
+                        item.CanvasAssignmentId, academicYear, term, item.SubmittedAt, filterDate, 1, 0);
+                }
+            }
+
+            await foreach (var item in _db.CanvasCourseScores.AsNoTracking()
+                .Where(item => item.StudentProfileId != null && item.Enrollment!.CanvasCourseId == courseId)
+                .Select(item => new
+                {
+                    StudentProfileId = item.StudentProfileId!.Value,
+                    CanvasCourseId = item.Enrollment!.CanvasCourseId,
+                    CourseEndAt = item.Enrollment!.Course!.EndAt,
+                    item.GradingPeriodTitle,
+                    item.GradingPeriodEndDate,
+                    item.CurrentScore,
+                    item.FinalScore,
+                    item.CurrentPoints,
+                    item.CurrentGrade,
+                    item.FinalGrade
+                })
+                .AsAsyncEnumerable()
+                .WithCancellation(cancellationToken))
+            {
+                var reportingDate = item.GradingPeriodEndDate ?? item.CourseEndAt;
+                // Score rows without a reporting date are still valid in an unfiltered overall view,
+                // but intentionally have no academic-year or monthly bucket.
+                var academicYear = reportingDate is null
+                    ? ""
+                    : DashboardPeriodNormalizer.AcademicYear(reportingDate.Value);
+                var term = string.IsNullOrWhiteSpace(item.GradingPeriodTitle)
+                    ? ""
+                    : DashboardPeriodNormalizer.Term(item.GradingPeriodTitle);
+                var hasGradeEvidence = item.CurrentPoints is not null and not 0
+                    || !string.IsNullOrWhiteSpace(item.CurrentGrade)
+                    || !string.IsNullOrWhiteSpace(item.FinalGrade);
+
+                if (item.FinalScore is not null && (item.FinalScore != 0 || hasGradeEvidence))
+                {
+                    Add(accumulators, FinalScoreAverage, item.StudentProfileId, item.CanvasCourseId,
+                        null, academicYear, term, reportingDate, reportingDate, item.FinalScore.Value, 1);
+                }
+                if (item.CurrentScore is not null && (item.CurrentScore != 0 || hasGradeEvidence))
+                {
+                    Add(accumulators, CurrentScoreAverage, item.StudentProfileId, item.CanvasCourseId,
+                        null, academicYear, term, reportingDate, reportingDate, item.CurrentScore.Value, 1);
+                }
+            }
+
+            var now = DateTime.UtcNow;
+            var rows = accumulators.Select(item => new CanvasDashboardMetricAggregate
+            {
+                MetricKey = item.Key.MetricKey,
+                StudentProfileId = item.Key.StudentProfileId,
+                CanvasCourseId = item.Key.CanvasCourseId,
+                CanvasAssignmentId = item.Key.CanvasAssignmentId,
+                AcademicYear = item.Key.AcademicYear,
+                Term = item.Key.Term,
+                PeriodStart = item.Key.PeriodStart,
+                AcademicPeriodStart = item.Key.AcademicPeriodStart,
+                ValueSum = item.Value.ValueSum,
+                SampleCount = item.Value.SampleCount,
+                CreatedAt = now
+            });
+
+            foreach (var batch in rows.Chunk(1000))
+            {
+                _db.CanvasDashboardMetricAggregates.AddRange(batch);
+                await _db.SaveChangesAsync(cancellationToken);
+                _db.ChangeTracker.Clear();
+                rowCount += batch.Length;
+            }
         }
         await PopulateLeadershipFromDashboardFactsAsync(cancellationToken);
         await PopulateLeadershipScorePointsAsync(cancellationToken);
@@ -284,7 +291,7 @@ public sealed class CanvasDashboardAggregateService
         });
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return rows.Length;
+        return rowCount;
     }
 
     private async Task<int> BackfillLeadershipFromDashboardAsync(
@@ -319,7 +326,7 @@ public sealed class CanvasDashboardAggregateService
                 (`StudentProfileId`, `CanvasCourseId`, `AcademicYear`, `Term`,
                  `AcademicPeriodStart`, `IsFinalCourseScore`, `AssignmentGroupName`,
                  `AssessmentCategory`, `Submitted`, `Missing`, `Late`, `Graded`,
-                 `ScoreSum`, `ScoreCount`, `CreatedAt`)
+                 `ScoreSum`, `ScoreCount`, `EarnedPoints`, `PossiblePoints`, `CreatedAt`)
             SELECT source.`StudentProfileId`, source.`CanvasCourseId`,
                    source.`AcademicYear`, source.`Term`, source.`AcademicPeriodStart`,
                    CASE WHEN source.`MetricKey` = '{FinalScoreAverage}' THEN 1 ELSE 0 END,
@@ -338,7 +345,7 @@ public sealed class CanvasDashboardAggregateService
                         THEN source.`ValueSum` ELSE 0 END),
                    SUM(CASE WHEN source.`MetricKey` IN ('{SubmissionScoreAverage}', '{FinalScoreAverage}')
                         THEN source.`SampleCount` ELSE 0 END),
-                   UTC_TIMESTAMP(6)
+                   0, 0, UTC_TIMESTAMP(6)
             FROM `CanvasDashboardMetricAggregates` AS source
             LEFT JOIN `CanvasAssignments` AS assignment
                 ON assignment.`CanvasAssignmentId` = source.`CanvasAssignmentId`

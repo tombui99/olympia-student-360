@@ -52,9 +52,7 @@ public sealed class ImportedReportAggregateWorker(
                         }
                         finally
                         {
-                            await using var release = connection.CreateCommand();
-                            release.CommandText = "SELECT RELEASE_LOCK('olympia_imported_report_aggregates')";
-                            await release.ExecuteScalarAsync(CancellationToken.None);
+                            await ApplicationDatabase.ReleaseSessionLockAsync(connection, "olympia_imported_report_aggregates");
                         }
                     }
                 }

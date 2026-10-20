@@ -50,6 +50,11 @@ jobs:
           dotnet build backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
             --configuration Release --no-restore
 
+      - name: Verify database retry policy
+        run: >-
+          dotnet test backend/OlympiaStudent360.Tests/OlympiaStudent360.Tests.csproj
+          --configuration Release --filter FullyQualifiedName~DatabaseResilienceTests
+
       - name: Configure AWS credentials
         if: env.ConnectionStrings__DefaultConnection == ''
         uses: aws-actions/configure-aws-credentials@v4

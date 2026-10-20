@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
@@ -17,11 +18,40 @@ public sealed class CanvasDirectImportRunner
         CanvasDirectImportRequest request,
         CancellationToken cancellationToken)
     {
+        var options = (DbContextOptions<AppDbContext>)db.GetService<IDbContextOptions>();
+        var attempt = 0;
+        return await ApplicationDatabase.CreateRetryStrategy(db).ExecuteAsync(async token =>
+        {
+            if (++attempt > 1)
+                Console.Error.WriteLine($"Retrying Canvas import after a transient database failure (attempt {attempt}/4).");
+            // Never reuse tracked entities, transactions, or a session whose named lock
+            // may have been lost. Completed course upserts can safely be replayed; the
+            // watermark advances only after the entire import succeeds.
+            await using var attemptDb = new AppDbContext(options);
+            return await RunAttempt(attemptDb, httpClient, request, token);
+        }, cancellationToken);
+    }
+
+    private static async Task<CanvasDirectImportResult> RunAttempt(
+        AppDbContext db,
+        HttpClient httpClient,
+        CanvasDirectImportRequest request,
+        CancellationToken cancellationToken)
+    {
         await db.MigrateWithRecoveryAsync(cancellationToken);
         await using var warehouseLock = await CanvasWarehouseLock.AcquireAsync(db, cancellationToken);
 
         var startedAtUtc = DateTime.UtcNow;
         var sourceKey = $"canvas:{request.BaseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";
+        // Owning the warehouse lock proves no previous running attempt can still be
+        // importing. A lost connection may have prevented it from recording failure.
+        await db.CanvasSyncRuns.Where(item => item.SourceKey == sourceKey && item.Status == "running")
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.Status, "failed")
+                .SetProperty(item => item.CompletedAtUtc, startedAtUtc)
+                .SetProperty(item => item.UpdatedAt, startedAtUtc)
+                .SetProperty(item => item.Error, "Previous Canvas attempt was interrupted before completion."),
+                cancellationToken);
         var state = await db.CanvasSyncStates.SingleOrDefaultAsync(
             item => item.SourceKey == sourceKey, cancellationToken);
 
@@ -112,19 +142,28 @@ public sealed class CanvasDirectImportRunner
         }
         catch (Exception exception)
         {
-            db.ChangeTracker.Clear();
-            state = await db.CanvasSyncStates.SingleAsync(
-                item => item.SourceKey == sourceKey, CancellationToken.None);
-            state.LastCompletedAtUtc = DateTime.UtcNow;
-            state.LastStatus = exception is OperationCanceledException ? "cancelled" : "failed";
-            state.LastError = Limit(exception.Message, 2000);
-            state.UpdatedAt = DateTime.UtcNow;
-            run = await db.CanvasSyncRuns.SingleAsync(item => item.Id == run.Id, CancellationToken.None);
-            run.Status = state.LastStatus;
-            run.CompletedAtUtc = state.LastCompletedAtUtc;
-            run.Error = state.LastError;
-            run.UpdatedAt = state.UpdatedAt;
-            await db.SaveChangesAsync(CancellationToken.None);
+            try
+            {
+                db.ChangeTracker.Clear();
+                state = await db.CanvasSyncStates.SingleAsync(
+                    item => item.SourceKey == sourceKey, CancellationToken.None);
+                state.LastCompletedAtUtc = DateTime.UtcNow;
+                state.LastStatus = exception is OperationCanceledException ? "cancelled" : "failed";
+                state.LastError = Limit(exception.ToString(), 2000);
+                state.UpdatedAt = DateTime.UtcNow;
+                run = await db.CanvasSyncRuns.SingleAsync(item => item.Id == run.Id, CancellationToken.None);
+                run.Status = state.LastStatus;
+                run.CompletedAtUtc = state.LastCompletedAtUtc;
+                run.Error = state.LastError;
+                run.UpdatedAt = state.UpdatedAt;
+                await db.SaveChangesAsync(CancellationToken.None);
+            }
+            catch (Exception historyException)
+            {
+                // A broken connection can also prevent recording the failure. Preserve
+                // the original exception so the outer strategy can classify and retry it.
+                Console.Error.WriteLine($"Could not record Canvas sync failure: {historyException}");
+            }
             throw;
         }
 

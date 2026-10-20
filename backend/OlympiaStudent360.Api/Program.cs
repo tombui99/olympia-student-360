@@ -10,6 +10,27 @@ using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
+if (args.Contains("--migrate-database-only", StringComparer.Ordinal))
+{
+    // Run schema changes on the deployment runner before starting App Runner's
+    // health-check clock. This command needs the database connection, not JWT or
+    // a running web host, Identity seeding, or background report workers.
+    var connection = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrWhiteSpace(connection))
+        throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required for migrations.");
+    var options = new DbContextOptionsBuilder<AppDbContext>()
+        .UseResilientMySql(connection)
+        .LogTo(Console.WriteLine, [DbLoggerCategory.Migrations.Name], LogLevel.Information)
+        .Options;
+    await using var retryDb = new AppDbContext(options);
+    await ApplicationDatabase.CreateRetryStrategy(retryDb).ExecuteAsync(async () =>
+    {
+        await using var migrationDb = new AppDbContext(options);
+        await migrationDb.MigrateWithRecoveryAsync();
+    });
+    Console.WriteLine("Backend database migrations completed successfully.");
+    return;
+}
 var rebuildImportedAggregatesOnly = args.Contains(
     "--rebuild-imported-report-aggregates-only", StringComparer.Ordinal);
 
@@ -25,7 +46,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         connectionString = envConnection;
     }
 
-    options.UseMySQL(connectionString!);
+    options.UseResilientMySql(connectionString!);
 });
 
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
@@ -183,5 +204,10 @@ if (rebuildImportedAggregatesOnly)
 
 // Finish schema migration and seeding before Kestrel starts accepting traffic. App Runner
 // keeps the previous healthy revision in service until this process is ready.
-await DbInitializer.Seed(app.Services, app.Configuration);
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await ApplicationDatabase.CreateRetryStrategy(db).ExecuteAsync(
+        () => DbInitializer.Seed(app.Services, app.Configuration));
+}
 app.Run();

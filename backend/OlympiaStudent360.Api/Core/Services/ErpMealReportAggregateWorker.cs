@@ -46,9 +46,7 @@ public sealed class ErpMealReportAggregateWorker(
                         }
                         finally
                         {
-                            await using var release = connection.CreateCommand();
-                            release.CommandText = "SELECT RELEASE_LOCK('olympia_erp_meal_report_aggregates')";
-                            await release.ExecuteScalarAsync(CancellationToken.None);
+                            await ApplicationDatabase.ReleaseSessionLockAsync(connection, "olympia_erp_meal_report_aggregates");
                         }
                     }
                 }

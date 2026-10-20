@@ -57,7 +57,7 @@ try
         .Build();
     var connectionString = Required(configuration, "ConnectionStrings:DefaultConnection");
     var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
-        .UseMySQL(connectionString)
+        .UseResilientMySql(connectionString)
         .Options;
     if (rebuildAggregatesOnly)
     {
@@ -130,7 +130,7 @@ catch (OperationCanceledException)
 }
 catch (Exception exception)
 {
-    Console.Error.WriteLine($"Canvas sync failed: {exception.Message}");
+    Console.Error.WriteLine($"Canvas sync failed: {exception}");
     return 1;
 }
 

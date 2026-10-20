@@ -23,6 +23,10 @@ unbounded.
 
 An API returns `503 Report aggregates are being prepared` (or an unavailable Canvas metric) when a
 required build marker is missing. It does not fall back to an expensive raw-data calculation.
+Canvas readers continue serving the last committed snapshot with a compatible schema while a
+newer completed sync is materialized. The rebuild cursor still triggers retries until that
+snapshot catches up. Canvas rebuilding holds only one course's metric keys in API memory and
+writes entity batches without allocating a second warehouse-sized array.
 
 Exact-record drilldowns are the deliberate exception to the persisted-summary source rule: health
 visits and behaviour details read their source records because those records are the requested

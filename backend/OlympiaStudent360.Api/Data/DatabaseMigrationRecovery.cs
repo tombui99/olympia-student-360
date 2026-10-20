@@ -1,6 +1,9 @@
 using System.Data;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 
 namespace OlympiaStudent360.Api.Data;
 
@@ -9,6 +12,15 @@ public static class DatabaseMigrationRecovery
     private const string LearningReportsMigration =
         "20261008090830_AddConfigurableLearningReports";
     private const string MigrationLock = "olympia_student_360_schema_migration";
+    private const int MigrationCommandTimeoutSeconds = 600;
+
+    private static readonly HashSet<string> ResumableCanvasMigrations =
+    [
+        "20261017145751_PrecomputeCanvasLeadershipReports",
+        "20261017152023_TriggerCanvasReportAggregationOnCompletedSync",
+        "20261017161256_PersistCanvasGroupScorePoints",
+        "20261017162556_OptimizeCanvasScorePointBackfill"
+    ];
 
     private static readonly string[] LearningReportTables =
     [
@@ -30,6 +42,9 @@ public static class DatabaseMigrationRecovery
             await context.Database.OpenConnectionAsync(cancellationToken);
         }
 
+        var previousTimeout = context.Database.GetCommandTimeout();
+        if (previousTimeout is null)
+            context.Database.SetCommandTimeout(MigrationCommandTimeoutSeconds);
         var lockAcquired = false;
         try
         {
@@ -44,24 +59,93 @@ public static class DatabaseMigrationRecovery
             }
 
             await RepairPartiallyAppliedLearningReportsMigrationAsync(connection, cancellationToken);
+            await ResumeCanvasReportMigrationsAsync(context, connection, cancellationToken);
             await context.Database.MigrateAsync(cancellationToken);
         }
         finally
         {
-            if (lockAcquired)
+            try
             {
-                await ScalarAsync(
-                    connection,
-                    "SELECT RELEASE_LOCK(@lockName);",
-                    CancellationToken.None,
-                    ("@lockName", MigrationLock));
+                if (lockAcquired)
+                    await ApplicationDatabase.ReleaseSessionLockAsync(connection, MigrationLock);
             }
-
-            if (openedHere)
+            finally
             {
-                await context.Database.CloseConnectionAsync();
+                context.Database.SetCommandTimeout(previousTimeout);
+                if (openedHere)
+                    await context.Database.CloseConnectionAsync();
             }
         }
+    }
+
+    private static async Task ResumeCanvasReportMigrationsAsync(
+        AppDbContext context, DbConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, "__EFMigrationsHistory", cancellationToken)) return;
+        var applied = (await context.Database.GetAppliedMigrationsAsync(cancellationToken)).ToHashSet();
+        var assembly = context.GetService<IMigrationsAssembly>();
+        var generator = context.GetService<IMigrationsSqlGenerator>();
+        var history = context.GetService<IHistoryRepository>();
+
+        foreach (var (id, migrationType) in assembly.Migrations.OrderBy(item => item.Key))
+        {
+            if (applied.Contains(id)) continue;
+            // Never apply a report migration ahead of an older pending schema change.
+            // Fresh databases and all other migrations use EF's normal migrator.
+            if (!ResumableCanvasMigrations.Contains(id)) break;
+            Console.WriteLine($"Applying/resuming Canvas report migration {id}.");
+            var migration = assembly.CreateMigration(migrationType, context.Database.ProviderName!);
+            var model = context.GetService<IModelRuntimeInitializer>().Initialize(migration.TargetModel);
+            foreach (var operation in migration.UpOperations)
+            {
+                var alreadyApplied = operation switch
+                {
+                    CreateTableOperation table => await CreatedTableExistsAsync(connection, table, cancellationToken),
+                    AddColumnOperation column => await ColumnExistsAsync(connection, column.Table, column.Name, cancellationToken),
+                    CreateIndexOperation index => await CreatedIndexExistsAsync(connection, index, cancellationToken),
+                    // This migration's cursor UPDATE is idempotent and must finish
+                    // even when ADD COLUMN committed before the process was killed.
+                    SqlOperation => false,
+                    _ => throw new InvalidOperationException($"Unsupported recovery operation in {id}: {operation.GetType().Name}")
+                };
+                if (alreadyApplied) continue;
+                foreach (var command in generator.Generate([operation], model))
+                    await context.Database.ExecuteSqlRawAsync(command.CommandText, cancellationToken);
+            }
+            // MySQL DDL commits independently of the EF history row. Record the
+            // migration only after all tables, columns, indexes, and data updates exist.
+            await context.Database.ExecuteSqlRawAsync(
+                history.GetInsertScript(new HistoryRow(id, ProductInfo.GetVersion())), cancellationToken);
+        }
+    }
+
+    private static async Task<bool> CreatedTableExistsAsync(
+        DbConnection connection, CreateTableOperation table, CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, table.Name, cancellationToken)) return false;
+        foreach (var column in table.Columns)
+        {
+            if (!await ColumnExistsAsync(connection, table.Name, column.Name, cancellationToken))
+                throw new InvalidOperationException($"Existing report table {table.Name} is missing column {column.Name}; refusing to overwrite it.");
+        }
+        return true;
+    }
+
+    private static async Task<bool> CreatedIndexExistsAsync(
+        DbConnection connection, CreateIndexOperation index, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, """
+            SELECT `COLUMN_NAME` FROM `information_schema`.`STATISTICS`
+            WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = @table AND `INDEX_NAME` = @index
+            ORDER BY `SEQ_IN_INDEX`
+            """, ("@table", index.Table), ("@index", index.Name));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var columns = new List<string>();
+        while (await reader.ReadAsync(cancellationToken)) columns.Add(reader.GetString(0));
+        if (columns.Count == 0) return false;
+        if (!columns.SequenceEqual(index.Columns, StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Existing index {index.Name} has unexpected columns; refusing to overwrite it.");
+        return true;
     }
 
     private static async Task RepairPartiallyAppliedLearningReportsMigrationAsync(
@@ -218,6 +302,7 @@ public static class DatabaseMigrationRecovery
         params (string Name, object Value)[] parameters)
     {
         var command = connection.CreateCommand();
+        command.CommandTimeout = MigrationCommandTimeoutSeconds;
         command.CommandText = sql;
         foreach (var (name, value) in parameters)
         {

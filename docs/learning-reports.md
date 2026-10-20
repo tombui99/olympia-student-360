@@ -46,7 +46,8 @@ from existing assignment-grain metric facts and their source submissions without
 dashboard metric table. Older v2/v3 builds are fully rebuilt because their lineage may be
 incomplete. Both paths write version 5 readiness in their transaction; until that commit, the leadership reports show an
 unavailable state rather than scanning raw Canvas data. If a later rebuild fails, the previous
-aggregate remains intact for retry, but report endpoints do not serve it as current data.
+compatible aggregate remains readable while the worker retries. The build cursor still records
+its actual freshness; a newer completed sync no longer makes an existing snapshot unavailable.
 
 The two reports appear directly in `/reports` and use the page's academic year and term. Both
 support grade, homeroom, Canvas subject, and the HS1, HS2, HS3, and GPA
@@ -144,7 +145,9 @@ they never fall back to expensive raw calculations. Import/bulk writers that byp
 
 For deployment, apply the API migrations and start the API. When a completed Canvas run exists, the
 Canvas report backfill runs automatically if version 5 is missing; it can take time on a large
-warehouse, and the report remains unavailable until the transaction commits. For later syncs, compare
+warehouse. Rebuilds accumulate and write one course at a time to bound API memory, while publishing
+all facts and the build marker in one transaction. The first report snapshot remains unavailable
+until that transaction commits; later refreshes keep the previous compatible snapshot readable. Compare
 `CanvasDashboardAggregateBuilds.LastCompletedSyncRunId` with the highest completed
 `CanvasSyncRuns.Id`; a lower build cursor means the aggregate is pending or failed and the worker
 will retry. Then run the API once with

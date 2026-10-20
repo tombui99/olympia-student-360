@@ -80,7 +80,7 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
         var pageSize = Math.Clamp(request.PageSize, 1, request.Export ? MaximumPageSize : 100);
 
         // No raw warehouse fallback: an empty ETL aggregate produces an explicit unavailable result.
-        if (!await CanvasDashboardAggregateService.IsReadyForLatestCompletedSyncAsync(
+        if (!await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
                 db, cancellationToken))
             return Ok(new LearningReportResult([], 0, false, "aggregate_unavailable", request.Page, pageSize));
 

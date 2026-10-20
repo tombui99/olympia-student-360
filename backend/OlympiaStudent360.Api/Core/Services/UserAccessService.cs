@@ -283,7 +283,8 @@ public sealed class UserAccessMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, UserAccessService accessService)
     {
-        if (context.User.Identity?.IsAuthenticated == true)
+        if (context.Request.Path.StartsWithSegments("/api") &&
+            context.User.Identity?.IsAuthenticated == true)
         {
             var access = await accessService.LoadAsync(context.User);
             context.Items[UserAccessService.HttpContextItemKey] = access;

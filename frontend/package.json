@@ -7,6 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "test:resilience": "node --test tests/auth-resilience.test.cjs",
     "generate:api": "openapi-generator-cli generate -i http://localhost:5279/openapi/v1.json -g typescript-angular -o src/app/api --skip-validate-spec"
   },
   "prettier": {

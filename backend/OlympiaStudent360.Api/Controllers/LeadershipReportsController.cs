@@ -69,7 +69,7 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
         var pageSize = request.Export ? Math.Min(request.PageSize, MaximumExportPageSize)
             : Math.Min(request.PageSize, 100);
         const string scoreSource = "canvas-submission-score-percent";
-        if (!await CanvasDashboardAggregateService.IsReadyForLatestCompletedSyncAsync(
+        if (!await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
                 db, cancellationToken))
             return Ok(EmptyResult(request, pageSize, scoreSource, "aggregate_unavailable", false));
 

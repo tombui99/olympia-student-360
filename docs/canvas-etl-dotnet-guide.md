@@ -287,6 +287,20 @@ It does **not** update `LastSuccessfulWatermarkUtc`. The next daily run therefor
 previous successful watermark, including the configured overlap, and safely retries the missed
 window.
 
+Transient MySQL connection failures, timeouts, and deadlocks are retried up to three times
+with bounded exponential backoff. Each attempt uses a fresh DbContext and reacquires the
+warehouse lock before replaying the idempotent import. Statements inside a transaction or
+an explicitly opened lock-owning session are never retried individually. Permanent SQL,
+configuration, and authentication errors fail immediately; cancellation stops retries.
+Failure logging preserves the original exception and its inner cause even if recording
+the failed run or releasing a lock also fails. A session whose lock cannot be released is
+discarded from the connection pool.
+
+The API uses the same policy for ordinary database queries and saves, and retries startup
+migration/seeding with a fresh service scope after a transient failure. Run the regression
+checks with `dotnet test backend/OlympiaStudent360.Tests`; setting `OLYMPIA_TEST_MYSQL` to
+an isolated MySQL server also runs integration tests that create and drop temporary databases.
+
 ## Replace mode
 
 `--replace` is optional and destructive. It is accepted only together with `--sync-all`:

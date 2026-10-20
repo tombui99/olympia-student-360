@@ -47,9 +47,7 @@ public sealed class CanvasWarehouseLock : IAsyncDisposable
         {
             if (_acquired)
             {
-                await using var command = _db.Database.GetDbConnection().CreateCommand();
-                command.CommandText = $"SELECT RELEASE_LOCK('{LockName}')";
-                await command.ExecuteScalarAsync(CancellationToken.None);
+                await ApplicationDatabase.ReleaseSessionLockAsync(_db.Database.GetDbConnection(), LockName);
                 _acquired = false;
             }
         }

@@ -1,0 +1,349 @@
+using System.Data.Common;
+using System.Net;
+using System.Text;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using MySql.Data.MySqlClient;
+using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
+using OlympiaStudent360.Api.Data;
+using OlympiaStudent360.CanvasEtl;
+using Xunit;
+
+namespace OlympiaStudent360.Tests;
+
+public sealed class MySqlFactAttribute : FactAttribute
+{
+    public MySqlFactAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OLYMPIA_TEST_MYSQL")))
+            Skip = "Set OLYMPIA_TEST_MYSQL to an isolated MySQL server; tests create and drop their own databases.";
+    }
+}
+
+public sealed class MySqlTheoryAttribute : TheoryAttribute
+{
+    public MySqlTheoryAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OLYMPIA_TEST_MYSQL")))
+            Skip = "Set OLYMPIA_TEST_MYSQL to an isolated MySQL server.";
+    }
+}
+
+public sealed class MySqlResilienceTests
+{
+    [MySqlFact]
+    public async Task MigrationOnlyEntrypointRunsWithoutJwtOrWebHostAndCanBeRepeated()
+    {
+        await using var test = await TestDatabase.CreateAsync(createSchema: false);
+        await using var db = test.Open();
+        var start = new System.Diagnostics.ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var argument in new[]
+        {
+            "exec", "--runtimeconfig", Path.Combine(AppContext.BaseDirectory, "OlympiaStudent360.Tests.runtimeconfig.json"),
+            "--depsfile", Path.Combine(AppContext.BaseDirectory, "OlympiaStudent360.Tests.deps.json"),
+            typeof(AppDbContext).Assembly.Location, "--migrate-database-only"
+        }) start.ArgumentList.Add(argument);
+        start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+        start.Environment["Jwt__SigningKey"] = "";
+        start.Environment["ConnectionStrings__DefaultConnection"] = db.Database.GetConnectionString();
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var process = System.Diagnostics.Process.Start(start)!;
+            var output = process.StandardOutput.ReadToEndAsync();
+            var errors = process.StandardError.ReadToEndAsync();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+            try { await process.WaitForExitAsync(deadline.Token); }
+            catch { process.Kill(entireProcessTree: true); throw; }
+            Assert.True(process.ExitCode == 0, await output + await errors);
+            Assert.Contains("Backend database migrations completed successfully.", await output);
+            Assert.DoesNotContain("Now listening", await output);
+        }
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+    }
+
+    [MySqlTheory]
+    [InlineData("20261017145751_PrecomputeCanvasLeadershipReports", "20261015065118_AddErpStudentMeals", 2)]
+    [InlineData("20261017152023_TriggerCanvasReportAggregationOnCompletedSync", "20261017145751_PrecomputeCanvasLeadershipReports", 1)]
+    [InlineData("20261017161256_PersistCanvasGroupScorePoints", "20261017152023_TriggerCanvasReportAggregationOnCompletedSync", 1)]
+    [InlineData("20261017162556_OptimizeCanvasScorePointBackfill", "20261017161256_PersistCanvasGroupScorePoints", 1)]
+    public async Task InterruptedReportMigrationsResumeWithoutDroppingCommittedSchema(
+        string interruptedMigration, string previousMigration, int completedOperations)
+    {
+        await using var test = await TestDatabase.CreateAsync(targetMigration: previousMigration);
+        await using var db = test.Open();
+        var assembly = db.GetService<IMigrationsAssembly>();
+        var migration = assembly.CreateMigration(assembly.Migrations[interruptedMigration], db.Database.ProviderName!);
+        var model = db.GetService<IModelRuntimeInitializer>().Initialize(migration.TargetModel);
+        var generator = db.GetService<IMigrationsSqlGenerator>();
+        foreach (var operation in migration.UpOperations.Take(completedOperations))
+            foreach (var command in generator.Generate([operation], model))
+                await db.Database.ExecuteSqlRawAsync(command.CommandText);
+        // A marker on the existing table proves recovery adopts it rather than
+        // dropping/recreating already committed DDL after an App Runner rollback.
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE `CanvasLeadershipReportAggregates` COMMENT='preserve-on-recovery'");
+        var latestRun = CompletedRun(DateTime.UtcNow);
+        db.CanvasSyncRuns.Add(latestRun);
+        await db.SaveChangesAsync();
+        if (interruptedMigration.Contains("TriggerCanvas"))
+        {
+            db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
+            { SchemaVersion = 4, CompletedAtUtc = DateTime.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        await db.MigrateWithRecoveryAsync();
+        Assert.Null(db.Database.GetCommandTimeout());
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        if (interruptedMigration.Contains("TriggerCanvas"))
+            Assert.Equal(latestRun.Id, await db.CanvasDashboardAggregateBuilds.AsNoTracking()
+                .Select(item => item.LastCompletedSyncRunId).SingleAsync());
+        await db.Database.OpenConnectionAsync();
+        try
+        {
+            await using var command = db.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='CanvasLeadershipReportAggregates'";
+            Assert.Equal("preserve-on-recovery", await command.ExecuteScalarAsync());
+        }
+        finally { await db.Database.CloseConnectionAsync(); }
+        // An explicit caller timeout is also retained on subsequent initialization.
+        db.Database.SetCommandTimeout(37);
+        await db.MigrateWithRecoveryAsync();
+        Assert.Equal(37, db.Database.GetCommandTimeout());
+    }
+
+    [MySqlFact]
+    public async Task ExplicitSessionDoesNotReplayCommandsAndTransactionRollsBack()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        await using var db = test.Open();
+        await using (var heldLock = await CanvasWarehouseLock.AcquireAsync(db, default))
+        {
+            var strategy = db.Database.CreateExecutionStrategy();
+            Assert.False(strategy.RetriesOnFailure);
+            var attempts = 0;
+            await Assert.ThrowsAsync<TimeoutException>(() => strategy.ExecuteAsync(() =>
+            {
+                attempts++;
+                return Task.FromException(new TimeoutException());
+            }));
+            Assert.Equal(1, attempts);
+
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            db.StudentProfiles.Add(new StudentProfile { SISUserId = "rollback", FullName = "Test" });
+            await db.SaveChangesAsync();
+            await transaction.RollbackAsync();
+        }
+        db.ChangeTracker.Clear();
+        Assert.True(db.Database.CreateExecutionStrategy().RetriesOnFailure);
+        Assert.Empty(await db.StudentProfiles.ToListAsync());
+    }
+
+    [MySqlTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CanvasRetryUsesFreshContextReplaysUpsertsAndAdvancesWatermarkOnlyOnSuccess(bool killConnection)
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        var fault = new FailCourseReadOnce(killConnection);
+        var options = new DbContextOptionsBuilder<AppDbContext>(test.Options).AddInterceptors(fault).Options;
+        await using var db = new AppDbContext(options);
+        var oldWatermark = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        db.StudentProfiles.Add(new StudentProfile { SISUserId = "test", CanvasUserId = 10, FullName = "Test" });
+        db.CanvasSyncStates.Add(new CanvasSyncState
+        {
+            SourceKey = "canvas:canvas.test:1", LastSuccessfulWatermarkUtc = oldWatermark
+        });
+        await db.SaveChangesAsync();
+        using var handler = new FakeCanvasHandler();
+        using var http = new HttpClient(handler);
+        var result = await new CanvasDirectImportRunner().Run(db, http,
+            new CanvasDirectImportRequest(new Uri("https://canvas.test"), "test-token", "1",
+                false, true, true, true, [1], "incremental", 120, null), default);
+
+        db.ChangeTracker.Clear();
+        var runs = await db.CanvasSyncRuns.OrderBy(item => item.Id).ToListAsync();
+        Assert.Equal(new[] { "failed", "completed" }, runs.Select(item => item.Status));
+        Assert.Equal(oldWatermark.AddMinutes(-120), runs[1].WindowStartUtc);
+        Assert.Equal(2, fault.ContextIds.Distinct().Count());
+        Assert.Equal(2, await db.CanvasCourses.CountAsync());
+        Assert.Equal(2, await db.CanvasEnrollments.CountAsync());
+        var state = await db.CanvasSyncStates.SingleAsync();
+        Assert.Equal(result.WatermarkUtc, DateTime.SpecifyKind(state.LastSuccessfulWatermarkUtc!.Value, DateTimeKind.Utc),
+            TimeSpan.FromMilliseconds(1));
+        Assert.Equal("completed", state.LastStatus);
+        await AssertWarehouseLockReleased(db);
+    }
+
+    [MySqlFact]
+    public async Task CourseBatchesProduceCorrectMetricsAndKeepPreviousSnapshotReadable()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        await using var db = test.Open();
+        var student = new StudentProfile { SISUserId = "test", FullName = "Test" };
+        db.StudentProfiles.Add(student);
+        await db.SaveChangesAsync();
+        var now = new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc);
+        foreach (var courseId in new long[] { 100, 200 })
+        {
+            db.CanvasCourses.Add(new CanvasCourse { CanvasCourseId = courseId, EnrollmentTermName = "2026-27", EndAt = now });
+            db.CanvasAssignments.Add(new CanvasAssignment
+            {
+                CanvasAssignmentId = courseId, CanvasCourseId = courseId,
+                AssignmentGroupName = "Test", PointsPossible = 10, DueAt = now
+            });
+            db.CanvasEnrollments.Add(new CanvasEnrollment
+            {
+                CanvasEnrollmentId = courseId, CanvasCourseId = courseId, CanvasUserId = 10,
+                StudentProfileId = student.Id
+            });
+            db.CanvasCourseScores.Add(new CanvasCourseScore
+            {
+                WarehouseScoreFactId = courseId, CanvasEnrollmentId = courseId,
+                StudentProfileId = student.Id, CurrentScore = 80, FinalScore = 90, CurrentPoints = 8,
+                GradingPeriodEndDate = now
+            });
+            db.CanvasSubmissions.Add(new CanvasSubmission
+            {
+                CanvasSubmissionId = courseId, CanvasCourseId = courseId, CanvasAssignmentId = courseId,
+                CanvasUserId = 10, StudentProfileId = student.Id, WorkflowState = "graded",
+                Score = 8, SubmittedAt = now, GradedAt = now, Late = true
+            });
+        }
+        db.CanvasSyncRuns.Add(CompletedRun(now));
+        await db.SaveChangesAsync();
+        Assert.False(await CanvasDashboardAggregateService.HasReadableSnapshotAsync(db));
+        var count = await new CanvasDashboardAggregateService(db).RebuildAsync(default);
+        Assert.Equal(count, await db.CanvasDashboardMetricAggregates.CountAsync());
+        var metrics = await db.CanvasDashboardMetricAggregates.ToListAsync();
+        foreach (var courseId in new long[] { 100, 200 })
+        {
+            var course = metrics.Where(item => item.CanvasCourseId == courseId).ToList();
+            Assert.Equal(7, course.Count);
+            Assert.Equal(80, course.Single(item => item.MetricKey == CanvasDashboardAggregateService.SubmissionScoreAverage).ValueSum);
+            Assert.Equal(90, course.Single(item => item.MetricKey == CanvasDashboardAggregateService.FinalScoreAverage).ValueSum);
+            Assert.Equal(1, course.Single(item => item.MetricKey == CanvasDashboardAggregateService.AssignmentsLate).ValueSum);
+        }
+        db.CanvasSyncRuns.Add(CompletedRun(now.AddDays(1)));
+        await db.SaveChangesAsync();
+        Assert.True(await CanvasDashboardAggregateService.HasReadableSnapshotAsync(db));
+        Assert.NotNull(await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default));
+        Assert.Null(await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default));
+        await AssertWarehouseLockReleased(db);
+    }
+
+    private static CanvasSyncRun CompletedRun(DateTime now) => new()
+    {
+        SourceKey = "test", Source = "test", Workflow = "incremental", Status = "completed",
+        StartedAtUtc = now, CompletedAtUtc = now, WatermarkUtc = now
+    };
+
+    private static async Task AssertWarehouseLockReleased(AppDbContext db)
+    {
+        await db.Database.OpenConnectionAsync();
+        try
+        {
+            await using var command = db.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "SELECT IS_USED_LOCK('olympia_canvas_warehouse')";
+            Assert.Equal(DBNull.Value, await command.ExecuteScalarAsync());
+        }
+        finally { await db.Database.CloseConnectionAsync(); }
+    }
+
+    private sealed class FailCourseReadOnce(bool killConnection) : DbCommandInterceptor
+    {
+        private bool failed;
+        public List<Guid> ContextIds { get; } = [];
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("FROM `CanvasCourses` AS") && command.CommandText.Contains("WHERE"))
+            {
+                ContextIds.Add(eventData.Context!.ContextId.InstanceId);
+                // Let the first course commit before failing the next one. A retry must
+                // update that first course without introducing duplicate facts.
+                if (!failed && ContextIds.Count == 2)
+                {
+                    failed = true;
+                    if (!killConnection) throw new TimeoutException("Injected transient database failure");
+                    // Exercise the real connector exception and session-lock loss too.
+                    await using var killer = new MySqlConnection(Environment.GetEnvironmentVariable("OLYMPIA_TEST_MYSQL"));
+                    await killer.OpenAsync(cancellationToken);
+                    await using var kill = killer.CreateCommand();
+                    kill.CommandText = $"KILL CONNECTION {((MySqlConnection)command.Connection!).ServerThread}";
+                    await kill.ExecuteNonQueryAsync(cancellationToken);
+                }
+            }
+            return result;
+        }
+    }
+
+    private sealed class FakeCanvasHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            var body = path switch
+            {
+                "/api/v1/accounts/1" => "{\"id\":1,\"name\":\"Grade 5\"}",
+                "/api/v1/accounts/1/sub_accounts" => "[]",
+                "/api/v1/accounts/1/users" => "[{\"id\":10,\"sis_user_id\":\"test\"}]",
+                "/api/v1/accounts/1/courses" => "[{\"id\":100,\"name\":\"First\"},{\"id\":200,\"name\":\"Second\"}]",
+                _ when path.EndsWith("/enrollments") => "[{\"id\":" + path.Split('/')[4] + ",\"user_id\":10,\"type\":\"StudentEnrollment\",\"enrollment_state\":\"active\"}]",
+                _ when path.EndsWith("/grading_periods") => "{\"grading_periods\":[]}",
+                _ => "[]"
+            };
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+        }
+    }
+
+    private sealed class TestDatabase : IAsyncDisposable
+    {
+        public required DbContextOptions<AppDbContext> Options { get; init; }
+        public AppDbContext Open() => new(Options);
+        public static async Task<TestDatabase> CreateAsync(
+            bool migrate = false, string? targetMigration = null, bool createSchema = true)
+        {
+            var connection = new MySqlConnectionStringBuilder(Environment.GetEnvironmentVariable("OLYMPIA_TEST_MYSQL"))
+            { Database = "olympia_test_" + Guid.NewGuid().ToString("N") };
+            var test = new TestDatabase
+            {
+                Options = new DbContextOptionsBuilder<AppDbContext>().UseResilientMySql(connection.ConnectionString).Options
+            };
+            var databaseName = connection.Database;
+            connection.Database = "";
+            await using (var admin = new MySqlConnection(connection.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var create = admin.CreateCommand();
+                create.CommandText = $"CREATE DATABASE `{databaseName}`";
+                await create.ExecuteNonQueryAsync();
+            }
+            await using var db = test.Open();
+            if (!createSchema) return test;
+            if (targetMigration is not null) await db.GetService<IMigrator>().MigrateAsync(targetMigration);
+            else if (migrate) await db.MigrateWithRecoveryAsync();
+            else await db.Database.EnsureCreatedAsync();
+            return test;
+        }
+        public async ValueTask DisposeAsync()
+        {
+            await using var db = Open();
+            await db.Database.OpenConnectionAsync();
+            try
+            {
+                var databaseName = db.Database.GetDbConnection().Database;
+                await using var drop = db.Database.GetDbConnection().CreateCommand();
+                drop.CommandText = $"DROP DATABASE `{databaseName.Replace("`", "``")}`";
+                await drop.ExecuteNonQueryAsync();
+            }
+            finally { await db.Database.CloseConnectionAsync(); }
+        }
+    }
+}
