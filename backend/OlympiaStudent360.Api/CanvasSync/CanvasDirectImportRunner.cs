@@ -20,7 +20,7 @@ public sealed class CanvasDirectImportRunner
     {
         var options = (DbContextOptions<AppDbContext>)db.GetService<IDbContextOptions>();
         var attempt = 0;
-        return await ApplicationDatabase.CreateRetryStrategy(db).ExecuteAsync(async token =>
+        var result = await ApplicationDatabase.CreateRetryStrategy(db).ExecuteAsync(async token =>
         {
             if (++attempt > 1)
                 Console.Error.WriteLine($"Retrying Canvas import after a transient database failure (attempt {attempt}/4).");
@@ -28,8 +28,36 @@ public sealed class CanvasDirectImportRunner
             // may have been lost. Completed course upserts can safely be replayed; the
             // watermark advances only after the entire import succeeds.
             await using var attemptDb = new AppDbContext(options);
-            return await RunAttempt(attemptDb, httpClient, request, token);
+            try
+            {
+                return await RunAttempt(attemptDb, httpClient, request, token);
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"Canvas import attempt {attempt}/4 failed: {exception}");
+                throw;
+            }
         }, cancellationToken);
+
+        // The completed import and watermark are durable before report materialization.
+        // Retry report work independently so it cannot replay a successful Canvas import.
+        Console.WriteLine("Canvas import committed; refreshing report aggregates.");
+        try
+        {
+            var count = await ApplicationDatabase.CreateRetryStrategy(db).ExecuteAsync(async token =>
+            {
+                await using var reportDb = new AppDbContext(options);
+                return await new CanvasDashboardAggregateService(reportDb).RefreshIfNeededAsync(token);
+            }, cancellationToken);
+            if (count.HasValue)
+                Console.WriteLine($"Rebuilt {count.Value} pre-calculated Canvas dashboard metric rows.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                "Canvas data import completed, but report aggregation failed. Retry with --rebuild-dashboard-aggregates-only; the committed import does not need to be repeated.", exception);
+        }
+        return result;
     }
 
     private static async Task<CanvasDirectImportResult> RunAttempt(
@@ -38,8 +66,11 @@ public sealed class CanvasDirectImportRunner
         CanvasDirectImportRequest request,
         CancellationToken cancellationToken)
     {
+        Console.WriteLine("Checking Canvas database migrations.");
         await db.MigrateWithRecoveryAsync(cancellationToken);
+        Console.WriteLine("Acquiring Canvas warehouse lock before importing.");
         await using var warehouseLock = await CanvasWarehouseLock.AcquireAsync(db, cancellationToken);
+        Console.WriteLine("Canvas warehouse lock acquired; starting import.");
 
         var startedAtUtc = DateTime.UtcNow;
         var sourceKey = $"canvas:{request.BaseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";
@@ -165,21 +196,6 @@ public sealed class CanvasDirectImportRunner
                 Console.Error.WriteLine($"Could not record Canvas sync failure: {historyException}");
             }
             throw;
-        }
-
-        // Completion and watermark are already durable. A report refresh failure leaves this
-        // completed run pending for the API worker instead of mislabelling the import as failed.
-        try
-        {
-            var count = await new CanvasDashboardAggregateService(db)
-                .RefreshIfNeededAsync(CancellationToken.None);
-            if (count.HasValue)
-                Console.WriteLine($"Rebuilt {count.Value} pre-calculated Canvas dashboard metric rows.");
-        }
-        catch (Exception exception)
-        {
-            Console.Error.WriteLine(
-                $"Canvas import completed, but report aggregation is pending retry: {exception}");
         }
 
         return new CanvasDirectImportResult(completedAtUtc, sinceUtc, startedAtUtc, summary);

@@ -23,7 +23,9 @@ GitHub Action or local CLI
 
 An upsert inserts a record the first time its Canvas ID is seen and updates the same record on later
 runs. The watermark advances only after the entire run succeeds. A completed run triggers the report
-aggregate refresh; the API worker retries if the rebuild does not finish.
+aggregate refresh in the ETL process. If that refresh fails, retry with
+`--rebuild-dashboard-aggregates-only`. Production API backfills are disabled by default so idle
+App Runner instances cannot hold the import lock during a stalled background rebuild.
 
 ## APIs and destinations
 

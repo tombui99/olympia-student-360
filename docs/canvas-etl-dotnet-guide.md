@@ -272,10 +272,18 @@ On success, the runner records:
 - status `completed`
 
 That committed `CanvasSyncRun` completion triggers the dashboard and leadership report aggregate
-refresh. The API worker watches for a completed run that has not been materialized and retries it
-after a process interruption or aggregate error. The aggregate build marker records the last
-completed run included in the summaries. The report tables are swapped in one transaction, so a
+refresh in the ETL process. Production API backfills are disabled by default because App Runner
+throttles idle CPU: a background rebuild can hold an open transaction and block the next import.
+On an always-on host, set `Canvas__EnableApiReportBackfill=true` to enable the API retry worker;
+it remains enabled by default in development. To retry a failed refresh independently, run the
+ETL with `--rebuild-dashboard-aggregates-only` and the production database connection. The
+aggregate build marker records the last completed run included in the summaries. The report
+tables are swapped in one transaction, so a
 failed refresh leaves the previous completed snapshot in place.
+
+Report retries use their own fresh contexts after the import commits and releases its warehouse
+lock. If materialization still fails, the CLI exits with an error and a repair command while
+keeping the completed import and watermark; it does not reimport successful courses.
 
 On import failure, the runner records:
 
@@ -295,6 +303,11 @@ configuration, and authentication errors fail immediately; cancellation stops re
 Failure logging preserves the original exception and its inner cause even if recording
 the failed run or releasing a lock also fails. A session whose lock cannot be released is
 discarded from the connection pool.
+
+Warehouse lock acquisition waits at most five minutes per attempt, logs the blocking MySQL
+session and elapsed wait every 30 seconds, and honors cancellation. Each failed attempt logs its
+exception immediately before any retry. Course-batch and report-build progress logs distinguish
+Canvas reads, warehouse lock waits, and report materialization from a stalled process.
 
 The API uses the same policy for ordinary database queries and saves, and retries startup
 migration/seeding with a fresh service scope after a transient failure. Run the regression

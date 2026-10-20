@@ -3,7 +3,7 @@
 The four configurable reports under `/reports` use `CanvasDashboardMetricAggregates` as their
 numeric source. A successful Canvas sync first commits its `CanvasSyncRun` completion and advances
 the watermark. That completed run then triggers a rebuild of the student, course, assignment, and
-month facts. The API worker watches completed runs and retries a missed or failed rebuild, including
+month facts. The optional API worker watches completed runs and retries a missed or failed rebuild, including
 the initial backfill after deployment when a completed Canvas run exists; it does not fetch Canvas
 again. A legacy warehouse without run history needs the explicit manual rebuild command. The
 `CanvasDashboardAggregateBuilds` row records both the schema version and the completed Canvas run
@@ -46,7 +46,7 @@ from existing assignment-grain metric facts and their source submissions without
 dashboard metric table. Older v2/v3 builds are fully rebuilt because their lineage may be
 incomplete. Both paths write version 5 readiness in their transaction; until that commit, the leadership reports show an
 unavailable state rather than scanning raw Canvas data. If a later rebuild fails, the previous
-compatible aggregate remains readable while the worker retries. The build cursor still records
+compatible aggregate remains readable while materialization is retried. The build cursor still records
 its actual freshness; a newer completed sync no longer makes an existing snapshot unavailable.
 
 The two reports appear directly in `/reports` and use the page's academic year and term. Both
@@ -143,14 +143,18 @@ On first deployment, summary endpoints return HTTP 503 until the initial build s
 they never fall back to expensive raw calculations. Import/bulk writers that bypass EF
 `SaveChangesAsync` must explicitly add an `ImportedReportChange` marker (or invoke the rebuild).
 
-For deployment, apply the API migrations and start the API. When a completed Canvas run exists, the
-Canvas report backfill runs automatically if version 5 is missing; it can take time on a large
-warehouse. Rebuilds accumulate and write one course at a time to bound API memory, while publishing
+For deployment, apply the API migrations and start the API. The Canvas ETL materializes reports
+after each successful import. For an initial build or independent retry, run
+`dotnet run --project backend/OlympiaStudent360.CanvasEtl -- --rebuild-dashboard-aggregates-only`
+with the production database connection. Production API backfills are disabled by default to
+avoid holding warehouse locks and transactions in CPU-throttled App Runner instances; always-on
+hosts can opt in with `Canvas__EnableApiReportBackfill=true`. Rebuilds accumulate and write one
+course at a time to bound API memory, while publishing
 all facts and the build marker in one transaction. The first report snapshot remains unavailable
 until that transaction commits; later refreshes keep the previous compatible snapshot readable. Compare
 `CanvasDashboardAggregateBuilds.LastCompletedSyncRunId` with the highest completed
-`CanvasSyncRuns.Id`; a lower build cursor means the aggregate is pending or failed and the worker
-will retry. Then run the API once with
+`CanvasSyncRuns.Id`; a lower build cursor means the aggregate is pending or failed and needs a CLI
+retry (or the optional API worker). Then run the API once with
 `dotnet run --project backend/OlympiaStudent360.Api -- --rebuild-imported-report-aggregates-only`
 using the normal production connection and JWT configuration. The normal API hosted worker
 subsequently refreshes imported aggregates after source changes and at least daily. Monitor

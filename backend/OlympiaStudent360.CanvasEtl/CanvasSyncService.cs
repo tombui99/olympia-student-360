@@ -3,6 +3,7 @@ using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 
 namespace OlympiaStudent360.CanvasEtl;
 
@@ -24,8 +25,6 @@ internal sealed partial class CanvasSyncService
 
     public async Task<CanvasSyncSummary> Run(bool replaceExisting, CancellationToken cancellationToken)
     {
-        await _db.MigrateWithRecoveryAsync(cancellationToken);
-
         if (_options.SinceUtc is { } sinceUtc)
         {
             Console.WriteLine(
@@ -146,6 +145,8 @@ internal sealed partial class CanvasSyncService
         // even smaller active-course batch for daily runs. Submission payloads remain watermark
         // filtered in incremental mode; dimensions and enrollment grade totals are refreshed.
         var courseBatchSize = _options.IncludeCompletedCourses ? 8 : 4;
+        var processedCourses = 0;
+        var elapsed = Stopwatch.StartNew();
         foreach (var courseBatch in courses.Chunk(courseBatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -180,6 +181,8 @@ internal sealed partial class CanvasSyncService
                     cancellationToken);
                 totals.Add(counts);
             }
+            processedCourses += courseBatch.Length;
+            Console.WriteLine($"Canvas course progress: {processedCourses}/{courses.Count} checked, {retainedCourseCount} imported; elapsed {elapsed.Elapsed:hh\\:mm\\:ss}.");
         }
 
         var canvasGradeCounts = await UpdateCanvasStudentGradeLevels(cancellationToken);
@@ -569,7 +572,9 @@ internal sealed partial class CanvasSyncService
         }
 
         var existingSubmissions = await _db.CanvasSubmissions
-            .Where(item => item.CanvasCourseId == sourceCourse.Id)
+            // Use the indexed assignment join instead of scanning all submissions for
+            // every course on the denormalized, unindexed CanvasCourseId column.
+            .Where(item => item.Assignment!.CanvasCourseId == sourceCourse.Id)
             .ToDictionaryAsync(item => item.CanvasSubmissionId, cancellationToken);
         var currentSubmissionIds = new HashSet<long>();
         foreach (var source in sourceSubmissions.Where(item =>

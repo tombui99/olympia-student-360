@@ -59,12 +59,18 @@ try
     var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
         .UseResilientMySql(connectionString)
         .Options;
+    using var shutdown = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        shutdown.Cancel();
+    };
     if (rebuildAggregatesOnly)
     {
         await using var aggregateDb = new AppDbContext(dbOptions);
-        await aggregateDb.MigrateWithRecoveryAsync();
+        await aggregateDb.MigrateWithRecoveryAsync(shutdown.Token);
         var rowCount = await new CanvasDashboardAggregateService(aggregateDb)
-            .RebuildAsync(CancellationToken.None);
+            .RebuildAsync(shutdown.Token);
         Console.WriteLine($"Rebuilt {rowCount} pre-calculated Canvas dashboard metric rows.");
         return 0;
     }
@@ -85,13 +91,6 @@ try
         throw new InvalidOperationException(
             "Incremental and reconciliation modes require configured Canvas enrollment term ids.");
     }
-
-    using var shutdown = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, eventArgs) =>
-    {
-        eventArgs.Cancel = true;
-        shutdown.Cancel();
-    };
 
     await using var db = new AppDbContext(dbOptions);
     using var httpClient = new HttpClient();

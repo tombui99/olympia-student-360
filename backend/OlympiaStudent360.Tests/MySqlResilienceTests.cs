@@ -35,6 +35,45 @@ public sealed class MySqlTheoryAttribute : TheoryAttribute
 public sealed class MySqlResilienceTests
 {
     [MySqlFact]
+    public async Task WarehouseLockContentionTimesOutWithoutDisturbingOwnerAndCanBeRetried()
+    {
+        await using var test = await TestDatabase.CreateAsync(createSchema: false);
+        await using var owner = test.Open();
+        await using var contender = test.Open();
+        await using (var heldLock = await CanvasWarehouseLock.AcquireAsync(owner, default))
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            var exception = await Assert.ThrowsAsync<TimeoutException>(() =>
+                CanvasWarehouseLock.AcquireAsync(contender, default, TimeSpan.FromMilliseconds(250)));
+            Assert.Contains("Canvas warehouse lock", exception.Message);
+            Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
+            Assert.Equal(System.Data.ConnectionState.Closed, contender.Database.GetDbConnection().State);
+            await using var command = owner.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "SELECT IS_USED_LOCK('olympia_canvas_warehouse') = CONNECTION_ID()";
+            Assert.Equal(1, Convert.ToInt32(await command.ExecuteScalarAsync()));
+        }
+        await using (var acquiredAfterRelease = await CanvasWarehouseLock.AcquireAsync(
+            contender, default, TimeSpan.FromSeconds(2)))
+        {
+            Assert.Equal(System.Data.ConnectionState.Open, contender.Database.GetDbConnection().State);
+        }
+        await AssertWarehouseLockReleased(contender);
+    }
+
+    [MySqlFact]
+    public async Task WarehouseLockWaitCanBeCancelled()
+    {
+        await using var test = await TestDatabase.CreateAsync(createSchema: false);
+        await using var owner = test.Open();
+        await using var contender = test.Open();
+        await using var heldLock = await CanvasWarehouseLock.AcquireAsync(owner, default);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            CanvasWarehouseLock.AcquireAsync(contender, cancellation.Token));
+        Assert.Equal(System.Data.ConnectionState.Closed, contender.Database.GetDbConnection().State);
+    }
+
+    [MySqlFact]
     public async Task MigrationOnlyEntrypointRunsWithoutJwtOrWebHostAndCanBeRepeated()
     {
         await using var test = await TestDatabase.CreateAsync(createSchema: false);
@@ -236,6 +275,63 @@ public sealed class MySqlResilienceTests
         await AssertWarehouseLockReleased(db);
     }
 
+    [MySqlTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ReportFailureDoesNotReplayOrMislabelCommittedImport(bool transient)
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        var fault = new FailReportWrite(transient);
+        var options = new DbContextOptionsBuilder<AppDbContext>(test.Options).AddInterceptors(fault).Options;
+        await using var db = new AppDbContext(options);
+        var oldWatermark = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        db.StudentProfiles.Add(new StudentProfile { SISUserId = "test", CanvasUserId = 10, FullName = "Test" });
+        db.CanvasSyncStates.Add(new CanvasSyncState
+        {
+            SourceKey = "canvas:canvas.test:1", LastSuccessfulWatermarkUtc = oldWatermark
+        });
+        await db.SaveChangesAsync();
+        using var handler = new FakeCanvasHandler();
+        using var http = new HttpClient(handler);
+        var import = new CanvasDirectImportRunner().Run(db, http,
+            new CanvasDirectImportRequest(new Uri("https://canvas.test"), "test-token", "1",
+                false, true, true, true, [1], "incremental", 120, null), default);
+        if (transient)
+            await import;
+        else
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => import);
+            Assert.Contains("--rebuild-dashboard-aggregates-only", error.Message);
+        }
+        db.ChangeTracker.Clear();
+        Assert.Equal("completed", (await db.CanvasSyncRuns.SingleAsync()).Status);
+        var state = await db.CanvasSyncStates.SingleAsync();
+        Assert.Equal("completed", state.LastStatus);
+        Assert.True(state.LastSuccessfulWatermarkUtc > oldWatermark);
+        Assert.Equal(1, handler.CourseListRequests);
+        Assert.Equal(transient ? 2 : 1, fault.ContextIds.Distinct().Count());
+        await AssertWarehouseLockReleased(db);
+    }
+
+    private sealed class FailReportWrite(bool transient) : DbCommandInterceptor
+    {
+        public List<Guid> ContextIds { get; } = [];
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("DELETE") && command.CommandText.Contains("CanvasLeadershipReportAggregates"))
+            {
+                ContextIds.Add(eventData.Context!.ContextId.InstanceId);
+                if (ContextIds.Count == 1)
+                    return ValueTask.FromException<InterceptionResult<int>>(transient
+                        ? new TimeoutException("Injected transient report failure")
+                        : new InvalidOperationException("Injected permanent report failure"));
+            }
+            return ValueTask.FromResult(result);
+        }
+    }
+
     private static CanvasSyncRun CompletedRun(DateTime now) => new()
     {
         SourceKey = "test", Source = "test", Workflow = "incremental", Status = "completed",
@@ -285,9 +381,11 @@ public sealed class MySqlResilienceTests
 
     private sealed class FakeCanvasHandler : HttpMessageHandler
     {
+        public int CourseListRequests { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/v1/accounts/1/courses") CourseListRequests++;
             var body = path switch
             {
                 "/api/v1/accounts/1" => "{\"id\":1,\"name\":\"Grade 5\"}",

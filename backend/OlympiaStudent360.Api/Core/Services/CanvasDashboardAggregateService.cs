@@ -1,4 +1,5 @@
 using System.Text;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Data;
@@ -139,6 +140,9 @@ public sealed class CanvasDashboardAggregateService
             .OrderBy(item => item.CanvasCourseId)
             .Select(item => item.CanvasCourseId).ToArrayAsync(cancellationToken);
         var rowCount = 0;
+        var processedCourses = 0;
+        var elapsed = Stopwatch.StartNew();
+        Console.WriteLine($"Rebuilding Canvas report aggregates for {courseIds.Length} courses.");
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         await _db.CanvasLeadershipReportAggregates.ExecuteDeleteAsync(cancellationToken);
         await _db.CanvasDashboardMetricAggregates.ExecuteDeleteAsync(cancellationToken);
@@ -279,7 +283,10 @@ public sealed class CanvasDashboardAggregateService
                 _db.ChangeTracker.Clear();
                 rowCount += batch.Length;
             }
+            if (++processedCourses % 10 == 0 || processedCourses == courseIds.Length)
+                Console.WriteLine($"Canvas report progress: {processedCourses}/{courseIds.Length} courses, {rowCount} metric rows; elapsed {elapsed.Elapsed:hh\\:mm\\:ss}.");
         }
+        Console.WriteLine("Building Canvas leadership report summaries and score points.");
         await PopulateLeadershipFromDashboardFactsAsync(cancellationToken);
         await PopulateLeadershipScorePointsAsync(cancellationToken);
         await _db.CanvasDashboardAggregateBuilds.ExecuteDeleteAsync(cancellationToken);

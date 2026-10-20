@@ -299,8 +299,11 @@ After the Canvas ETL commits its successful run status and watermark, it trigger
 `CanvasDashboardMetricAggregates` and `CanvasLeadershipReportAggregates` from the stored score and
 submission facts. These tables serve the dashboard and the school administration and subject
 leadership reports under `/reports`; raw Canvas rows remain the source for drill-down and audit.
-The API worker retries a pending rebuild if the process stops or the rebuild fails. A failed or
-cancelled ETL does not trigger it. Until the first build finishes, aggregate-backed reports return
+The CLI retries report work separately from the committed import and exits with an error if
+materialization still fails. Production API backfills are disabled by default to keep App Runner's
+idle CPU throttling from stalling a transaction; always-on hosts can enable the retry worker with
+`Canvas__EnableApiReportBackfill=true`. A failed or cancelled import does not trigger a rebuild.
+Until the first build finishes, aggregate-backed reports return
 an unavailable state. For a backfill or repair without calling Canvas, run the ETL CLI with
 `-- --rebuild-dashboard-aggregates-only`.
 

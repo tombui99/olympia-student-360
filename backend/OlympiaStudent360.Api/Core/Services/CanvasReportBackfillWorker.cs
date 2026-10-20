@@ -6,10 +6,20 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// </summary>
 public sealed class CanvasReportBackfillWorker(
     IServiceScopeFactory scopeFactory,
+    IConfiguration configuration,
+    IHostEnvironment environment,
     ILogger<CanvasReportBackfillWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // App Runner throttles CPU when no HTTP requests are active. A background
+        // rebuild can then hold a warehouse lock and transaction indefinitely.
+        // The durable Canvas ETL already materializes reports after each import.
+        if (!configuration.GetValue("Canvas:EnableApiReportBackfill", !environment.IsProduction()))
+        {
+            logger.LogInformation("Canvas API report backfill is disabled; use the Canvas ETL or --rebuild-dashboard-aggregates-only to materialize reports.");
+            return;
+        }
         while (!stoppingToken.IsCancellationRequested)
         {
             try
