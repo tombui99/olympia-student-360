@@ -164,7 +164,7 @@ image and starting App Runner. Large schema changes must finish before App Runne
 HTTP health checks; otherwise startup can be killed while it is still migrating and the service
 rolls back. The migration step resolves the same `OLYMPIA_RDS_CONNECTION_STRING` override or
 deployed App Runner connection used by the Canvas ETL. The runner needs network access to RDS;
-the AWS role needs `apprunner:DescribeService`, `apprunner:ListOperations`, and the existing
+the AWS role needs `apprunner:DescribeService` and the existing
 secret/parameter read permission when the connection is stored in Secrets Manager or SSM.
 
 The standalone command requires only the database configuration, without JWT settings or a web host:
@@ -179,11 +179,13 @@ dropping them, and record completion only after all operations finish. Normal AP
 checks the schema and seeds Identity for local/manual launches. A failed pre-deployment migration
 stops the workflow before publishing an image or starting a rollout.
 
-Deployment verification tracks the exact App Runner operation ID. `FAILED`, `ROLLBACK_SUCCEEDED`,
-and `ROLLBACK_FAILED` fail the workflow immediately. Success additionally requires `/health` to
-report the expected commit SHA and ready database initialization. A healthy older revision after
-rollback cannot satisfy this check. These checks use Bash, AWS CLI, jq, and curl directly in
-the workflow.
+When the AWS role allows `apprunner:ListOperations`, deployment verification tracks the exact
+App Runner operation ID and fails immediately on `FAILED`, `ROLLBACK_SUCCEEDED`, or
+`ROLLBACK_FAILED`. If that permission is denied, verification waits for the service to be
+`RUNNING` instead. Both paths require a successful `/health` response with the expected commit
+SHA and ready database initialization. A healthy older revision after rollback cannot satisfy
+this check; without operation access, it fails at the verification timeout. These checks use
+Bash, AWS CLI, jq, and curl directly in the workflow.
 
 ## Canvas Daily ETL
 

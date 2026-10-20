@@ -149,37 +149,62 @@ jobs:
             exit 1
           fi
           health_file=$(mktemp)
-          trap 'rm -f "$health_file"' EXIT
+          aws_error_file=$(mktemp)
+          trap 'rm -f "$health_file" "$aws_error_file"' EXIT
+          track_operation=true
           deadline=$((SECONDS + 900))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            operations=$(aws apprunner list-operations --service-arn "$APP_RUNNER_SERVICE_ARN" \
-              --output json --cli-connect-timeout 10 --cli-read-timeout 20)
-            status=$(jq -r --arg operation_id "$DEPLOYMENT_OPERATION_ID" \
-              '.OperationSummaryList[]? | select(.Id == $operation_id) | .Status' <<< "$operations")
-            status=${status:-PENDING}
-            echo "App Runner deployment $DEPLOYMENT_OPERATION_ID: $status"
-            case "$status" in
-              FAILED|ROLLBACK_SUCCEEDED|ROLLBACK_FAILED)
-                echo "Deployment failed ($status). Check App Runner deployment and application startup logs."
+            ready_to_probe=false
+            if [ "$track_operation" = true ]; then
+              if operations=$(aws apprunner list-operations --service-arn "$APP_RUNNER_SERVICE_ARN" \
+                --output json --cli-connect-timeout 10 --cli-read-timeout 20 2> "$aws_error_file"); then
+                status=$(jq -r --arg operation_id "$DEPLOYMENT_OPERATION_ID" \
+                  '.OperationSummaryList[]? | select(.Id == $operation_id) | .Status' <<< "$operations")
+                status=${status:-PENDING}
+                echo "App Runner deployment $DEPLOYMENT_OPERATION_ID: $status"
+                case "$status" in
+                  FAILED|ROLLBACK_SUCCEEDED|ROLLBACK_FAILED)
+                    echo "Deployment failed ($status). Check App Runner deployment and application startup logs."
+                    exit 1
+                    ;;
+                  SUCCEEDED) ready_to_probe=true ;;
+                esac
+              elif [[ "$(< "$aws_error_file")" == *AccessDenied* ]]; then
+                track_operation=false
+                echo "::warning::AWS role lacks apprunner:ListOperations. Verifying service status and expected /health revision instead."
+              else
+                cat "$aws_error_file" >&2
                 exit 1
-                ;;
-              SUCCEEDED)
-                : > "$health_file"
-                http_status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 \
-                  --header 'Cache-Control: no-cache' --output "$health_file" --write-out '%{http_code}' \
-                  "https://$service_url/health") || http_status=000
-                sha=$(jq -r '.deploymentSha // empty' "$health_file" 2>/dev/null) || sha=""
-                initialization=$(jq -r '.databaseInitialization // empty' "$health_file" 2>/dev/null) || initialization=""
-                echo "Serving SHA: ${sha:-not ready}; database: ${initialization:-not ready}; HTTP: $http_status"
-                if [ "$sha" = "$EXPECTED_SHA" ] && [ "$initialization" = "failed" ]; then
-                  echo "The deployed revision failed database initialization."
+              fi
+            fi
+            if [ "$track_operation" = false ]; then
+              service_status=$(aws apprunner describe-service --service-arn "$APP_RUNNER_SERVICE_ARN" \
+                --query 'Service.Status' --output text --cli-connect-timeout 10 --cli-read-timeout 20)
+              echo "App Runner service status: $service_status"
+              case "$service_status" in
+                CREATE_FAILED|DELETE_FAILED|DELETED)
+                  echo "App Runner service failed ($service_status)."
                   exit 1
-                fi
-                if [[ "$http_status" == 2?? ]] && [ "$sha" = "$EXPECTED_SHA" ] && [ "$initialization" = "ready" ]; then
-                  exit 0
-                fi
-                ;;
-            esac
+                  ;;
+                RUNNING) ready_to_probe=true ;;
+              esac
+            fi
+            if [ "$ready_to_probe" = true ]; then
+              : > "$health_file"
+              http_status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 \
+                --header 'Cache-Control: no-cache' --output "$health_file" --write-out '%{http_code}' \
+                "https://$service_url/health") || http_status=000
+              sha=$(jq -r '.deploymentSha // empty' "$health_file" 2>/dev/null) || sha=""
+              initialization=$(jq -r '.databaseInitialization // empty' "$health_file" 2>/dev/null) || initialization=""
+              echo "Serving SHA: ${sha:-not ready}; database: ${initialization:-not ready}; HTTP: $http_status"
+              if [ "$sha" = "$EXPECTED_SHA" ] && [ "$initialization" = "failed" ]; then
+                echo "The deployed revision failed database initialization."
+                exit 1
+              fi
+              if [[ "$http_status" == 2?? ]] && [ "$sha" = "$EXPECTED_SHA" ] && [ "$initialization" = "ready" ]; then
+                exit 0
+              fi
+            fi
             sleep 10
           done
           echo "Timed out waiting for deployment $DEPLOYMENT_OPERATION_ID to serve image $EXPECTED_SHA."
