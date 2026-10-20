@@ -618,6 +618,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int>("LastCompletedSyncRunId")
+                        .HasColumnType("int");
+
                     b.Property<int>("SchemaVersion")
                         .HasColumnType("int");
 
@@ -792,6 +795,88 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("CanvasEnrollments");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasLeadershipReportAggregate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("AcademicPeriodStart")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("AcademicYear")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("AssessmentCategory")
+                        .HasMaxLength(10)
+                        .HasColumnType("varchar(10)");
+
+                    b.Property<string>("AssignmentGroupName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<long>("CanvasCourseId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<double>("EarnedPoints")
+                        .HasColumnType("double");
+
+                    b.Property<int>("Graded")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsFinalCourseScore")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("Late")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Missing")
+                        .HasColumnType("int");
+
+                    b.Property<double>("PossiblePoints")
+                        .HasColumnType("double");
+
+                    b.Property<int>("ScoreCount")
+                        .HasColumnType("int");
+
+                    b.Property<double>("ScoreSum")
+                        .HasColumnType("double");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Submitted")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CanvasCourseId");
+
+                    b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("AcademicYear", "AssessmentCategory");
+
+                    b.HasIndex("AcademicYear", "IsFinalCourseScore", "Term", "AcademicPeriodStart");
+
+                    b.HasIndex("StudentProfileId", "CanvasCourseId", "AcademicYear", "Term", "IsFinalCourseScore", "AcademicPeriodStart", "AssignmentGroupName")
+                        .HasDatabaseName("IX_CanvasLeadershipReportAggregates_ScorePointJoin");
+
+                    b.ToTable("CanvasLeadershipReportAggregates");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasSubmission", b =>
                 {
                     b.Property<int>("Id")
@@ -883,6 +968,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("CanvasUserId");
 
                     b.HasIndex("StudentProfileId");
+
+                    b.HasIndex("CanvasAssignmentId", "StudentProfileId", "CanvasCourseId")
+                        .HasDatabaseName("IX_CanvasSubmissions_ScorePointJoin");
 
                     b.ToTable("CanvasSubmissions");
                 });
@@ -3491,6 +3579,26 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("Course");
 
                     b.Navigation("Section");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasLeadershipReportAggregate", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.CanvasCourse", "Course")
+                        .WithMany()
+                        .HasForeignKey("CanvasCourseId")
+                        .HasPrincipalKey("CanvasCourseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Course");
 
                     b.Navigation("Student");
                 });

@@ -1474,6 +1474,12 @@ public class DashboardController : ControllerBase
         IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
         IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
     {
+        // A report that requests only Canvas metrics must not scan the imported aggregate table.
+        // An empty request means "all metrics", so it intentionally continues below.
+        if (requestedMetricIds.Count > 0 &&
+            !ImportedMetricCatalog().Any(metric => requestedMetricIds.Contains(metric.Id)))
+            return [];
+
         var query = _userAccess.ApplyStudentScope(
             _context.ImportedReportAggregates.AsNoTracking(), item => item.Student);
         if (studentId.HasValue) query = query.Where(item => item.StudentProfileId == studentId);
@@ -1607,10 +1613,16 @@ public class DashboardController : ControllerBase
         IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
         IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
     {
+        // Avoid even touching the Canvas aggregate tables for imported-only report requests.
+        // An empty request means "all metrics", so it intentionally continues below.
+        if (requestedMetricIds.Count > 0 &&
+            !CanvasMetricCatalog().Any(metric => requestedMetricIds.Contains(metric.Id)))
+            return [];
+
         // A migration can be deployed before the first post-deploy Canvas run. The report must
         // remain unavailable until ETL materializes the summary table.
-        if (await _context.CanvasDashboardMetricAggregates.AsNoTracking()
-            .AnyAsync(cancellationToken))
+        if (await CanvasDashboardAggregateService.IsReadyForLatestCompletedSyncAsync(
+                _context, cancellationToken))
         {
             return await CanvasAggregateMetrics(
                 year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
@@ -1881,8 +1893,17 @@ public class DashboardController : ControllerBase
                 item => item.Term == null && item.AcademicYear == null &&
                     item.EventDay >= period.Start && item.EventDay < period.End);
         }
+        // Reduce daily persisted measures to the twelve chart points in SQL. The previous path
+        // transferred every matching aggregate row and folded it in API memory.
         var behaviourRows = access.CanAccessAcademic
-            ? await behaviours.Select(item => new { item.EventDay, item.RecordCount }).ToListAsync()
+            ? await behaviours.GroupBy(item => new { item.EventDay.Year, item.EventDay.Month })
+                .Select(group => new
+                {
+                    group.Key.Year,
+                    group.Key.Month,
+                    RecordCount = group.Sum(item => item.RecordCount)
+                })
+                .ToListAsync()
             : [];
         var behavioursLast30Days = access.CanAccessAcademic
             ? await facts.Where(item => item.Source == "student-behaviours")
@@ -2002,7 +2023,8 @@ public class DashboardController : ControllerBase
             }
         }
         overview.BehaviourTrend = access.CanAccessAcademic
-            ? BuildAggregateTrend(behaviourRows.Select(item => (item.EventDay, item.RecordCount)),
+            ? BuildAggregateTrend(behaviourRows.Select(item =>
+                    (new DateTime(item.Year, item.Month, 1), item.RecordCount)),
                 period.Start, period.End, now) : [];
         overview.GradeDistribution = gradeBuckets.Values
             .OrderBy(grade => grade.Grade, StringComparer.OrdinalIgnoreCase)

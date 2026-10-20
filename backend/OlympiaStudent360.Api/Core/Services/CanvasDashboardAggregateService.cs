@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Data;
@@ -5,12 +6,12 @@ using OlympiaStudent360.Api.Data;
 namespace OlympiaStudent360.Api.Core.Services;
 
 /// <summary>
-/// Materializes the Canvas dashboard measures after an ETL run. Raw Canvas facts stay intact for
-/// drill-down and audit; the overview endpoint reads narrow, indexed monthly rows.
+/// Materializes Canvas dashboard measures after a completed ETL run. Raw Canvas facts stay intact
+/// for drill-down and audit; the overview endpoint reads narrow, indexed monthly rows.
 /// </summary>
 public sealed class CanvasDashboardAggregateService
 {
-    public const int ReportSchemaVersion = 2;
+    public const int ReportSchemaVersion = 5;
     public const string FinalScoreAverage = "canvas-final-score-avg";
     public const string CurrentScoreAverage = "canvas-current-score-avg";
     public const string SubmissionScoreAverage = "canvas-submission-score-percent-avg";
@@ -28,20 +29,70 @@ public sealed class CanvasDashboardAggregateService
     }
 
     public Task<int> RebuildAsync(CancellationToken cancellationToken) =>
-        WithRebuildLockAsync(() => RebuildCoreAsync(cancellationToken), cancellationToken);
+        WithWarehouseAndRebuildLockAsync(
+            () => RebuildCoreAsync(cancellationToken), cancellationToken);
 
     /// <summary>
-    /// Deployment backfill. Check readiness again while holding the same lock as ETL so
-    /// multiple API instances never build an already completed aggregate twice.
+    /// Processes the latest durably completed Canvas sync run, or upgrades an older aggregate
+    /// schema. Called immediately after a run commits and retried by the API background worker.
+    /// Readiness is checked under the warehouse and aggregate locks so parallel processes do
+    /// not rebuild the same snapshot and no import can write raw facts while we read them.
     /// </summary>
-    public Task<int?> BackfillIfNeededAsync(CancellationToken cancellationToken) =>
-        WithRebuildLockAsync(async () =>
+    public Task<int?> RefreshIfNeededAsync(CancellationToken cancellationToken) =>
+        WithWarehouseAndRebuildLockAsync(async () =>
         {
-            if (await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
-                    .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion, cancellationToken))
+            var latestRunId = await LatestCompletedSyncRunIdAsync(cancellationToken);
+            // Do not publish a snapshot of an empty or partially failed first import. An explicit
+            // manual RebuildAsync remains available for a legacy warehouse without run records.
+            if (latestRunId == 0)
                 return (int?)null;
-            return await RebuildCoreAsync(cancellationToken);
+            if (await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
+                    .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion &&
+                        item.LastCompletedSyncRunId >= latestRunId, cancellationToken))
+                return (int?)null;
+            // A v4 snapshot retains assignment-level metric lineage. Pivot it and attach
+            // earned/possible points from the matching submissions inside MySQL rather than
+            // rewriting the much larger dashboard metric table. Older snapshots are rebuilt
+            // because their assignment-grain lineage may be incomplete.
+            if (await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
+                    .AnyAsync(item => item.SchemaVersion >= 4 && item.SchemaVersion < ReportSchemaVersion &&
+                        item.LastCompletedSyncRunId >= latestRunId, cancellationToken) &&
+                await _db.CanvasDashboardMetricAggregates.AsNoTracking().AnyAsync(cancellationToken))
+                return await BackfillLeadershipFromDashboardAsync(latestRunId, cancellationToken);
+            return await RebuildCoreAsync(cancellationToken, latestRunId);
         }, cancellationToken);
+
+    public Task<int?> BackfillIfNeededAsync(CancellationToken cancellationToken) =>
+        RefreshIfNeededAsync(cancellationToken);
+
+    /// <summary>
+    /// A report snapshot is readable only when its schema is current and its build marker covers
+    /// the newest durably completed Canvas ETL run. This prevents requests from serving a stale
+    /// snapshot while the retry worker is rebuilding after an interrupted post-ETL refresh.
+    /// </summary>
+    public static async Task<bool> IsReadyForLatestCompletedSyncAsync(
+        AppDbContext db, CancellationToken cancellationToken = default)
+    {
+        var latestRunId = await db.CanvasSyncRuns.AsNoTracking()
+            .Where(item => item.Status == "completed")
+            .MaxAsync(item => (int?)item.Id, cancellationToken) ?? 0;
+        if (latestRunId == 0) return false;
+        return await db.CanvasDashboardAggregateBuilds.AsNoTracking()
+            .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion &&
+                item.LastCompletedSyncRunId >= latestRunId, cancellationToken);
+    }
+
+    private async Task<T> WithWarehouseAndRebuildLockAsync<T>(
+        Func<Task<T>> operation, CancellationToken cancellationToken)
+    {
+        await using var warehouseLock = await CanvasWarehouseLock.AcquireAsync(_db, cancellationToken);
+        return await WithRebuildLockAsync(operation, cancellationToken);
+    }
+
+    private async Task<int> LatestCompletedSyncRunIdAsync(CancellationToken cancellationToken) =>
+        await _db.CanvasSyncRuns.AsNoTracking()
+            .Where(item => item.Status == "completed")
+            .MaxAsync(item => (int?)item.Id, cancellationToken) ?? 0;
 
     private async Task<T> WithRebuildLockAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
     {
@@ -50,8 +101,8 @@ public sealed class CanvasDashboardAggregateService
         var acquired = false;
         try
         {
-            // The lock is shared by the ETL and API deployment backfill. A short timed
-            // wait keeps shutdown cancellation responsive during a long-running build.
+            // The short timed wait keeps shutdown cancellation responsive if another builder
+            // holds this lock. The warehouse lock above separately excludes ETL writes.
             while (!acquired)
             {
                 await using var command = connection.CreateCommand();
@@ -79,8 +130,11 @@ public sealed class CanvasDashboardAggregateService
         }
     }
 
-    private async Task<int> RebuildCoreAsync(CancellationToken cancellationToken)
+    private async Task<int> RebuildCoreAsync(
+        CancellationToken cancellationToken,
+        int? completedSyncRunId = null)
     {
+        completedSyncRunId ??= await LatestCompletedSyncRunIdAsync(cancellationToken);
         var periods = await _db.AcademicPeriods.AsNoTracking()
             .Select(item => new ReportingPeriod(
                 item.AcademicYear,
@@ -211,6 +265,7 @@ public sealed class CanvasDashboardAggregateService
         }).ToArray();
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        await _db.CanvasLeadershipReportAggregates.ExecuteDeleteAsync(cancellationToken);
         await _db.CanvasDashboardMetricAggregates.ExecuteDeleteAsync(cancellationToken);
         foreach (var batch in rows.Chunk(1000))
         {
@@ -218,16 +273,152 @@ public sealed class CanvasDashboardAggregateService
             await _db.SaveChangesAsync(cancellationToken);
             _db.ChangeTracker.Clear();
         }
+        await PopulateLeadershipFromDashboardFactsAsync(cancellationToken);
+        await PopulateLeadershipScorePointsAsync(cancellationToken);
         await _db.CanvasDashboardAggregateBuilds.ExecuteDeleteAsync(cancellationToken);
         _db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
         {
             SchemaVersion = ReportSchemaVersion,
-            CompletedAtUtc = DateTime.UtcNow
+            CompletedAtUtc = DateTime.UtcNow,
+            LastCompletedSyncRunId = completedSyncRunId.Value
         });
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return rows.Length;
     }
+
+    private async Task<int> BackfillLeadershipFromDashboardAsync(
+        int completedSyncRunId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        await _db.CanvasLeadershipReportAggregates.ExecuteDeleteAsync(cancellationToken);
+        var count = await PopulateLeadershipFromDashboardFactsAsync(cancellationToken);
+        await PopulateLeadershipScorePointsAsync(cancellationToken);
+        await _db.CanvasDashboardAggregateBuilds.ExecuteDeleteAsync(cancellationToken);
+        _db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
+        {
+            SchemaVersion = ReportSchemaVersion,
+            CompletedAtUtc = DateTime.UtcNow,
+            LastCompletedSyncRunId = completedSyncRunId
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return count;
+    }
+
+    /// <summary>
+    /// A single database-side pivot over the already materialized metric facts. This runs after
+    /// a normal ETL rebuild and upgrades v2 installations without transferring a million metric
+    /// rows to the API process or rewriting the dashboard aggregate table.
+    /// </summary>
+    private async Task<int> PopulateLeadershipFromDashboardFactsAsync(CancellationToken cancellationToken)
+    {
+        var count = await _db.Database.ExecuteSqlRawAsync($"""
+            INSERT INTO `CanvasLeadershipReportAggregates`
+                (`StudentProfileId`, `CanvasCourseId`, `AcademicYear`, `Term`,
+                 `AcademicPeriodStart`, `IsFinalCourseScore`, `AssignmentGroupName`,
+                 `AssessmentCategory`, `Submitted`, `Missing`, `Late`, `Graded`,
+                 `ScoreSum`, `ScoreCount`, `CreatedAt`)
+            SELECT source.`StudentProfileId`, source.`CanvasCourseId`,
+                   source.`AcademicYear`, source.`Term`, source.`AcademicPeriodStart`,
+                   CASE WHEN source.`MetricKey` = '{FinalScoreAverage}' THEN 1 ELSE 0 END,
+                   CASE WHEN source.`MetricKey` = '{FinalScoreAverage}'
+                        THEN NULL ELSE assignment.`AssignmentGroupName` END,
+                   NULL,
+                   CAST(SUM(CASE WHEN source.`MetricKey` = '{AssignmentsSubmitted}'
+                        THEN source.`ValueSum` ELSE 0 END) AS SIGNED),
+                   CAST(SUM(CASE WHEN source.`MetricKey` = '{AssignmentsMissing}'
+                        THEN source.`ValueSum` ELSE 0 END) AS SIGNED),
+                   CAST(SUM(CASE WHEN source.`MetricKey` = '{AssignmentsLate}'
+                        THEN source.`ValueSum` ELSE 0 END) AS SIGNED),
+                   CAST(SUM(CASE WHEN source.`MetricKey` = '{SubmittedAssignmentsGraded}'
+                        THEN source.`ValueSum` ELSE 0 END) AS SIGNED),
+                   SUM(CASE WHEN source.`MetricKey` IN ('{SubmissionScoreAverage}', '{FinalScoreAverage}')
+                        THEN source.`ValueSum` ELSE 0 END),
+                   SUM(CASE WHEN source.`MetricKey` IN ('{SubmissionScoreAverage}', '{FinalScoreAverage}')
+                        THEN source.`SampleCount` ELSE 0 END),
+                   UTC_TIMESTAMP(6)
+            FROM `CanvasDashboardMetricAggregates` AS source
+            LEFT JOIN `CanvasAssignments` AS assignment
+                ON assignment.`CanvasAssignmentId` = source.`CanvasAssignmentId`
+            WHERE source.`MetricKey` IN ('{AssignmentsSubmitted}', '{AssignmentsMissing}',
+                                         '{AssignmentsLate}', '{SubmittedAssignmentsGraded}',
+                                         '{SubmissionScoreAverage}', '{FinalScoreAverage}')
+            GROUP BY source.`StudentProfileId`, source.`CanvasCourseId`,
+                     source.`AcademicYear`, source.`Term`, source.`AcademicPeriodStart`,
+                     CASE WHEN source.`MetricKey` = '{FinalScoreAverage}' THEN 1 ELSE 0 END,
+                     CASE WHEN source.`MetricKey` = '{FinalScoreAverage}'
+                          THEN NULL ELSE assignment.`AssignmentGroupName` END
+            """, cancellationToken);
+
+        var groupNames = await _db.CanvasAssignments.AsNoTracking()
+            .Where(item => item.AssignmentGroupName != null && item.AssignmentGroupName != "")
+            .Select(item => item.AssignmentGroupName!)
+            .Distinct().ToListAsync(cancellationToken);
+        var categories = groupNames
+            .Select(name => new { Name = name, Category = CanvasReportFilters.CategoryForGroup(name) })
+            .Where(item => item.Category is not null)
+            .ToList();
+        if (categories.Count > 0)
+        {
+            var sql = new StringBuilder("UPDATE `CanvasLeadershipReportAggregates` SET `AssessmentCategory` = CASE");
+            var parameters = new List<object>();
+            foreach (var item in categories)
+            {
+                sql.Append(" WHEN CAST(`AssignmentGroupName` AS BINARY) = CAST({")
+                    .Append(parameters.Count).Append("} AS BINARY) THEN {")
+                    .Append(parameters.Count + 1).Append('}');
+                parameters.Add(item.Name);
+                parameters.Add(item.Category!);
+            }
+            sql.Append(" ELSE NULL END WHERE `IsFinalCourseScore` = 0");
+            await _db.Database.ExecuteSqlRawAsync(sql.ToString(), parameters, cancellationToken);
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Reuses the persisted submission-score fact's reporting year, term and month, then attaches
+    /// the original earned/possible points to the narrower group aggregate. This also upgrades a
+    /// v4 snapshot without rerunning the entire dashboard build. Only scored, graded, published,
+    /// included and non-excused assignments contribute to a Canvas group score estimate.
+    /// </summary>
+    private Task<int> PopulateLeadershipScorePointsAsync(CancellationToken cancellationToken) =>
+        _db.Database.ExecuteSqlRawAsync($"""
+            UPDATE `CanvasLeadershipReportAggregates` AS leadership
+            INNER JOIN (
+                SELECT metric.`StudentProfileId`, metric.`CanvasCourseId`, metric.`AcademicYear`,
+                       metric.`Term`, metric.`AcademicPeriodStart`, assignment.`AssignmentGroupName`,
+                       SUM(submission.`Score`) AS `Earned`,
+                       SUM(assignment.`PointsPossible`) AS `Possible`
+                FROM `CanvasDashboardMetricAggregates` AS metric
+                INNER JOIN `CanvasAssignments` AS assignment
+                    ON assignment.`CanvasAssignmentId` = metric.`CanvasAssignmentId`
+                INNER JOIN `CanvasSubmissions` AS submission
+                    ON submission.`CanvasAssignmentId` = metric.`CanvasAssignmentId`
+                   AND submission.`StudentProfileId` = metric.`StudentProfileId`
+                   AND submission.`CanvasCourseId` = metric.`CanvasCourseId`
+                WHERE metric.`MetricKey` = '{SubmissionScoreAverage}'
+                  AND assignment.`Published` = 1
+                  AND assignment.`OmitFromFinalGrade` = 0
+                  AND assignment.`PointsPossible` > 0
+                  AND submission.`WorkflowState` = 'graded'
+                  AND submission.`Score` IS NOT NULL
+                  AND (submission.`Excused` IS NULL OR submission.`Excused` = 0)
+                GROUP BY metric.`StudentProfileId`, metric.`CanvasCourseId`, metric.`AcademicYear`,
+                         metric.`Term`, metric.`AcademicPeriodStart`, assignment.`AssignmentGroupName`
+            ) AS points
+                ON points.`StudentProfileId` = leadership.`StudentProfileId`
+               AND points.`CanvasCourseId` = leadership.`CanvasCourseId`
+               AND points.`AcademicYear` = leadership.`AcademicYear`
+               AND points.`Term` = leadership.`Term`
+               AND points.`AcademicPeriodStart` <=> leadership.`AcademicPeriodStart`
+               AND points.`AssignmentGroupName` <=> leadership.`AssignmentGroupName`
+            SET leadership.`EarnedPoints` = points.`Earned`,
+                leadership.`PossiblePoints` = points.`Possible`
+            WHERE leadership.`IsFinalCourseScore` = 0
+            """, cancellationToken);
 
     private static void Add(
         IDictionary<AggregateKey, AggregateValue> values,

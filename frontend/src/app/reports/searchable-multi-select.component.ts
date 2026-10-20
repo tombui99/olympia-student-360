@@ -11,6 +11,7 @@ let nextSelectId = 0;
 
 @Component({
   selector: 'app-searchable-multi-select',
+  host: { class: 'block min-w-0' },
   template: `
     <div class="relative min-w-0">
       <label class="text-sm font-semibold text-[#32124f]" [for]="inputId">{{ label }}</label>
@@ -20,14 +21,14 @@ let nextSelectId = 0;
           [attr.aria-activedescendant]="open() && activeIndex() >= 0 ? listId + '-option-' + activeIndex() : null"
           [attr.aria-label]="searchPlaceholder" [placeholder]="searchPlaceholder"
           class="h-11 w-full rounded-md border border-[#d8d0df] bg-white pl-9 pr-10 text-sm font-normal text-[#32124f] outline-none focus:border-[#6d3a91] focus:ring-2 focus:ring-[#eee5f3]"
-          [value]="search()" (focus)="show()" (input)="changeSearch($event)" (keydown)="onKeydown($event)" />
+          [value]="inputValue()" (focus)="show()" (input)="changeSearch($event)" (keydown)="onKeydown($event)" />
         <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#817589]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        @if (search()) {
-          <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-1.5 py-1 text-lg leading-none text-[#6f6877] hover:bg-[#f5f0f7]" [attr.aria-label]="t('reports.learningReview.clearSearch')" (click)="clearSearch()">×</button>
+        @if (search() || (!multiple && selected.length)) {
+          <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-1.5 py-1 text-lg leading-none text-[#6f6877] hover:bg-[#f5f0f7]" [attr.aria-label]="t('reports.learningReview.clearSearch')" (click)="clearInput()">×</button>
         }
       </div>
       @if (open()) {
-        <div [id]="listId" role="listbox" aria-multiselectable="true"
+        <div [id]="listId" role="listbox" [attr.aria-multiselectable]="multiple"
           class="absolute z-40 mt-1 w-full overflow-hidden rounded-md border border-[#d8d0df] bg-white shadow-[0_14px_34px_rgba(50,18,79,0.18)]">
           <div class="max-h-64 overflow-y-auto py-1">
             @if (loading) {
@@ -54,7 +55,7 @@ let nextSelectId = 0;
           }
         </div>
       }
-      @if (selected.length) {
+      @if (selected.length && multiple) {
         <div class="mt-2 flex items-center justify-between gap-2 text-xs text-[#6f6877]">
           <span>{{ t('reports.learningReview.selectedCount') }}: {{ selected.length }}</span>
           <button type="button" class="shrink-0 font-semibold text-[#5f3182] underline-offset-2 hover:underline" (click)="clearSelection()">{{ t('reports.learningReview.clearSelection') }}</button>
@@ -67,7 +68,7 @@ let nextSelectId = 0;
             </span>
           }
         </div>
-      } @else {
+      } @else if (!selected.length) {
         <p class="mt-1 text-xs font-normal text-[#817589]">{{ emptySelectionLabel }}</p>
       }
       @if (hint) { <p class="mt-1 text-xs font-normal text-[#817589]">{{ hint }}</p> }
@@ -81,6 +82,7 @@ export class SearchableMultiSelectComponent {
   @Input({ required: true }) emptySelectionLabel = '';
   @Input() hint = '';
   @Input() loading = false;
+  @Input() multiple = true;
   @Input() options: SearchableSelectOption[] = [];
   @Input() selected: Array<string | number> = [];
   @Output() selectedChange = new EventEmitter<Array<string | number>>();
@@ -95,6 +97,10 @@ export class SearchableMultiSelectComponent {
   readonly activeIndex = signal(-1);
 
   t(key: string): string { return this.language.t(key); }
+  inputValue(): string {
+    if (this.search()) return this.search();
+    return !this.multiple && !this.open() && this.selected.length ? this.optionLabel(this.selected[0]) : '';
+  }
   show(): void { this.open.set(true); this.activeIndex.set(-1); }
   changeSearch(event: Event): void {
     this.search.set((event.target as HTMLInputElement).value);
@@ -104,6 +110,12 @@ export class SearchableMultiSelectComponent {
   matchCount(): number { return this.matches().length; }
   isSelected(value: string | number): boolean { return this.selected.includes(value); }
   toggle(value: string | number): void {
+    if (!this.multiple) {
+      this.selectedChange.emit(this.isSelected(value) ? [] : [value]);
+      this.search.set('');
+      this.open.set(false);
+      return;
+    }
     this.selectedChange.emit(this.isSelected(value)
       ? this.selected.filter(item => item !== value)
       : [...this.selected, value]);
@@ -114,6 +126,7 @@ export class SearchableMultiSelectComponent {
   }
   clearSelection(): void { this.selectedChange.emit([]); this.open.set(false); }
   clearSearch(): void { this.search.set(''); this.show(); }
+  clearInput(): void { this.search() ? this.clearSearch() : this.clearSelection(); }
   optionLabel(value: string | number): string {
     return this.options.find(option => option.value === value)?.label ?? String(value);
   }

@@ -13,16 +13,17 @@ For the exact Canvas-field-to-database-column mappings, see
 GitHub Actions or a local terminal
   -> runs the OlympiaStudent360.CanvasEtl console application
   -> console validates its mode and configuration
-  -> console sends one authenticated POST to the Olympia backend
-  -> backend reads the current watermark
-  -> backend calls the Canvas APIs and follows every pagination link
-  -> backend validates, links, and upserts the returned Canvas records into MySQL
-  -> backend advances the watermark only after the complete run succeeds
+  -> console reads the current MySQL watermark
+  -> console calls the Canvas APIs and follows every pagination link
+  -> console validates, links, and upserts the returned Canvas records into MySQL
+  -> console commits the completed run and advances the watermark
+  -> completed run triggers a report aggregate rebuild
   -> console exits 0 on success or non-zero on failure
 ```
 
-The GitHub runner does **not** connect directly to MySQL/RDS. Only the deployed Olympia backend
-needs database access. The runner needs HTTPS access to the backend and Canvas credentials.
+The GitHub runner connects directly to MySQL/RDS. It needs the Canvas token and the database
+connection, but a multi-hour import does not depend on an API request remaining open. The API
+also exposes an optional authenticated `POST /api/canvas-sync` path using the same importer.
 
 ## The two .NET applications
 
@@ -35,18 +36,18 @@ It is responsible for:
 
 1. Reading the requested mode: `--sync-all`, `--incremental`, or `--reconcile-days=N`.
 2. Rejecting invalid argument combinations.
-3. Reading Canvas and backend configuration from .NET user secrets or environment variables.
+3. Reading Canvas and database configuration from .NET user secrets or environment variables.
 4. Selecting the configured Canvas enrollment-term IDs for the requested mode.
-5. Calling `POST /api/canvas-sync` on the Olympia backend.
+5. Running `CanvasDirectImportRunner` to synchronize directly with Canvas and MySQL.
 6. Returning exit code `0` on success, `1` on failure, or `2` when cancelled.
 
-It deliberately does not contain the database connection string and does not write directly to
-RDS.
+The CLI also supports `--rebuild-dashboard-aggregates-only` for an operational report rebuild
+without calling Canvas.
 
 ### 2. `OlympiaStudent360.Api`
 
-The backend owns the actual synchronization. Its entry point for a run is
-`backend/OlympiaStudent360.Api/Controllers/CanvasSyncController.cs`.
+The backend exposes `backend/OlympiaStudent360.Api/Controllers/CanvasSyncController.cs` as an
+optional HTTP entry point for the same synchronization logic.
 
 The backend project compiles the following ETL implementation files from the ETL folder:
 
@@ -55,12 +56,11 @@ The backend project compiles the following ETL implementation files from the ETL
 - `CanvasEtlOptions.cs`
 - `CanvasSyncService.cs`
 
-This arrangement gives the console and backend one set of Canvas request models and options while
-keeping MySQL writes inside the backend.
+The console and backend share the Canvas request models, importer, and database entities.
 
 ## Authentication and network boundary
 
-The console sends two private headers to the backend:
+The optional HTTP endpoint accepts two private headers:
 
 ```text
 X-Olympia-Sync-Key: shared ETL/backend secret
@@ -68,15 +68,16 @@ X-Canvas-Access-Token: Canvas API access token
 ```
 
 The backend compares the sync key using a fixed-time comparison. The endpoint rejects missing or
-incorrect credentials before starting the ETL. The backend URL must use HTTPS, except for a
-loopback URL such as `http://localhost:5279` during local testing.
+incorrect credentials before starting the ETL. The Canvas URL must use HTTPS, except for a
+loopback URL during local testing. The scheduled CLI does not use these headers.
 
-Neither credential should be committed or printed. In GitHub Actions they come from the GitHub
-`production` environment secrets. Locally they come from .NET user secrets.
+Neither credential should be committed or printed. The GitHub CLI workflow gets its Canvas token
+from the `production` environment secrets and its database connection from a secret or App Runner
+configuration. Local CLI configuration can come from .NET user secrets.
 
 ## What happens at the beginning of a run
 
-The backend performs these steps before contacting Canvas:
+The direct runner or optional HTTP endpoint performs these steps before contacting Canvas:
 
 1. Validates the mode, enrollment-term IDs, overlap, and reconciliation window.
 2. Applies pending Entity Framework migrations.
@@ -131,12 +132,12 @@ Purpose: catch late grading corrections and other changes that arrive outside th
 - Includes completed courses.
 - Uses `now - N days` as the submission cutoff.
 
-The reconciliation workflow is currently scheduled weekly at 02:00 Monday in Vietnam
-(`19:00 Sunday UTC`).
+The reconciliation workflow is available by manual dispatch. Its weekly schedule is currently
+commented out.
 
 ## Canvas API reads
 
-The backend uses `CanvasApiClient` to call:
+The importer uses `CanvasApiClient` to call:
 
 ```text
 GET /api/v1/accounts/:account_id/users?enrollment_type=student
@@ -263,14 +264,20 @@ the window again.
 
 The watermark advances only after all selected courses have completed successfully.
 
-On success, the backend records:
+On success, the runner records:
 
 - `LastSuccessfulWatermarkUtc = candidate watermark captured at start`
 - completion time
 - run mode
 - status `completed`
 
-On failure, the backend records:
+That committed `CanvasSyncRun` completion triggers the dashboard and leadership report aggregate
+refresh. The API worker watches for a completed run that has not been materialized and retries it
+after a process interruption or aggregate error. The aggregate build marker records the last
+completed run included in the summaries. The report tables are swapped in one transaction, so a
+failed refresh leaves the previous completed snapshot in place.
+
+On import failure, the runner records:
 
 - completion time
 - status `failed`
@@ -318,7 +325,7 @@ an editor tab. Once it succeeds, normal imports use the transferred
 `CanvasSyncStates.LastSuccessfulWatermarkUtc`; the one-time GitHub full-sync workflow is not
 retained.
 
-GitHub treats a non-zero console exit code as a failed job. The workflow log includes the backend's
+GitHub treats a non-zero console exit code as a failed job. The workflow log includes the CLI's
 final record counts but should never include either secret.
 
 ## Required configuration
@@ -355,8 +362,7 @@ the direct ETL path and do not depend on an HTTP request remaining open.
 
 ### Local execution
 
-After configuring the user secrets described in the project README and starting the backend at
-`http://localhost:5279`, run one of:
+After configuring the user secrets described in the project README, run one of:
 
 ```bash
 # Complete configured scope since September 2025
@@ -375,8 +381,8 @@ If no mode is supplied, the console defaults to incremental mode.
 
 | Symptom | Meaning |
 |---|---|
-| HTTP `401` from the backend | The ETL sync key does not match the backend configuration |
-| HTTP `409` on incremental mode | No successful watermark exists; run `--sync-all` first |
+| HTTP `401` from the optional sync endpoint | The ETL sync key does not match the backend configuration |
+| Incremental mode refuses to start | No successful watermark exists; run `--sync-all` first |
 | “Canvas returned no courses” | Incorrect account/term IDs, insufficient Canvas permissions, or an unexpectedly empty scope |
 | “Canvas returned no students” | The token cannot read account users or the account selection is wrong |
 | Canvas HTTP `401`/`403` | Invalid token or missing Canvas API permissions |
@@ -390,11 +396,14 @@ bad configuration from deleting, mislinking, or misreporting warehouse data.
 
 | File | Responsibility |
 |---|---|
-| `backend/OlympiaStudent360.CanvasEtl/Program.cs` | CLI modes, configuration, backend request, process exit code |
-| `backend/OlympiaStudent360.Api/Controllers/CanvasSyncController.cs` | Authentication, watermark, run status, backend orchestration |
+| `backend/OlympiaStudent360.CanvasEtl/Program.cs` | CLI modes, configuration, direct import, process exit code |
+| `backend/OlympiaStudent360.Api/CanvasSync/CanvasDirectImportRunner.cs` | Direct import run status and watermark |
+| `backend/OlympiaStudent360.Api/Controllers/CanvasSyncController.cs` | Optional HTTP authentication, run status, and watermark |
 | `backend/OlympiaStudent360.CanvasEtl/CanvasApiClient.cs` | Canvas requests, pagination, retry/backoff, incremental submission filters |
 | `backend/OlympiaStudent360.CanvasEtl/CanvasDtos.cs` | Exact JSON fields read from Canvas |
 | `backend/OlympiaStudent360.CanvasEtl/CanvasSyncService.cs` | Identity linking, validation, course transactions, upserts, pruning |
+| `backend/OlympiaStudent360.Api/Core/Services/CanvasReportBackfillWorker.cs` | Retry pending Canvas report aggregate builds |
+| `backend/OlympiaStudent360.Api/Core/Services/CanvasDashboardAggregateService.cs` | Transactional dashboard and leadership report materialization |
 | `backend/OlympiaStudent360.CanvasEtl/CanvasEtlOptions.cs` | Configuration parsing and safety validation |
 | `backend/OlympiaStudent360.Api/Core/Services/TranscriptSubjectResolver.cs` | Reporting-only canonical subject resolution with per-course unmapped fallback |
 | `backend/OlympiaStudent360.Api/Data/AppDbContext.cs` | MySQL relationships, constraints, and indexes |

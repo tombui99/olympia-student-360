@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 using OlympiaStudent360.CanvasEtl;
 
@@ -18,15 +19,18 @@ public sealed class CanvasSyncController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<CanvasSyncController> _logger;
 
     public CanvasSyncController(
         AppDbContext db,
         IConfiguration configuration,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        ILogger<CanvasSyncController> logger)
     {
         _db = db;
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
+        _logger = logger;
     }
 
     [HttpPost]
@@ -101,6 +105,7 @@ public sealed class CanvasSyncController : ControllerBase
         }
 
         await _db.MigrateWithRecoveryAsync(cancellationToken);
+        await using var warehouseLock = await CanvasWarehouseLock.AcquireAsync(_db, cancellationToken);
         var candidateWatermarkUtc = DateTime.UtcNow;
         var sourceKey = $"canvas:{baseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";
         var state = await _db.CanvasSyncStates.SingleOrDefaultAsync(
@@ -173,10 +178,12 @@ public sealed class CanvasSyncController : ControllerBase
         using var canvasClient = _httpClientFactory.CreateClient();
         var sync = new CanvasSyncService(_db, new CanvasApiClient(canvasClient, options), options);
 
+        CanvasSyncSummary summary;
+        DateTime completedAtUtc;
         try
         {
-            var summary = await sync.Run(request.ReplaceExisting, cancellationToken);
-            var completedAtUtc = DateTime.UtcNow;
+            summary = await sync.Run(request.ReplaceExisting, cancellationToken);
+            completedAtUtc = DateTime.UtcNow;
             state = await _db.CanvasSyncStates.SingleAsync(
                 item => item.SourceKey == sourceKey, CancellationToken.None);
             state.LastSuccessfulWatermarkUtc = candidateWatermarkUtc;
@@ -194,8 +201,6 @@ public sealed class CanvasSyncController : ControllerBase
             run.Submissions = summary.Submissions;
             run.UpdatedAt = completedAtUtc;
             await _db.SaveChangesAsync(CancellationToken.None);
-            return Ok(new CanvasSyncResultDto(
-                "completed", completedAtUtc, sinceUtc, candidateWatermarkUtc, summary));
         }
         catch (Exception exception)
         {
@@ -215,6 +220,25 @@ public sealed class CanvasSyncController : ControllerBase
             await _db.SaveChangesAsync(CancellationToken.None);
             throw;
         }
+
+        // The import's completed status is committed before materialization. If this optional
+        // follow-on step fails, the durable completed run remains available to the retry worker.
+        try
+        {
+            var count = await new CanvasDashboardAggregateService(_db)
+                .RefreshIfNeededAsync(CancellationToken.None);
+            if (count.HasValue)
+                _logger.LogInformation("Rebuilt {Count} Canvas dashboard metric rows", count.Value);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception,
+                "Canvas import completed, but report aggregation is pending retry for run {RunId}",
+                run.Id);
+        }
+
+        return Ok(new CanvasSyncResultDto(
+            "completed", completedAtUtc, sinceUtc, candidateWatermarkUtc, summary));
     }
 
     private static bool FixedTimeEquals(string expected, string supplied)

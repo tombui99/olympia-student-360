@@ -33,29 +33,42 @@ import { ReportExportButtonComponent } from './report-export-button.component';
         </div>
         <app-report-export-button [exporting]="exporting()" [disabled]="!result()?.aggregateAvailable || !result()?.totalCount" (exportRequested)="exportExcel()" />
       </div>
-      <form class="no-print grid gap-4 border-b border-[#eee8f1] bg-[#fdfbfe] p-5 sm:grid-cols-2 xl:grid-cols-3" (ngSubmit)="run()">
+      <form class="no-print grid min-w-0 gap-4 border-b border-[#eee8f1] bg-[#fdfbfe] p-5 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0" (ngSubmit)="run()">
+        <app-searchable-multi-select
+          [label]="t('reports.leadership.subaccounts')"
+          [searchPlaceholder]="t('reports.leadership.searchSubaccounts')"
+          [emptySelectionLabel]="t('reports.leadership.allSubaccounts')"
+          [hint]="t('reports.leadership.allSubaccounts')"
+          [options]="subaccountChoices()" [selected]="selectedSubaccountOptionIds()"
+          (selectedChange)="selectSubaccounts($event)" />
         <app-searchable-multi-select
           [label]="t('reports.learningReview.courses')"
           [searchPlaceholder]="t('reports.learningReview.searchCourses')"
-          [emptySelectionLabel]="t('reports.learningReview.allCoursesShort')"
-          [hint]="t('reports.learningReview.allCourses')"
+          [emptySelectionLabel]="t(reportKey === 'reading-completion' ? 'reports.learningReview.chooseCourseFirst' : 'reports.learningReview.allCoursesShort')"
+          [hint]="t(reportKey === 'reading-completion' ? 'reports.learningReview.chooseCourseFirst' : 'reports.learningReview.allCourses')"
           [options]="courseChoices()" [selected]="query.courseIds"
           (selectedChange)="selectCourses($event)" />
-        @if (reportKey === 'missing-frequency' || reportKey === 'homework-achievement') {
-          <app-searchable-multi-select
-            [label]="t('reports.learningReview.assignmentGroups')"
-            [searchPlaceholder]="t('reports.learningReview.searchGroups')"
-            [emptySelectionLabel]="t('reports.learningReview.allGroupsShort')"
-            [hint]="t('reports.learningReview.allAssignmentGroups')"
-            [options]="groupChoices()" [selected]="query.assignmentGroupNames"
-            (selectedChange)="selectGroups($event)" />
-        }
+        <label class="grid min-w-0 content-start gap-1 self-start text-sm font-semibold text-[#32124f]">
+          {{ t('reports.leadership.assessmentCategory') }}
+          <select class="h-11 w-full min-w-0 max-w-full rounded-md border border-[#d8d0df] bg-white px-3 font-normal" name="assessmentCategory" [(ngModel)]="query.assessmentCategory">
+            @for (category of categoryChoices(); track category) {
+              <option [value]="category">{{ t('reports.leadership.category.' + category) }}</option>
+            }
+          </select>
+        </label>
+        <app-searchable-multi-select
+          [label]="t('reports.learningReview.assignmentGroups')"
+          [searchPlaceholder]="t('reports.learningReview.searchGroups')"
+          [emptySelectionLabel]="t('reports.learningReview.allGroupsShort')"
+          [hint]="t('reports.learningReview.exactGroupHint')"
+          [options]="groupChoices()" [selected]="query.assignmentGroupNames"
+          (selectedChange)="selectGroups($event)" />
         @if (reportKey === 'reading-completion') {
           <app-searchable-multi-select
             [label]="t('reports.learningReview.assignments')"
             [searchPlaceholder]="t('reports.learningReview.searchAssignments')"
             [emptySelectionLabel]="t('reports.learningReview.noAssignmentsSelected')"
-            [hint]="t('reports.learningReview.chooseAssignments')"
+            [hint]="t(query.courseIds.length ? 'reports.learningReview.chooseAssignments' : 'reports.learningReview.chooseCourseFirst')"
             [loading]="assignmentsLoading()"
             [options]="assignmentChoices()" [selected]="query.assignmentIds"
             (selectedChange)="selectAssignments($event)" />
@@ -87,9 +100,17 @@ import { ReportExportButtonComponent } from './report-export-button.component';
             <input class="h-11 rounded-md border border-[#d8d0df] bg-white px-3 font-normal" type="number" min="0" max="100" name="minCompletion" [(ngModel)]="query.minCompletion" />
           </label>
         }
+        @if (reportKey === 'reading-completion' && (!query.courseIds.length || !query.assignmentIds.length)) {
+          <p class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 sm:col-span-2 xl:col-span-3">
+            {{ t(!query.courseIds.length ? 'reports.learningReview.chooseCourseFirst' : 'reports.learningReview.chooseAssignments') }}
+          </p>
+        }
         <div class="flex items-end gap-2 sm:col-span-2 xl:col-span-3">
           <button class="rounded-md bg-[#32124f] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" type="submit" [disabled]="loading() || assignmentsLoading() || !valid()">
             {{ t('reports.learningReview.run') }}
+          </button>
+          <button class="rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] transition hover:bg-[#f5f0f7]" type="button" [disabled]="loading()" (click)="resetFilters()">
+            {{ t('reports.clearFilters') }}
           </button>
         </div>
       </form>
@@ -184,6 +205,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   readonly assignmentsLoading = signal(false);
   readonly courseChoices = computed(() => (this.options()?.courses ?? [])
     .map(course => ({ value: course.id, label: course.name })));
+  readonly subaccountChoices = computed(() => (this.options()?.subaccounts ?? [])
+    .map(account => ({ value: account.id, label: account.name })));
   readonly groupChoices = computed(() => (this.options()?.assignmentGroups ?? [])
     .map(group => ({ value: group, label: group })));
   readonly assignmentChoices = computed(() => {
@@ -231,11 +254,24 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   valid(): boolean {
     return !!this.academicYear && this.query.maxMissing >= 0 && this.query.minScore >= 0 && this.query.minScore <= 100
       && this.query.minCompletion >= 0 && this.query.minCompletion <= 100
-      && (this.reportKey !== 'reading-completion' || this.query.assignmentIds.length > 0);
+      && (this.reportKey !== 'reading-completion' ||
+        (this.query.courseIds.length > 0 && this.query.assignmentIds.length > 0));
   }
   selectCourses(values: Array<string | number>): void {
     this.query.courseIds = values.map(Number);
     this.onCoursesChange();
+  }
+  selectSubaccounts(values: Array<string | number>): void {
+    this.query.subaccountIds = values.map(Number);
+  }
+  selectedSubaccountOptionIds(): number[] {
+    return this.selectedSubaccountOptions(this.query.subaccountIds).map(account => account.id);
+  }
+  categoryChoices(): LearningReportQuery['assessmentCategory'][] {
+    return (this.options()?.assessmentCategories ?? [])
+      .filter((category): category is LearningReportQuery['assessmentCategory'] =>
+        category === 'all' || category === 'HS1' || category === 'HS2' ||
+        category === 'HS3' || category === 'GPA');
   }
   selectGroups(values: Array<string | number>): void {
     this.query.assignmentGroupNames = values.map(String);
@@ -278,6 +314,28 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     this.syncQueryToUrl();
     this.fetchPage();
   }
+  resetFilters(): void {
+    if (this.assignmentTimer) clearTimeout(this.assignmentTimer);
+    this.assignmentRequestVersion++;
+    this.requestVersion++;
+    this.assignments.set([]);
+    this.assignmentsLoading.set(false);
+    this.error.set(null);
+    this.appliedQuery = null;
+    this.query = {
+      ...this.defaultQuery(),
+      reportKey: this.reportKey,
+      academicYear: this.academicYear,
+      term: this.term,
+    };
+    this.syncQueryToUrl();
+    if (this.reportKey === 'reading-completion') {
+      this.result.set(null);
+      this.loading.set(false);
+      return;
+    }
+    this.fetchPage();
+  }
   changePage(page: number): void {
     if (page < 1 || page > this.totalPages() || this.loading()) return;
     if (this.appliedQuery && JSON.stringify({ ...this.appliedQuery, page: 1 }) !==
@@ -305,6 +363,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
       const title = this.t(`reports.learningReview.${this.reportKey}.title`);
       const courseNames = (this.options()?.courses ?? [])
         .filter(course => applied.courseIds.includes(course.id)).map(course => course.name);
+      const subaccountNames = this.selectedSubaccountOptions(applied.subaccountIds)
+        .map(account => account.name);
       const assignmentNames = this.assignments()
         .filter(assignment => applied.assignmentIds.includes(assignment.id)).map(assignment => assignment.name);
       this.excel.download({
@@ -314,6 +374,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
         filters: [
           [this.t('reports.learningReview.month'), applied.month ?? this.t('reports.learningReview.allMonths')],
           [this.t('reports.learningReview.courses'), courseNames.length ? courseNames.join(', ') : this.t('reports.learningReview.allCoursesShort')],
+          [this.t('reports.leadership.subaccounts'), subaccountNames.length ? subaccountNames.join(', ') : this.t('reports.leadership.allSubaccounts')],
+          [this.t('reports.leadership.assessmentCategory'), this.t('reports.leadership.category.' + applied.assessmentCategory)],
           [this.t('reports.learningReview.assignmentGroups'), applied.assignmentGroupNames.length ? applied.assignmentGroupNames.join(', ') : this.t('reports.learningReview.allGroupsShort')],
           [this.t('reports.learningReview.assignments'), assignmentNames.length ? assignmentNames.join(', ') : this.t('reports.learningReview.noAssignmentsSelected')],
           [this.t('reports.learningReview.maxMissing'), applied.maxMissing],
@@ -378,9 +440,12 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     const query = { ...defaults, reportKey: this.reportKey, academicYear: this.academicYear, term: this.term };
     if (params.get('lrReport') !== this.reportKey) return query;
     query.courseIds = this.idsFromUrl(params, 'lrCourse', 100);
+    query.subaccountIds = this.idsFromUrl(params, 'lrSubaccount', 100);
     query.assignmentIds = this.idsFromUrl(params, 'lrAssignment', 200);
     query.assignmentGroupNames = [...new Set(params.getAll('lrGroup')
       .map(value => value.trim()).filter(value => value.length > 0 && value.length <= 255))].slice(0, 100);
+    const category = params.get('lrCategory');
+    if (category === 'HS1' || category === 'HS2' || category === 'HS3' || category === 'GPA') query.assessmentCategory = category;
     query.month = params.has('lrMonth') ? this.numberFromUrl(params, 'lrMonth', 0, 1, 12, true) || null : null;
     query.maxMissing = this.numberFromUrl(params, 'lrMaxMissing', defaults.maxMissing, 0, 1000, true);
     query.minScore = this.numberFromUrl(params, 'lrMinScore', defaults.minScore, 0, 100);
@@ -391,6 +456,11 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   private idsFromUrl(params: ParamMap, name: string, limit: number): number[] {
     return [...new Set(params.getAll(name).map(Number)
       .filter(value => Number.isSafeInteger(value) && value > 0))].slice(0, limit);
+  }
+  private selectedSubaccountOptions(ids: number[]) {
+    const selected = new Set(ids);
+    return (this.options()?.subaccounts ?? []).filter(account =>
+      selected.has(account.id) || account.accountIds.some(id => selected.has(id)));
   }
   private numberFromUrl(params: ParamMap, name: string, fallback: number,
     min: number, max: number, integer = false): number {
@@ -406,6 +476,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
       queryParams: {
         lrReport: this.reportKey,
         lrCourse: this.query.courseIds.length ? this.query.courseIds : null,
+        lrSubaccount: this.query.subaccountIds.length ? this.query.subaccountIds : null,
+        lrCategory: this.query.assessmentCategory === 'all' ? null : this.query.assessmentCategory,
         lrGroup: this.query.assignmentGroupNames.length ? this.query.assignmentGroupNames : null,
         lrAssignment: this.query.assignmentIds.length ? this.query.assignmentIds : null,
         lrMonth: this.query.month,
@@ -420,8 +492,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   }
   private defaultQuery(): LearningReportQuery {
     return { reportKey: 'missing-frequency', academicYear: '', term: 'all', month: null,
-      courseIds: [], assignmentIds: [], maxMissing: 2, minScore: 80, minCompletion: 90,
-      assignmentGroupNames: [], page: 1,
+      courseIds: [], subaccountIds: [], assignmentIds: [], maxMissing: 2, minScore: 80, minCompletion: 90,
+      assignmentGroupNames: [], assessmentCategory: 'all', page: 1,
     };
   }
 }

@@ -41,7 +41,11 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
                 item.AssignmentGroupName != null && item.AssignmentGroupName != "")
             .Select(item => item.AssignmentGroupName!)
             .Distinct().OrderBy(item => item).ToListAsync(cancellationToken);
-        return Ok(new LearningReportOptions(courses, assignmentGroups));
+        var subaccounts = await CanvasReportFilters.VisibleSubaccounts(db, courseIds, cancellationToken);
+        var categories = CanvasReportFilters.AvailableCategories(
+            assignmentGroups.Select(CanvasReportFilters.CategoryForGroup));
+        return Ok(new LearningReportOptions(courses, assignmentGroups, subaccounts,
+            categories));
     }
 
     [HttpGet("assignments")]
@@ -76,9 +80,8 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
         var pageSize = Math.Clamp(request.PageSize, 1, request.Export ? MaximumPageSize : 100);
 
         // No raw warehouse fallback: an empty ETL aggregate produces an explicit unavailable result.
-        if (!await db.CanvasDashboardAggregateBuilds.AsNoTracking()
-                .AnyAsync(item => item.SchemaVersion >= CanvasDashboardAggregateService.ReportSchemaVersion,
-                    cancellationToken))
+        if (!await CanvasDashboardAggregateService.IsReadyForLatestCompletedSyncAsync(
+                db, cancellationToken))
             return Ok(new LearningReportResult([], 0, false, "aggregate_unavailable", request.Page, pageSize));
 
         var year = DashboardPeriodNormalizer.AcademicYear(request.AcademicYear!);
@@ -98,6 +101,25 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
         }
         if (request.CourseIds.Count > 0)
             facts = facts.WhereMatchesAnyValue(item => item.CanvasCourseId, request.CourseIds);
+        if (request.SubaccountIds.Count > 0)
+        {
+            var accountIds = await CanvasReportFilters.AccountAndDescendantIds(
+                db, request.SubaccountIds, cancellationToken);
+            facts = facts.Where(item => item.Course.CanvasAccountId != null)
+                .WhereMatchesAnyValue(item => item.Course.CanvasAccountId!.Value, accountIds);
+        }
+        var category = CanvasReportFilters.CanonicalCategory(request.AssessmentCategory)!;
+        if (category != "all")
+        {
+            var availableNames = await facts.Where(item => item.Assignment != null &&
+                    item.Assignment.AssignmentGroupName != null)
+                .Select(item => item.Assignment!.AssignmentGroupName!)
+                .Distinct().ToListAsync(cancellationToken);
+            var categoryNames = availableNames
+                .Where(name => CanvasReportFilters.CategoryForGroup(name) == category).ToList();
+            facts = facts.Where(item => item.Assignment != null)
+                .WhereMatchesAny(item => item.Assignment!.AssignmentGroupName, categoryNames);
+        }
         if (request.AssignmentGroupNames.Count > 0)
             facts = facts.Where(item => item.Assignment != null)
                 .WhereMatchesAny(item => item.Assignment!.AssignmentGroupName, request.AssignmentGroupNames);
@@ -214,14 +236,17 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
             return "Select a valid reporting term.";
         if (query.Month is < 1 or > 12) return "Month must be between 1 and 12.";
         if (query.CourseIds is null || query.AssignmentIds is null ||
-            query.AssignmentGroupNames is null)
+            query.AssignmentGroupNames is null || query.SubaccountIds is null)
             return "Invalid course or assignment selections.";
         if (query.CourseIds.Count > 100 || query.AssignmentIds.Count > 200 ||
-            query.AssignmentGroupNames.Count > 100 ||
-            query.CourseIds.Any(id => id <= 0) || query.AssignmentIds.Any(id => id <= 0))
+            query.AssignmentGroupNames.Count > 100 || query.SubaccountIds.Count > 50 ||
+            query.CourseIds.Any(id => id <= 0) || query.AssignmentIds.Any(id => id <= 0) ||
+            query.SubaccountIds.Any(id => id <= 0))
             return "Too many or invalid course or assignment selections.";
         if (query.AssignmentGroupNames.Any(name => string.IsNullOrWhiteSpace(name) || name.Length > 255))
             return "Invalid assignment group selection.";
+        if (CanvasReportFilters.CanonicalCategory(query.AssessmentCategory) is null)
+            return "Unknown assessment category.";
         if (query.MaxMissing is < 0 or > 1000 || query.MinScore is < 0 or > 100 ||
             query.MinCompletion is < 0 or > 100)
             return "Invalid report thresholds.";
@@ -239,6 +264,8 @@ public sealed record LearningReportQuery
     public string? Term { get; init; } = "all";
     public int? Month { get; init; }
     public List<long> CourseIds { get; init; } = [];
+    public List<long> SubaccountIds { get; init; } = [];
+    public string AssessmentCategory { get; init; } = "all";
     public List<long> AssignmentIds { get; init; } = [];
     public List<string> AssignmentGroupNames { get; init; } = [];
     public int MaxMissing { get; init; } = 2;
@@ -252,7 +279,8 @@ public sealed record LearningReportQuery
 public sealed record LearningCourseOption(long Id, string Name);
 public sealed record LearningAssignmentOption(long Id, long CourseId, string Name);
 public sealed record LearningReportOptions(List<LearningCourseOption> Courses,
-    List<string> AssignmentGroups);
+    List<string> AssignmentGroups, List<CanvasReportSubaccountOption> Subaccounts,
+    List<string> AssessmentCategories);
 public sealed record LearningReportRow(int? StudentId, string? SisUserId, string Name,
     string? Grade, string? Homeroom, int Missing, int Submitted, int Graded,
     double? Score, double? Rate, string Status);

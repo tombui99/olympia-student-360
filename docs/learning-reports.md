@@ -1,14 +1,16 @@
 # Learning and assignment reports
 
 The four configurable reports under `/reports` use `CanvasDashboardMetricAggregates` as their
-numeric source. Every successful Canvas sync materializes student, course, assignment, and month
-facts before requests use them. On a deployment where existing Canvas data has never had the
-version 2 aggregate built, an API background worker performs a one-time backfill after migrations;
-it does not fetch Canvas again. `CanvasDashboardAggregateBuilds` records the schema version of a
-completed rebuild. Until the backfill commits, the report API returns an unavailable state; it
-never falls back to raw Canvas submissions or scores. The worker retries failed builds and a
-database lock prevents simultaneous backfill and ETL rebuilds across instances. For a manual
-operational rebuild, run
+numeric source. A successful Canvas sync first commits its `CanvasSyncRun` completion and advances
+the watermark. That completed run then triggers a rebuild of the student, course, assignment, and
+month facts. The API worker watches completed runs and retries a missed or failed rebuild, including
+the initial backfill after deployment when a completed Canvas run exists; it does not fetch Canvas
+again. A legacy warehouse without run history needs the explicit manual rebuild command. The
+`CanvasDashboardAggregateBuilds` row records both the schema version and the completed Canvas run
+through which the summaries were built. Until an initial build commits, the report API returns an
+unavailable state; it never falls back to raw Canvas submissions or scores. A database lock keeps
+the rebuild from reading a partially imported warehouse or overlapping another rebuild. For a
+manual operational rebuild, run
 `dotnet run --project backend/OlympiaStudent360.CanvasEtl -- --rebuild-dashboard-aggregates-only`
 in an environment with the configured database connection.
 
@@ -30,10 +32,93 @@ default filters.
 
 The selected-task completion rate is `submitted / (submitted + Canvas-flagged missing)`; it is a
 status-based proxy and does not assert reading quality. Grading coverage uses Canvas `graded`
-workflow status and does not assert that written teacher feedback was provided. Report 5's
-HS2/HS3 assessment types and red/amber/green classroom rules are not represented by reliable
-structured fields here. Report 6's support-exit decision rules are not defined. Neither was
-added as a school report.
+workflow status and does not assert that written teacher feedback was provided.
+
+The school administration and subject leadership reports read `CanvasLeadershipReportAggregates`,
+a second materialization built alongside the dashboard facts. Each stored row combines one
+student, course, reporting year, term, month, and exact Canvas assignment-group name, with
+additive submitted/missing/late/graded counts, score sums/sample counts, and graded earned and
+possible point totals. Canvas final-course
+scores occupy separate rows so assessment categories cannot change them. This pivot happens
+after a completed Canvas sync or during deployment backfill, not during a report HTTP request. A
+rebuild atomically replaces both aggregate tables. A v4 deployment backfill adds point totals
+from existing assignment-grain metric facts and their source submissions without rewriting the
+dashboard metric table. Older v2/v3 builds are fully rebuilt because their lineage may be
+incomplete. Both paths write version 5 readiness in their transaction; until that commit, the leadership reports show an
+unavailable state rather than scanning raw Canvas data. If a later rebuild fails, the previous
+aggregate remains intact for retry, but report endpoints do not serve it as current data.
+
+The two reports appear directly in `/reports` and use the page's academic year and term. Both
+support grade, homeroom, Canvas subject, and the HS1, HS2, HS3, and GPA
+assignment-group categories that are actually present in the user's visible Canvas data. Category matching uses only the
+literal Canvas group label (for example `Hệ số 2`, `HS2`, or `HK1-HS1.2`); it does not infer weights from
+assignment titles or course names. The assignment-score breakdowns therefore describe graded Canvas
+submissions as percentages of possible points, not a calculated 4.2-scale GPA. Canvas subject choices
+include only accounts directly assigned to visible courses, and the server applies student access
+scope before grouping. Dynamic filters still require summing compact stored rows; the
+server does not store cross-user response caches, which could reveal another user's students.
+
+The administration report groups learning activity status and graded results by month, Canvas
+subaccount, course, grade, and homeroom. The subject leadership report keeps each assessment
+group separate in its student/course detail and emphasizes score comparisons. It also shows a
+separate Canvas final-course-score section by course, grade, homeroom, and reporting month.
+That section uses course-score aggregates and is not affected by assessment categories;
+the aggregate does not preserve a named grading-period ID. Completion means
+submitted divided by submitted plus non-excused Canvas-flagged missing work; grading coverage
+means graded submitted work divided by submitted work. Neither asserts teacher comments or
+independent assessment outcomes. Red/amber/green classroom rules and support-exit decisions
+are not defined by the available structured data.
+
+## School score views
+
+The school's spreadsheet was used only to identify the questions users need answered. `/reports`
+presents those questions as separate choices for Ban giám hiệu and Ban chuyên môn instead of
+reproducing spreadsheet sheets, labels, rows, subjects, or values.
+
+Every runtime value comes from the Canvas warehouse. The default 0–10 views calculate one result
+per student and Canvas course from total earned points divided by total possible points for eligible
+graded assignments, then divide by ten and round to one decimal. Ungraded and excused submissions
+do not contribute. The highest and lowest lists average the available course results for each
+student. A separate view shows Canvas's imported current course score on its native 0–100 scale.
+That value is a changing Canvas course measure and is not an official GPA.
+
+The letter distribution uses the application's established transcript scale, collapsed into the
+five bands requested by these reports: **D < 5; C 5–<6.5; B 6.5–<8; A 8–<9.5; A+ ≥ 9.5**.
+The C+D share is the count in C or D divided by all scored student-course results in the row. The
+histogram has a 0–<5 bin followed by half-point bins through 9.5–10+, retaining extra credit in the
+last bin.
+
+HS1, HS2, HS3, and GPA categories are derived only from literal tokens in actual Canvas assignment
+group names. Assignment, distribution, histogram, and ranking reports always use graded
+assignment-group points and expose the category filter. The dedicated current-course-score report
+always uses Canvas `current_score` and does not expose that category filter. Users do not select a
+score source manually.
+
+School-level and grade filters use stored course and student grade fields. The Canvas subject selector
+groups grade-specific Canvas subaccounts directly assigned to reportable courses by their subject
+name; it does not repeat structural school, division, or grade ancestors already represented by other
+filters. Selecting a subject includes all matching grade-specific accounts and their descendants.
+Display labels remove only a recognized leading grade code such as `G5_`, `G10_`, or `G10IB_`;
+filtering still uses the original Canvas account IDs, while the
+warehouse retains the exact Canvas account name. Each reportable Canvas course remains distinct and
+displays its exact Canvas course name, so newly synced courses appear without code changes or a fixed
+subject catalog. Homeroom views use the SIS student homeroom; class-subject views use actual Canvas
+section memberships and names. Selecting a Canvas subject narrows the Canvas section choices to sections
+whose courses belong to that account or one of its descendant accounts, and clears an incompatible
+section selection. School level, grade, and homeroom choices are linked through stored
+student grade–homeroom pairs, with the student grade taking precedence over a course-grade fallback.
+
+The grade-distribution view requires a subject scope, supplied by one or more Canvas subjects or
+an exact Canvas course. The homeroom-distribution view additionally requires a grade, and the
+class-subject view requires a Canvas section name. Until those inputs are selected, the UI shows a
+required-selection message instead of zero-valued summary cards. Selected-task completion similarly
+requires a Canvas course followed by one or more actual Canvas assignments.
+
+The score views read `CanvasLeadershipReportAggregates` and `CanvasDashboardMetricAggregates`.
+Those tables are rebuilt from stored Canvas facts after a completed ETL run, so report requests do
+not scan raw submissions. Canvas drop rules and weighted assignment groups can make the calculated
+earned/possible result differ from Canvas's whole-course score; the UI identifies the source assigned
+to each report.
 
 ## Other `/reports` materializations
 
@@ -57,9 +142,12 @@ On first deployment, summary endpoints return HTTP 503 until the initial build s
 they never fall back to expensive raw calculations. Import/bulk writers that bypass EF
 `SaveChangesAsync` must explicitly add an `ImportedReportChange` marker (or invoke the rebuild).
 
-For deployment, apply the API migrations and start the API. The Canvas report backfill runs
-automatically once if version 2 is missing; it can take time on a large warehouse, and the
-report remains unavailable until the transaction commits. Then run the API once with
+For deployment, apply the API migrations and start the API. When a completed Canvas run exists, the
+Canvas report backfill runs automatically if version 5 is missing; it can take time on a large
+warehouse, and the report remains unavailable until the transaction commits. For later syncs, compare
+`CanvasDashboardAggregateBuilds.LastCompletedSyncRunId` with the highest completed
+`CanvasSyncRuns.Id`; a lower build cursor means the aggregate is pending or failed and the worker
+will retry. Then run the API once with
 `dotnet run --project backend/OlympiaStudent360.Api -- --rebuild-imported-report-aggregates-only`
 using the normal production connection and JWT configuration. The normal API hosted worker
 subsequently refreshes imported aggregates after source changes and at least daily. Monitor

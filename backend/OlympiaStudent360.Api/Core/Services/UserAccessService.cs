@@ -37,8 +37,8 @@ public static class TeacherSchoolLevels
 
     public static IReadOnlyList<string> Grades(string schoolLevel) => schoolLevel switch
     {
-        Primary => ["5"],
-        LowerSecondary => ["6", "7", "8", "9"],
+        Primary => ["1", "2", "3", "4"],
+        LowerSecondary => ["5", "6", "7", "8", "9"],
         UpperSecondary => ["10", "11", "12"],
         _ => []
     };

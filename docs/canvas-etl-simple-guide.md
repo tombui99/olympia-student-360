@@ -14,13 +14,16 @@ SIS remains the source of truth for official student identity and demographics.
 GitHub Action or local CLI
   -> runs the durable Canvas ETL process
   -> ETL calls Canvas APIs
-  -> backend validates relationships
-  -> backend upserts Canvas values into MySQL
-  -> reports join and calculate from those stored values
+  -> importer validates relationships
+  -> importer upserts Canvas values into MySQL
+  -> ETL records completion and advances the watermark
+  -> report aggregates rebuild from the stored values
+  -> reports read the aggregate tables
 ```
 
 An upsert inserts a record the first time its Canvas ID is seen and updates the same record on later
-runs. The watermark advances only after the entire run succeeds.
+runs. The watermark advances only after the entire run succeeds. A completed run triggers the report
+aggregate refresh; the API worker retries if the rebuild does not finish.
 
 ## APIs and destinations
 

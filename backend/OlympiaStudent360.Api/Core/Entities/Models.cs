@@ -668,11 +668,42 @@ public class CanvasDashboardMetricAggregate : BaseEntity
     public int SampleCount { get; set; }
 }
 
-/// <summary>Written only when an ETL rebuild completes with the current aggregate dimensions.</summary>
+/// <summary>
+/// Report-ready Canvas totals at student/course/assignment-group/month grain. The ETL rebuilds
+/// these with the dashboard facts so leadership reports can filter and summarize without pivoting
+/// assignment-level metric rows for every request. ScoreSum/ScoreCount retain the existing
+/// assignment-percentage average; EarnedPoints/PossiblePoints retain the Canvas group ratio.
+/// Final course scores use separate rows and never inherit an assignment-group classification.
+/// </summary>
+public class CanvasLeadershipReportAggregate : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public long CanvasCourseId { get; set; }
+    public CanvasCourse Course { get; set; } = default!;
+    public string AcademicYear { get; set; } = default!;
+    public string Term { get; set; } = "";
+    public DateTime? AcademicPeriodStart { get; set; }
+    public bool IsFinalCourseScore { get; set; }
+    public string? AssignmentGroupName { get; set; }
+    public string? AssessmentCategory { get; set; }
+    public int Submitted { get; set; }
+    public int Missing { get; set; }
+    public int Late { get; set; }
+    public int Graded { get; set; }
+    public double ScoreSum { get; set; }
+    public int ScoreCount { get; set; }
+    /// <summary>Eligible graded Canvas submission points, summed at this student/course/group/period grain.</summary>
+    public double EarnedPoints { get; set; }
+    public double PossiblePoints { get; set; }
+}
+
+/// <summary>Identifies the newest completed Canvas import included in the report snapshot.</summary>
 public class CanvasDashboardAggregateBuild : BaseEntity
 {
     public int SchemaVersion { get; set; }
     public DateTime CompletedAtUtc { get; set; }
+    public int LastCompletedSyncRunId { get; set; }
 }
 
 /// <summary>Durable high-water mark and last-run status for one Canvas account.</summary>

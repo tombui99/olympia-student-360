@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, shareReplay } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
 
 export type LearningReportKey =
@@ -13,8 +13,10 @@ export interface LearningReportQuery {
   term: string;
   month: number | null;
   courseIds: number[];
+  subaccountIds: number[];
   assignmentIds: number[];
   assignmentGroupNames: string[];
+  assessmentCategory: 'all' | 'HS1' | 'HS2' | 'HS3' | 'GPA';
   maxMissing: number;
   minScore: number;
   minCompletion: number;
@@ -24,8 +26,20 @@ export interface LearningReportQuery {
 }
 
 export interface LearningCourseOption { id: number; name: string; }
+export interface LearningSubaccountOption {
+  id: number;
+  name: string;
+  path: string;
+  accountIds: number[];
+  gradeLevels: string[];
+}
 export interface LearningAssignmentOption { id: number; courseId: number; name: string; }
-export interface LearningReportOptions { courses: LearningCourseOption[]; assignmentGroups: string[]; }
+export interface LearningReportOptions {
+  courses: LearningCourseOption[];
+  subaccounts: LearningSubaccountOption[];
+  assignmentGroups: string[];
+  assessmentCategories: Array<'all' | 'HS1' | 'HS2' | 'HS3' | 'GPA'>;
+}
 export interface LearningReportRow {
   studentId: number | null;
   sisUserId: string | null;
@@ -53,9 +67,12 @@ export class LearningReportsService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
   private readonly url = `${this.basePath}/api/learning-reports`;
+  private readonly optionsRequest = this.http.get<LearningReportOptions>(`${this.url}/options`).pipe(
+    shareReplay({ bufferSize: 1, refCount: false }),
+  );
 
   options(): Observable<LearningReportOptions> {
-    return this.http.get<LearningReportOptions>(`${this.url}/options`);
+    return this.optionsRequest;
   }
   assignments(courseIds: number[]): Observable<LearningAssignmentOption[]> {
     let params = new HttpParams();

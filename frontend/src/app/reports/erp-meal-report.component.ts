@@ -100,6 +100,11 @@ type TimeMode = 'period' | 'day' | 'month' | 'range';
           <label class="grid gap-1 text-xs font-semibold text-[#625969]">{{ languageService.t('reports.meals.studentSearch') }}
             <input class="rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm" type="search" [(ngModel)]="search" (ngModelChange)="onSearchChange()" [placeholder]="languageService.t('reports.meals.searchPlaceholder')" />
           </label>
+          <div class="flex items-end sm:col-span-2 lg:col-span-4">
+            <button class="rounded-md border border-[#d8d0df] bg-white px-4 py-2 text-sm font-semibold text-[#32124f] transition hover:bg-[#f5f0f7]" type="button" [disabled]="loading()" (click)="resetFilters()">
+              {{ languageService.t('reports.clearFilters') }}
+            </button>
+          </div>
         </div>
 
         @if (loading() && data()) {
@@ -321,6 +326,24 @@ export class ErpMealReportComponent implements OnChanges, OnDestroy {
     this.closeDetails();
     if (this.searchTimer !== undefined) window.clearTimeout(this.searchTimer);
     this.searchTimer = window.setTimeout(() => this.load(1), 250);
+  }
+
+  resetFilters(): void {
+    if (this.searchTimer !== undefined) window.clearTimeout(this.searchTimer);
+    this.searchTimer = undefined;
+    const range = this.periodRange();
+    this.timeMode = 'period';
+    this.groupBy = 'student';
+    this.from = range.from;
+    this.to = range.to;
+    this.day = range.from;
+    this.month = range.from.slice(0, 7);
+    this.meal = '';
+    this.grade = '';
+    this.className = '';
+    this.search = '';
+    this.loadOptions();
+    this.load(1);
   }
 
   validDates(): boolean {

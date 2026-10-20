@@ -60,6 +60,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CanvasCourseScore> CanvasCourseScores { get; set; }
     public DbSet<CanvasSubmission> CanvasSubmissions { get; set; }
     public DbSet<CanvasDashboardMetricAggregate> CanvasDashboardMetricAggregates { get; set; }
+    public DbSet<CanvasLeadershipReportAggregate> CanvasLeadershipReportAggregates { get; set; }
     public DbSet<CanvasDashboardAggregateBuild> CanvasDashboardAggregateBuilds { get; set; }
     public DbSet<CanvasSyncState> CanvasSyncStates { get; set; }
     public DbSet<CanvasSyncRun> CanvasSyncRuns { get; set; }
@@ -830,6 +831,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             submission.Property(s => s.LatePolicyStatus).HasMaxLength(50);
             submission.HasIndex(s => s.CanvasSubmissionId).IsUnique();
             submission.HasIndex(s => s.CanvasAssignmentId);
+            submission.HasIndex(s => new { s.CanvasAssignmentId, s.StudentProfileId, s.CanvasCourseId })
+                .HasDatabaseName("IX_CanvasSubmissions_ScorePointJoin");
             submission.HasIndex(s => s.CanvasUserId);
             submission.HasIndex(s => s.StudentProfileId);
             submission.HasOne(s => s.Assignment).WithMany(a => a.Submissions)
@@ -867,6 +870,38 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             aggregate.HasOne(item => item.Assignment).WithMany()
                 .HasForeignKey(item => item.CanvasAssignmentId)
                 .HasPrincipalKey(item => item.CanvasAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CanvasLeadershipReportAggregate>(aggregate =>
+        {
+            aggregate.Property(item => item.AcademicYear).HasMaxLength(20);
+            aggregate.Property(item => item.Term).HasMaxLength(20);
+            aggregate.Property(item => item.AssignmentGroupName).HasMaxLength(255);
+            aggregate.Property(item => item.AssessmentCategory).HasMaxLength(10);
+            aggregate.HasIndex(item => new
+            {
+                item.AcademicYear,
+                item.IsFinalCourseScore,
+                item.Term,
+                item.AcademicPeriodStart
+            });
+            aggregate.HasIndex(item => new { item.AcademicYear, item.AssessmentCategory });
+            aggregate.HasIndex(item => item.StudentProfileId);
+            aggregate.HasIndex(item => item.CanvasCourseId);
+            aggregate.HasIndex(item => new
+                {
+                    item.StudentProfileId, item.CanvasCourseId, item.AcademicYear,
+                    item.Term, item.IsFinalCourseScore, item.AcademicPeriodStart,
+                    item.AssignmentGroupName
+                })
+                .HasDatabaseName("IX_CanvasLeadershipReportAggregates_ScorePointJoin");
+            aggregate.HasOne(item => item.Student).WithMany()
+                .HasForeignKey(item => item.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            aggregate.HasOne(item => item.Course).WithMany()
+                .HasForeignKey(item => item.CanvasCourseId)
+                .HasPrincipalKey(item => item.CanvasCourseId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

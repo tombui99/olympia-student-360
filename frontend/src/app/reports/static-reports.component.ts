@@ -30,12 +30,17 @@ import { HealthReportComponent } from './health-report.component';
 import { BehaviourReportComponent } from './behaviour-report.component';
 import { LearningReviewReportComponent } from './learning-review-report.component';
 import { LearningReportKey } from './learning-reports.service';
+import { LeadershipReportComponent } from './leadership-report.component';
+import { ScoreReportComponent, ScoreReportMenuKey } from './score-report.component';
 import { ErpMealReportComponent } from './erp-meal-report.component';
 import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
 import { ReportExportButtonComponent } from './report-export-button.component';
 
 type StaticReportId =
   | 'learning-diligence'
+  | 'school-learning-engagement'
+  | 'school-assessment-results'
+  | ScoreReportMenuKey
   | 'support-classes'
   | LearningReportKey
   | 'support-students'
@@ -108,7 +113,7 @@ interface ClassDrilldownPage {
 
 @Component({
   selector: 'app-static-reports',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent, ErpMealReportComponent, ReportExportButtonComponent],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent, LeadershipReportComponent, ScoreReportComponent, ErpMealReportComponent, ReportExportButtonComponent],
   template: `
     <section class="print-region space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -325,6 +330,18 @@ interface ClassDrilldownPage {
               @case ('homework-achievement') { <app-learning-review-report reportKey="homework-achievement" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
               @case ('reading-completion') { <app-learning-review-report reportKey="reading-completion" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
               @case ('grading-coverage') { <app-learning-review-report reportKey="grading-coverage" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('school-learning-engagement') { <app-leadership-report reportKey="school-learning-engagement" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('school-assessment-results') { <app-leadership-report reportKey="school-assessment-results" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('school-subject-grade-average') { <app-score-report reportKey="school-subject-grade-average" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('subject-band-by-subject') { <app-score-report reportKey="subject-band-by-subject" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('subject-band-by-grade') { <app-score-report reportKey="subject-band-by-grade" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('subject-band-by-class') { <app-score-report reportKey="subject-band-by-class" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('school-score-histogram') { <app-score-report reportKey="school-score-histogram" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('subject-assessment-average') { <app-score-report reportKey="subject-assessment-average" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('school-current-course-score') { <app-score-report reportKey="school-current-course-score" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('subject-class-results') { <app-score-report reportKey="subject-class-results" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('school-top-students') { <app-score-report reportKey="school-top-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('school-bottom-students') { <app-score-report reportKey="school-bottom-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
               @case ('support-students') {
                 <ng-container [ngTemplateOutlet]="supportStudents"></ng-container>
               }
@@ -563,7 +580,10 @@ interface ClassDrilldownPage {
           <label class="relative block max-w-md">
             <span class="sr-only">{{ languageService.t('reports.search') }}</span>
             <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8c8193]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input class="w-full rounded-md border border-[#d8d0df] py-2.5 pl-10 pr-3 text-sm outline-none focus:border-[#8a5aa7] focus:ring-2 focus:ring-[#eee5f3]" type="search" [ngModel]="studentSearch()" (ngModelChange)="onStudentSearchChange($event)" [placeholder]="languageService.t('reports.search')" />
+            <input class="w-full rounded-md border border-[#d8d0df] py-2.5 pl-10 pr-9 text-sm outline-none focus:border-[#8a5aa7] focus:ring-2 focus:ring-[#eee5f3]" type="search" [ngModel]="studentSearch()" (ngModelChange)="onStudentSearchChange($event)" [placeholder]="languageService.t('reports.search')" />
+            @if (studentSearch()) {
+              <button class="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-[#746b7b] hover:bg-[#f2ecf5] hover:text-[#32124f]" type="button" [attr.aria-label]="languageService.t('reports.clearFilters')" (click)="clearStudentSearch()">×</button>
+            }
           </label>
         </div>
         @if (studentsLoading() && studentTotalCount() > 0) {
@@ -857,6 +877,26 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   private readonly toast = inject(ToastService);
 
   readonly reportGroups: ReportMenuGroup[] = [
+    {
+      id: 'school-leadership', titleKey: 'reports.group.schoolLeadership', shortLabel: 'BGH', items: [
+        { id: 'school-subject-grade-average', titleKey: 'reports.score.subjectGradeAverage.title', descriptionKey: 'reports.score.subjectGradeAverage.menu' },
+        { id: 'school-score-histogram', titleKey: 'reports.score.histogram.title', descriptionKey: 'reports.score.histogram.menu' },
+        { id: 'school-current-course-score', titleKey: 'reports.score.currentCourseScore.title', descriptionKey: 'reports.score.currentCourseScore.menu' },
+        { id: 'school-top-students', titleKey: 'reports.score.topStudents.title', descriptionKey: 'reports.score.topStudents.menu' },
+        { id: 'school-bottom-students', titleKey: 'reports.score.bottomStudents.title', descriptionKey: 'reports.score.bottomStudents.menu' },
+        { id: 'school-learning-engagement', titleKey: 'reports.leadership.engagement.title', descriptionKey: 'reports.leadership.engagement.menu' },
+      ],
+    },
+    {
+      id: 'subject-leadership', titleKey: 'reports.group.subjectLeadership', shortLabel: 'BCM', items: [
+        { id: 'subject-band-by-subject', titleKey: 'reports.score.subjectDistribution.title', descriptionKey: 'reports.score.subjectDistribution.menu' },
+        { id: 'subject-band-by-grade', titleKey: 'reports.score.gradeDistribution.title', descriptionKey: 'reports.score.gradeDistribution.menu' },
+        { id: 'subject-band-by-class', titleKey: 'reports.score.classDistribution.title', descriptionKey: 'reports.score.classDistribution.menu' },
+        { id: 'subject-assessment-average', titleKey: 'reports.score.assessmentAverage.title', descriptionKey: 'reports.score.assessmentAverage.menu' },
+        { id: 'subject-class-results', titleKey: 'reports.score.classSubjectResults.title', descriptionKey: 'reports.score.classSubjectResults.menu' },
+        { id: 'school-assessment-results', titleKey: 'reports.leadership.assessment.title', descriptionKey: 'reports.leadership.assessment.menu' },
+      ],
+    },
     {
       id: 'learning', titleKey: 'reports.group.learning', shortLabel: 'HT', items: [
         { id: 'learning-diligence', titleKey: 'reports.learning.title', descriptionKey: 'reports.learning.description' },
@@ -1297,6 +1337,13 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     this.studentSearchTimer = window.setTimeout(() => this.loadSupportStudents(1), 300);
   }
 
+  clearStudentSearch(): void {
+    if (this.studentSearchTimer !== undefined) window.clearTimeout(this.studentSearchTimer);
+    this.studentSearchTimer = undefined;
+    this.studentSearch.set('');
+    this.loadSupportStudents(1);
+  }
+
   loadSupportStudents(page: number): void {
     const requestId = ++this.studentRequestId;
     this.studentsLoading.set(true);
@@ -1498,6 +1545,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         library: this.reportMenuCollapsed() ? 'collapsed' : null,
         ...(clearLearningFilters ? {
           lrReport: null, lrCourse: null, lrGroup: null, lrAssignment: null,
+          lrSubaccount: null, lrCategory: null,
           lrMonth: null, lrMaxMissing: null, lrMinScore: null,
           lrMinCompletion: null, lrPage: null,
         } : {}),

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.CanvasEtl;
@@ -17,6 +18,7 @@ public sealed class CanvasDirectImportRunner
         CancellationToken cancellationToken)
     {
         await db.MigrateWithRecoveryAsync(cancellationToken);
+        await using var warehouseLock = await CanvasWarehouseLock.AcquireAsync(db, cancellationToken);
 
         var startedAtUtc = DateTime.UtcNow;
         var sourceKey = $"canvas:{request.BaseUri.Host.ToLowerInvariant()}:{request.AccountId.Trim().ToLowerInvariant()}";
@@ -84,10 +86,12 @@ public sealed class CanvasDirectImportRunner
         };
         var sync = new CanvasSyncService(db, new CanvasApiClient(httpClient, options), options);
 
+        CanvasSyncSummary summary;
+        DateTime completedAtUtc;
         try
         {
-            var summary = await sync.Run(request.ReplaceExisting, cancellationToken);
-            var completedAtUtc = DateTime.UtcNow;
+            summary = await sync.Run(request.ReplaceExisting, cancellationToken);
+            completedAtUtc = DateTime.UtcNow;
             state = await db.CanvasSyncStates.SingleAsync(
                 item => item.SourceKey == sourceKey, CancellationToken.None);
             state.LastSuccessfulWatermarkUtc = startedAtUtc;
@@ -105,7 +109,6 @@ public sealed class CanvasDirectImportRunner
             run.Submissions = summary.Submissions;
             run.UpdatedAt = completedAtUtc;
             await db.SaveChangesAsync(CancellationToken.None);
-            return new CanvasDirectImportResult(completedAtUtc, sinceUtc, startedAtUtc, summary);
         }
         catch (Exception exception)
         {
@@ -124,6 +127,23 @@ public sealed class CanvasDirectImportRunner
             await db.SaveChangesAsync(CancellationToken.None);
             throw;
         }
+
+        // Completion and watermark are already durable. A report refresh failure leaves this
+        // completed run pending for the API worker instead of mislabelling the import as failed.
+        try
+        {
+            var count = await new CanvasDashboardAggregateService(db)
+                .RefreshIfNeededAsync(CancellationToken.None);
+            if (count.HasValue)
+                Console.WriteLine($"Rebuilt {count.Value} pre-calculated Canvas dashboard metric rows.");
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(
+                $"Canvas import completed, but report aggregation is pending retry: {exception}");
+        }
+
+        return new CanvasDirectImportResult(completedAtUtc, sinceUtc, startedAtUtc, summary);
     }
 
     private static string Limit(string value, int maxLength) =>

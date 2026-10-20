@@ -703,56 +703,6 @@ export class WorkspaceComponent implements OnInit {
         { titleKey: 'workspace.templates.charts.projects', kind: 'line', metrics: ['project-records', 'active-project-records'] },
       ],
     },
-    {
-      id: 'school-learning-engagement',
-      titleKey: 'workspace.templates.learningEngagement.title',
-      descriptionKey: 'workspace.templates.learningEngagement.description',
-      charts: [
-        {
-          titleKey: 'workspace.templates.charts.homeworkStatus', kind: 'pie', metrics: [],
-          explorer: { dataset: 'submissions', dimension: 'status', measure: 'count' },
-        },
-        {
-          titleKey: 'workspace.templates.charts.homeworkQualityBySubject', kind: 'bar', metrics: [],
-          explorer: { dataset: 'submissions', dimension: 'subject', measure: 'avgScorePercent' },
-        },
-        {
-          titleKey: 'workspace.templates.charts.homeworkFlow', kind: 'line',
-          metrics: ['canvas-assignments-submitted', 'canvas-assignments-graded'],
-        },
-        {
-          titleKey: 'workspace.templates.charts.homeworkAttention', kind: 'bar',
-          metrics: ['canvas-assignments-missing', 'canvas-assignments-late'],
-        },
-      ],
-    },
-    {
-      id: 'school-assessment-results',
-      titleKey: 'workspace.templates.assessmentResults.title',
-      descriptionKey: 'workspace.templates.assessmentResults.description',
-      charts: [
-        {
-          titleKey: 'workspace.templates.charts.formativeBySubject', kind: 'bar', metrics: [],
-          explorer: { dataset: 'submissions', dimension: 'subject', measure: 'avgScorePercent' },
-        },
-        {
-          titleKey: 'workspace.templates.charts.summativeBySubject', kind: 'bar', metrics: [],
-          explorer: { dataset: 'scores', dimension: 'subject', measure: 'avgFinalScore' },
-        },
-        {
-          titleKey: 'workspace.templates.charts.summativeByGrade', kind: 'bar', metrics: [],
-          explorer: { dataset: 'scores', dimension: 'gradeLevel', measure: 'avgFinalScore' },
-        },
-        {
-          titleKey: 'workspace.templates.charts.summativeByHomeroom', kind: 'bar', metrics: [],
-          explorer: { dataset: 'scores', dimension: 'homeroom', measure: 'avgFinalScore' },
-        },
-        {
-          titleKey: 'workspace.templates.charts.independentAssessments', kind: 'bar', metrics: [],
-          explorer: { dataset: 'scores', dimension: 'gradingPeriod', measure: 'avgFinalScore' },
-        },
-      ],
-    },
   ];
 
   workspaceDraft: WorkspaceDraft = this.emptyWorkspaceDraft();

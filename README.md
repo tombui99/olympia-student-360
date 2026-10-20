@@ -224,7 +224,7 @@ prune older submissions.
 
 Canvas does not expose the same updated-since filter for courses, assignments, enrollments, or
 enrollment/course-grade totals. Those dimensions and smaller totals are refreshed for available
-courses in the configured current terms on each daily run. The weekly
+courses in the configured current terms on each daily run. The manually dispatched
 `.github/workflows/reconcile-canvas.yml` job reloads the previous 30 days across the 2025 and current
 terms to catch late grading corrections. All three workflows share one concurrency group.
 
@@ -265,11 +265,13 @@ is not removed when a student becomes inactive. The explicitly one-time
 `backend/sql/cleanup-inactive-canvas-students.sql` script can remove inactive student facts already
 present in a database, but the recurring ETL never repeats that cleanup.
 
-Each successful Canvas ETL also rebuilds `CanvasDashboardMetricAggregates` from the raw score and
-submission facts. The table stores student/course/month summaries used by `/api/dashboard/metrics`;
-raw Canvas rows remain the source for drill-down and audit. Immediately after the migration, the API
-temporarily falls back to the original raw calculation until the first ETL populates the summaries.
-For a backfill or repair without calling Canvas, run the ETL CLI with
+After the Canvas ETL commits its successful run status and watermark, it triggers a rebuild of
+`CanvasDashboardMetricAggregates` and `CanvasLeadershipReportAggregates` from the stored score and
+submission facts. These tables serve the dashboard and the school administration and subject
+leadership reports under `/reports`; raw Canvas rows remain the source for drill-down and audit.
+The API worker retries a pending rebuild if the process stops or the rebuild fails. A failed or
+cancelled ETL does not trigger it. Until the first build finishes, aggregate-backed reports return
+an unavailable state. For a backfill or repair without calling Canvas, run the ETL CLI with
 `-- --rebuild-dashboard-aggregates-only`.
 
 After a successful local run, create an idempotent MySQL transfer script with

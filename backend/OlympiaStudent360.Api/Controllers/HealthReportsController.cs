@@ -29,6 +29,9 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
         bool NotificationSent,
         string? ExaminedBy,
         string? CustomFieldsJson);
+    private sealed record HealthAggregateRow(int Year, int Month, string? Label,
+        string? StudentKey, int? StudentProfileId, string? SISUserId, string? StudentName,
+        int VisitCount, int StudentCount, DateTime LatestVisit, string? ClassName = null);
 
     [HttpGet("summary")]
     public async Task<ActionResult<HealthReportPageDto>> Summary(
@@ -58,6 +61,70 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
             context.ImportedReportAggregates.AsNoTracking()
                 .Where(item => item.Source == "student-health-visits" && item.EventDay >= start && item.EventDay < end),
             item => item.Student, item => item.ClassName);
+        if (searchTerm != null)
+            aggregateQuery = aggregateQuery.Where(item => item.StudentName.Contains(searchTerm) ||
+                item.SISUserId != null && item.SISUserId.Contains(searchTerm) ||
+                item.ClassName != null && item.ClassName.Contains(searchTerm) ||
+                item.Diagnosis != null && item.Diagnosis.Contains(searchTerm) ||
+                item.Symptoms != null && item.Symptoms.Contains(searchTerm) ||
+                item.Category != null && item.Category.Contains(searchTerm));
+
+        // Month and year are the normal views. Group and page them in SQL so only one page
+        // crosses the database boundary. Week remains a small in-memory fold over daily aggregates.
+        if (groupBy != "week")
+        {
+            var totalVisits = await aggregateQuery.SumAsync(item => (int?)item.RecordCount) ?? 0;
+            var monthSelector = groupBy == "year" ? 1 : 0;
+            if (report == "diagnoses")
+            {
+                var grouped = aggregateQuery.GroupBy(item => new
+                {
+                    Year = item.EventDay.Year,
+                    Month = monthSelector == 1 ? 1 : item.EventDay.Month,
+                    Diagnosis = item.Diagnosis ?? "—"
+                });
+                var diagnosisTotal = await grouped.CountAsync();
+                var diagnosisPages = diagnosisTotal == 0 ? 0 : (int)Math.Ceiling((double)diagnosisTotal / pageSize);
+                page = Math.Min(page, Math.Max(1, diagnosisPages));
+                var values = await grouped.OrderByDescending(group => group.Key.Year)
+                    .ThenByDescending(group => group.Key.Month)
+                    .ThenByDescending(group => group.Sum(item => item.RecordCount))
+                    .ThenBy(group => group.Key.Diagnosis)
+                    .Skip((page - 1) * pageSize).Take(pageSize)
+                    .Select(group => new HealthAggregateRow(group.Key.Year, group.Key.Month,
+                        group.Key.Diagnosis, null, null, null, null,
+                        group.Sum(item => item.RecordCount),
+                        group.Select(item => item.StudentKey).Distinct().Count(),
+                        group.Max(item => item.LatestEvent)))
+                    .ToListAsync();
+                return Ok(HealthAggregatePage(values, groupBy, page, pageSize, diagnosisTotal,
+                    diagnosisPages, totalVisits, "diagnosis"));
+            }
+
+            var studentGroups = aggregateQuery.GroupBy(item => new
+            {
+                Year = item.EventDay.Year,
+                Month = monthSelector == 1 ? 1 : item.EventDay.Month,
+                item.StudentKey, item.StudentProfileId, item.SISUserId,
+                item.StudentName, item.ClassName
+            });
+            var studentTotal = await studentGroups.CountAsync();
+            var studentPages = studentTotal == 0 ? 0 : (int)Math.Ceiling((double)studentTotal / pageSize);
+            page = Math.Min(page, Math.Max(1, studentPages));
+            var studentValues = await studentGroups.OrderByDescending(group => group.Key.Year)
+                .ThenByDescending(group => group.Key.Month)
+                .ThenByDescending(group => group.Sum(item => item.RecordCount))
+                .ThenBy(group => group.Key.StudentName)
+                .Skip((page - 1) * pageSize).Take(pageSize)
+                .Select(group => new HealthAggregateRow(group.Key.Year, group.Key.Month,
+                    null, group.Key.StudentKey, group.Key.StudentProfileId, group.Key.SISUserId,
+                    group.Key.StudentName, group.Sum(item => item.RecordCount), 1,
+                    group.Max(item => item.LatestEvent), group.Key.ClassName))
+                .ToListAsync();
+            return Ok(HealthAggregatePage(studentValues, groupBy, page, pageSize, studentTotal,
+                studentPages, totalVisits, "student"));
+        }
+
         var source = await aggregateQuery.Select(item => new ImportedReportAggregate
         {
             StudentProfileId = item.StudentProfileId,
@@ -72,12 +139,6 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
             Category = item.Category,
             RecordCount = item.RecordCount
         }).ToListAsync();
-        if (searchTerm != null) source = source.Where(item =>
-            Contains(item.StudentName, searchTerm) || Contains(item.SISUserId, searchTerm) ||
-            Contains(item.ClassName, searchTerm) || Contains(item.Diagnosis, searchTerm) ||
-            Contains(item.Symptoms, searchTerm) ||
-            Contains(item.Category, searchTerm)).ToList();
-
         var rows = report switch
         {
             "diagnoses" => AggregatedDiagnosisRows(source, groupBy),
@@ -138,6 +199,38 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
             })
             .OrderByDescending(item => item.PeriodStart).ThenByDescending(item => item.VisitCount)
             .ThenBy(item => item.StudentName).ToList();
+
+    private static HealthReportPageDto HealthAggregatePage(List<HealthAggregateRow> values,
+        string groupBy, int page, int pageSize, int total, int totalPages, int totalVisits,
+        string kind) => new()
+        {
+            Items = values.Select(item =>
+            {
+                var start = new DateTime(item.Year, item.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var end = groupBy == "year" ? start.AddYears(1) : start.AddMonths(1);
+                return new HealthReportRowDto
+                {
+                    Key = kind == "diagnosis"
+                        ? $"diagnosis:{start:yyyyMMdd}:{item.Label}"
+                        : $"student:{start:yyyyMMdd}:{item.StudentKey}",
+                    PeriodStart = start,
+                    PeriodEnd = end,
+                    StudentProfileId = item.StudentProfileId,
+                    SISUserId = item.SISUserId,
+                    StudentName = kind == "diagnosis" ? item.Label ?? "—" : item.StudentName ?? "—",
+                    ClassName = item.ClassName,
+                    Diagnosis = kind == "diagnosis" ? item.Label ?? "—" : null,
+                    VisitCount = item.VisitCount,
+                    StudentCount = item.StudentCount,
+                    LatestVisit = item.LatestVisit
+                };
+            }).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total,
+            TotalPages = totalPages,
+            TotalVisits = totalVisits
+        };
 
     private async Task<HealthReportPageDto> VisitSummaryPage(DateTime start, DateTime end,
         string groupBy, string? search, int page, int pageSize)

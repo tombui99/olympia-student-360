@@ -199,7 +199,7 @@ type BehaviourBreakdownTab = 'types' | 'grades';
         <section class="relative flex h-full w-full max-w-6xl flex-col bg-white shadow-[-24px_0_70px_rgba(36,24,47,0.24)]" role="dialog" aria-modal="true" [attr.aria-label]="languageService.t('reports.behaviour.details.title')">
           <header class="border-b border-[#ebe6ef] px-5 py-4 sm:px-6">
             <div class="flex items-start justify-between gap-4"><div><p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ periodLabel }}</p><h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ drilldownContext()?.title }}</h3><p class="mt-1 text-sm text-[#6f6877]">{{ drilldownCountLabel() }}</p></div><button class="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[#d8d0df] text-xl text-[#32124f] hover:bg-[#f4eef7]" type="button" [attr.aria-label]="languageService.t('reports.behaviour.details.close')" (click)="closeDrilldown()">×</button></div>
-            <label class="relative mt-4 block max-w-lg"><span class="sr-only">{{ languageService.t('reports.behaviour.details.search') }}</span><svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8c8193]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="w-full rounded-md border border-[#d8d0df] bg-white py-2.5 pl-10 pr-9 text-sm outline-none focus:border-[#8a5aa7] focus:ring-2 focus:ring-[#eee5f3]" type="search" [ngModel]="drilldownSearch()" (ngModelChange)="onDrilldownSearch($event)" [placeholder]="languageService.t('reports.behaviour.details.search')" /></label>
+            <label class="relative mt-4 block max-w-lg"><span class="sr-only">{{ languageService.t('reports.behaviour.details.search') }}</span><svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8c8193]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="w-full rounded-md border border-[#d8d0df] bg-white py-2.5 pl-10 pr-9 text-sm outline-none focus:border-[#8a5aa7] focus:ring-2 focus:ring-[#eee5f3]" type="search" [ngModel]="drilldownSearch()" (ngModelChange)="onDrilldownSearch($event)" [placeholder]="languageService.t('reports.behaviour.details.search')" />@if (drilldownSearch()) { <button class="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-[#746b7b] hover:bg-[#f2ecf5]" type="button" [attr.aria-label]="languageService.t('reports.clearFilters')" (click)="clearDrilldownSearch()">×</button> }</label>
           </header>
           <div class="min-h-0 flex-1 overflow-auto">
             @if (drilldownLoading()) { <div class="grid min-h-64 place-items-center"><span class="block h-9 w-9 animate-spin rounded-full border-4 border-[#e6dfea] border-t-[#6d3a91]"></span></div> }
@@ -391,6 +391,13 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
       this.searchTimer = undefined;
       this.loadDrilldown(1);
     }, 300);
+  }
+
+  clearDrilldownSearch(): void {
+    if (this.searchTimer !== undefined) window.clearTimeout(this.searchTimer);
+    this.searchTimer = undefined;
+    this.drilldownSearch.set('');
+    this.loadDrilldown(1);
   }
 
   toggleAllTypes(): void {
