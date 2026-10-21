@@ -13,6 +13,8 @@ try
     var incremental = args.Contains("--incremental", StringComparer.OrdinalIgnoreCase);
     var rebuildAggregatesOnly = args.Contains(
         "--rebuild-dashboard-aggregates-only", StringComparer.OrdinalIgnoreCase);
+    var refreshAggregatesOnly = args.Contains(
+        "--refresh-dashboard-aggregates-only", StringComparer.OrdinalIgnoreCase);
     var reconciliationArgument = args.SingleOrDefault(arg =>
         arg.StartsWith("--reconcile-days=", StringComparison.OrdinalIgnoreCase));
     var reconciliationDays = reconciliationArgument is null
@@ -23,6 +25,7 @@ try
         !arg.Equals("--sync-all", StringComparison.OrdinalIgnoreCase) &&
         !arg.Equals("--incremental", StringComparison.OrdinalIgnoreCase) &&
         !arg.Equals("--rebuild-dashboard-aggregates-only", StringComparison.OrdinalIgnoreCase) &&
+        !arg.Equals("--refresh-dashboard-aggregates-only", StringComparison.OrdinalIgnoreCase) &&
         !arg.StartsWith("--reconcile-days=", StringComparison.OrdinalIgnoreCase)).ToArray();
     if (unexpected.Length > 0)
     {
@@ -36,12 +39,14 @@ try
         throw new InvalidOperationException(
             "Use exactly one Canvas sync mode: --sync-all, --incremental, or --reconcile-days=N.");
     }
-    if (rebuildAggregatesOnly && (selectedModes > 0 || replaceExisting))
+    if (rebuildAggregatesOnly && refreshAggregatesOnly)
+        throw new InvalidOperationException("Choose either --refresh-dashboard-aggregates-only or --rebuild-dashboard-aggregates-only.");
+    if ((rebuildAggregatesOnly || refreshAggregatesOnly) && (selectedModes > 0 || replaceExisting))
     {
         throw new InvalidOperationException(
-            "--rebuild-dashboard-aggregates-only cannot be combined with a Canvas sync mode or --replace.");
+            "Report-only commands cannot be combined with a Canvas sync mode or --replace.");
     }
-    if (selectedModes == 0 && !rebuildAggregatesOnly)
+    if (selectedModes == 0 && !rebuildAggregatesOnly && !refreshAggregatesOnly)
     {
         incremental = true;
     }
@@ -65,13 +70,17 @@ try
         eventArgs.Cancel = true;
         shutdown.Cancel();
     };
-    if (rebuildAggregatesOnly)
+    if (rebuildAggregatesOnly || refreshAggregatesOnly)
     {
         await using var aggregateDb = new AppDbContext(dbOptions);
         await aggregateDb.MigrateWithRecoveryAsync(shutdown.Token);
-        var rowCount = await new CanvasDashboardAggregateService(aggregateDb)
-            .RebuildAsync(shutdown.Token);
-        Console.WriteLine($"Rebuilt {rowCount} pre-calculated Canvas dashboard metric rows.");
+        if (rebuildAggregatesOnly)
+        {
+            var rowCount = await new CanvasDashboardAggregateService(aggregateDb).RebuildAsync(shutdown.Token);
+            Console.WriteLine($"Rebuilt {rowCount} pre-calculated Canvas dashboard metric rows.");
+        }
+        else
+            await CanvasDirectImportRunner.RefreshReports(aggregateDb, shutdown.Token);
         return 0;
     }
 
@@ -114,7 +123,8 @@ try
             mode,
             canvasOptions.WatermarkOverlapMinutes,
             reconciliationDays,
-            canvasOptions.PerPage),
+            canvasOptions.PerPage,
+            canvasOptions.MaxConcurrentRequests),
         shutdown.Token);
 
     Console.WriteLine(

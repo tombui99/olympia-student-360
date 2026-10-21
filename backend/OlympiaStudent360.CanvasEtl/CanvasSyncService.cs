@@ -102,12 +102,22 @@ internal sealed partial class CanvasSyncService
             .ToArray();
         if (deletedCourseIds.Length > 0)
         {
-            var deletedRows = await _db.CanvasCourses
-                .Where(course => deletedCourseIds.Contains(course.CanvasCourseId) &&
-                    !course.Enrollments.Any(enrollment => enrollment.StudentProfileId == null) &&
+            await using var deletion = await _db.Database.BeginTransactionAsync(cancellationToken);
+            var removableIds = await _db.CanvasCourses
+                .WhereMatchesAnyValue(course => course.CanvasCourseId, deletedCourseIds)
+                .Where(course => !course.Enrollments.Any(enrollment => enrollment.StudentProfileId == null) &&
                     !course.Assignments.Any(assignment =>
                         assignment.Submissions.Any(submission => submission.StudentProfileId == null)))
-                .ExecuteDeleteAsync(cancellationToken);
+                .Select(course => course.CanvasCourseId).ToArrayAsync(cancellationToken);
+            foreach (var id in removableIds)
+                await _db.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO `CanvasReportCourseChanges` (`CanvasCourseId`, `ChangedAtUtc`)
+                    VALUES ({id}, {DateTime.UtcNow})
+                    ON DUPLICATE KEY UPDATE `ChangedAtUtc` = {DateTime.UtcNow}
+                    """, cancellationToken);
+            var deletedRows = removableIds.Length == 0 ? 0 : await _db.CanvasCourses
+                .WhereMatchesAnyValue(course => course.CanvasCourseId, removableIds).ExecuteDeleteAsync(cancellationToken);
+            await deletion.CommitAsync(cancellationToken);
             Console.WriteLine(
                 $"Removed {deletedRows} Canvas courses that Canvas now reports as deleted; " +
                 "courses containing inactive-student history were retained.");
@@ -152,14 +162,19 @@ internal sealed partial class CanvasSyncService
         var courseBatchSize = _options.IncludeCompletedCourses ? 8 : 4;
         var processedCourses = 0;
         var elapsed = Stopwatch.StartNew();
+        var fetchElapsed = TimeSpan.Zero;
+        var writeElapsed = TimeSpan.Zero;
         foreach (var courseBatch in courses.Chunk(courseBatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
             Console.WriteLine(
                 $"Fetching Canvas course batch starting at {courseBatch[0].Id} " +
                 $"({courseBatch.Length} courses).");
+            var batchElapsed = Stopwatch.StartNew();
             var courseData = await Task.WhenAll(courseBatch.Select(course =>
                 FetchCourseData(course, activeCanvasUserIds, cancellationToken)));
+            fetchElapsed += batchElapsed.Elapsed;
+            batchElapsed.Restart();
             foreach (var data in courseData)
             {
                 if (!data.HasActiveStudents)
@@ -186,6 +201,7 @@ internal sealed partial class CanvasSyncService
                     cancellationToken);
                 totals.Add(counts);
             }
+            writeElapsed += batchElapsed.Elapsed;
             processedCourses += courseBatch.Length;
             Console.WriteLine($"Canvas course progress: {processedCourses}/{courses.Count} checked, {retainedCourseCount} imported; elapsed {elapsed.Elapsed:hh\\:mm\\:ss}.");
         }
@@ -204,6 +220,8 @@ internal sealed partial class CanvasSyncService
             $"Unmatched SIS student references: {totals.UnmatchedStudents}; " +
             $"score rows without grades: {totals.ScoresWithoutGrades}; " +
             $"student match rate: {Percent(totals.MatchedStudents, totals.StudentUsers):0.0}%.");
+        Console.WriteLine($"Canvas timing: course fetch {fetchElapsed:hh\\:mm\\:ss}, database writes {writeElapsed:hh\\:mm\\:ss}; " +
+            $"{_canvas.RequestCount} API requests, {_canvas.RetryCount} retries.");
 
         return new CanvasSyncSummary(
             activeSourceStudents.Count,
@@ -300,10 +318,6 @@ internal sealed partial class CanvasSyncService
             };
             _db.CanvasCourses.Add(course);
         }
-        else
-        {
-            course.UpdatedAt = now;
-        }
 
         course.SisCourseId = sourceCourse.SisCourseId;
         course.Name = sourceCourse.Name;
@@ -339,10 +353,6 @@ internal sealed partial class CanvasSyncService
                 sections.Add(source.Id, section);
                 _db.CanvasCourseSections.Add(section);
             }
-            else
-            {
-                section.UpdatedAt = now;
-            }
 
             section.SisSectionId = source.SisSectionId;
             section.SisCourseId = source.SisCourseId;
@@ -375,10 +385,6 @@ internal sealed partial class CanvasSyncService
                 };
                 assignments.Add(source.Id, assignment);
                 _db.CanvasAssignments.Add(assignment);
-            }
-            else
-            {
-                assignment.UpdatedAt = now;
             }
 
             assignment.Name = source.Name;
@@ -435,10 +441,6 @@ internal sealed partial class CanvasSyncService
                 enrollments.Add(source.Id, enrollment);
                 _db.CanvasEnrollments.Add(enrollment);
             }
-            else
-            {
-                enrollment.UpdatedAt = now;
-            }
 
             enrollment.CanvasUserId = source.UserId;
             enrollment.Type = source.Type;
@@ -488,10 +490,6 @@ internal sealed partial class CanvasSyncService
                 };
                 existingScores.Add(scoreId, score);
                 _db.CanvasCourseScores.Add(score);
-            }
-            else
-            {
-                score.UpdatedAt = now;
             }
 
             score.CanvasEnrollmentId = enrollment.CanvasEnrollmentId;
@@ -543,10 +541,6 @@ internal sealed partial class CanvasSyncService
                     existingScores.Add(scoreId, score);
                     _db.CanvasCourseScores.Add(score);
                 }
-                else
-                {
-                    score.UpdatedAt = now;
-                }
 
                 score.CanvasEnrollmentId = enrollment.CanvasEnrollmentId;
                 score.Enrollment = enrollment;
@@ -573,11 +567,25 @@ internal sealed partial class CanvasSyncService
             }
         }
 
-        var existingSubmissions = await _db.CanvasSubmissions
-            // Use the indexed assignment join instead of scanning all submissions for
-            // every course on the denormalized, unindexed CanvasCourseId column.
-            .Where(item => item.Assignment!.CanvasCourseId == sourceCourse.Id)
-            .ToDictionaryAsync(item => item.CanvasSubmissionId, cancellationToken);
+        var submissionQuery = _db.CanvasSubmissions
+            .Where(item => item.Assignment!.CanvasCourseId == sourceCourse.Id);
+        var existingSubmissions = new Dictionary<long, CanvasSubmission>();
+        if (pruneMissingSubmissions)
+        {
+            // A full response is authoritative and needs all existing rows for pruning.
+            existingSubmissions = await submissionQuery
+                .ToDictionaryAsync(item => item.CanvasSubmissionId, cancellationToken);
+        }
+        else
+        {
+            // A watermark-filtered response usually contains a handful of changed facts.
+            // Seek their stable IDs instead of downloading the entire course history.
+            foreach (var ids in sourceSubmissions.Where(item => item.Id.HasValue)
+                .Select(item => item.Id!.Value).Distinct().Chunk(1000))
+                foreach (var item in await submissionQuery
+                    .WhereMatchesAnyValue(item => item.CanvasSubmissionId, ids).ToListAsync(cancellationToken))
+                    existingSubmissions.Add(item.CanvasSubmissionId, item);
+        }
         var currentSubmissionIds = new HashSet<long>();
         foreach (var source in sourceSubmissions.Where(item =>
                      item.Id.HasValue && assignments.ContainsKey(item.AssignmentId)))
@@ -609,10 +617,6 @@ internal sealed partial class CanvasSyncService
                 };
                 existingSubmissions.Add(canvasSubmissionId, submission);
                 _db.CanvasSubmissions.Add(submission);
-            }
-            else
-            {
-                submission.UpdatedAt = now;
             }
 
             submission.CanvasUserId = source.UserId;
@@ -648,13 +652,19 @@ internal sealed partial class CanvasSyncService
                     .Where(item => item.StudentProfileId != null &&
                         !currentSubmissionIds.Contains(item.CanvasSubmissionId)));
             }
-            var assignmentsWithInactiveHistory = existingSubmissions.Values
-                .Where(submission => submission.StudentProfileId == null)
-                .Select(submission => submission.CanvasAssignmentId)
-                .ToHashSet();
-            _db.CanvasAssignments.RemoveRange(assignments.Values
-                .Where(item => !assignmentIds.Contains(item.CanvasAssignmentId) &&
-                    !assignmentsWithInactiveHistory.Contains(item.CanvasAssignmentId)));
+            var removedAssignmentIds = assignments.Keys.Where(id => !assignmentIds.Contains(id)).ToArray();
+            if (removedAssignmentIds.Length > 0)
+            {
+                // Preserve inactive-student history without loading all submissions into
+                // the tracker during an incremental run.
+                var assignmentsWithInactiveHistory = (await _db.CanvasSubmissions.AsNoTracking()
+                    .Where(item => item.StudentProfileId == null)
+                    .WhereMatchesAnyValue(item => item.CanvasAssignmentId, removedAssignmentIds)
+                    .Select(item => item.CanvasAssignmentId).Distinct().ToListAsync(cancellationToken)).ToHashSet();
+                _db.CanvasAssignments.RemoveRange(assignments.Values
+                    .Where(item => !assignmentIds.Contains(item.CanvasAssignmentId) &&
+                        !assignmentsWithInactiveHistory.Contains(item.CanvasAssignmentId)));
+            }
         }
         _db.CanvasCourseScores.RemoveRange(existingScores.Values
             .Where(item => item.StudentProfileId != null &&
@@ -665,9 +675,25 @@ internal sealed partial class CanvasSyncService
         _db.CanvasCourseSections.RemoveRange(sections.Values
             .Where(item => !sectionIds.Contains(item.CanvasSectionId)));
 
-        await _db.SaveChangesAsync(cancellationToken);
+        // Only changes to reporting inputs invalidate the materialized facts.
+        // Save the invalidation in the same course transaction as those changes.
+        var reportChanged = _db.ChangeTracker.Entries()
+            .Where(entry => entry.Entity is CanvasCourse or CanvasAssignment or CanvasEnrollment
+                or CanvasCourseScore or CanvasSubmission)
+            .Any(entry => entry.State is EntityState.Added or EntityState.Deleted ||
+                entry.State == EntityState.Modified && entry.Properties.Any(property => property.IsModified &&
+                    IsReportInput(entry.Entity, property.Metadata.Name)));
+        if (reportChanged)
+            await _db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO `CanvasReportCourseChanges` (`CanvasCourseId`, `ChangedAtUtc`)
+                VALUES ({sourceCourse.Id}, {now})
+                ON DUPLICATE KEY UPDATE `ChangedAtUtc` = {now}
+                """, cancellationToken);
+        StampChangedRows(now);
+        var written = await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         _db.ChangeTracker.Clear();
+        Console.WriteLine($"Canvas course {sourceCourse.Id}: {written} warehouse rows changed; reports {(reportChanged ? "queued" : "unchanged")}.");
 
         return new SyncCounts
         {
@@ -682,6 +708,33 @@ internal sealed partial class CanvasSyncService
             MatchedStudents = scoreSources.Count(source => enrollments[source.Id].StudentProfileId is not null)
         };
     }
+
+    private void StampChangedRows(DateTime now)
+    {
+        // EF detects scalar differences before timestamps are assigned. Identical polls
+        // issue no UPDATE, cutting RDS round trips and avoiding unnecessary row locks.
+        foreach (var entry in _db.ChangeTracker.Entries<BaseEntity>()
+            .Where(entry => entry.State == EntityState.Modified).ToArray())
+            entry.Entity.UpdatedAt = now;
+    }
+
+    private static bool IsReportInput(object entity, string property) => entity switch
+    {
+        CanvasCourse => property is nameof(CanvasCourse.EnrollmentTermName) or nameof(CanvasCourse.EndAt),
+        CanvasAssignment => property is nameof(CanvasAssignment.CanvasCourseId) or nameof(CanvasAssignment.PointsPossible)
+            or nameof(CanvasAssignment.DueAt) or nameof(CanvasAssignment.AssignmentGroupName)
+            or nameof(CanvasAssignment.Published) or nameof(CanvasAssignment.OmitFromFinalGrade),
+        CanvasEnrollment => property is nameof(CanvasEnrollment.CanvasCourseId),
+        CanvasCourseScore => property is nameof(CanvasCourseScore.StudentProfileId) or nameof(CanvasCourseScore.CanvasEnrollmentId)
+            or nameof(CanvasCourseScore.GradingPeriodTitle) or nameof(CanvasCourseScore.GradingPeriodEndDate)
+            or nameof(CanvasCourseScore.CurrentScore) or nameof(CanvasCourseScore.FinalScore)
+            or nameof(CanvasCourseScore.CurrentPoints) or nameof(CanvasCourseScore.CurrentGrade) or nameof(CanvasCourseScore.FinalGrade),
+        CanvasSubmission => property is nameof(CanvasSubmission.StudentProfileId) or nameof(CanvasSubmission.CanvasCourseId)
+            or nameof(CanvasSubmission.CanvasAssignmentId) or nameof(CanvasSubmission.Score) or nameof(CanvasSubmission.WorkflowState)
+            or nameof(CanvasSubmission.SubmittedAt) or nameof(CanvasSubmission.GradedAt) or nameof(CanvasSubmission.CachedDueDate)
+            or nameof(CanvasSubmission.Late) or nameof(CanvasSubmission.Missing) or nameof(CanvasSubmission.Excused),
+        _ => false
+    };
 
     private async Task SaveCanvasDirectory(
         List<CanvasAccountDto> sourceAccounts,
@@ -699,10 +752,6 @@ internal sealed partial class CanvasSyncService
                 account = new CanvasAccount { CanvasAccountId = source.Id, CreatedAt = now };
                 accounts.Add(source.Id, account);
                 _db.CanvasAccounts.Add(account);
-            }
-            else
-            {
-                account.UpdatedAt = now;
             }
 
             account.ParentAccountId = source.ParentAccountId;
@@ -722,10 +771,6 @@ internal sealed partial class CanvasSyncService
                 users.Add(source.Id, user);
                 _db.CanvasUsers.Add(user);
             }
-            else
-            {
-                user.UpdatedAt = now;
-            }
 
             user.SisUserId = Limit(source.SisUserId, 100);
             user.IntegrationId = Limit(source.IntegrationId, 255);
@@ -736,6 +781,7 @@ internal sealed partial class CanvasSyncService
             user.Email = Limit(source.Email, 255);
         }
 
+        StampChangedRows(now);
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         _db.ChangeTracker.Clear();
@@ -894,6 +940,28 @@ internal sealed partial class CanvasSyncService
     {
         // SIS can arrive after Canvas history. Relink the entire warehouse independently of the
         // current course window so a daily run unlocks old transcripts as soon as SISUserId exists.
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        await _db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO `CanvasReportCourseChanges` (`CanvasCourseId`, `ChangedAtUtc`)
+            SELECT candidate.`CanvasCourseId`, UTC_TIMESTAMP(6) FROM (
+                SELECT e.`CanvasCourseId` FROM `CanvasEnrollments` e
+                INNER JOIN `StudentProfiles` p ON p.`CanvasUserId` = e.`CanvasUserId`
+                WHERE e.`StudentProfileId` IS NULL
+                UNION
+                SELECT e.`CanvasCourseId` FROM `CanvasEnrollments` e
+                INNER JOIN `StudentProfiles` p ON p.`SISUserId` = LOWER(SUBSTRING_INDEX(TRIM(e.`SisUserId`), '@', 1))
+                WHERE e.`StudentProfileId` IS NULL AND e.`SisUserId` IS NOT NULL
+                UNION
+                SELECT s.`CanvasCourseId` FROM `CanvasSubmissions` s
+                INNER JOIN `StudentProfiles` p ON p.`CanvasUserId` = s.`CanvasUserId`
+                WHERE s.`StudentProfileId` IS NULL
+                UNION
+                SELECT e.`CanvasCourseId` FROM `CanvasCourseScores` score
+                INNER JOIN `CanvasEnrollments` e ON e.`CanvasEnrollmentId` = score.`CanvasEnrollmentId`
+                WHERE score.`StudentProfileId` IS NULL AND e.`StudentProfileId` IS NOT NULL
+            ) candidate WHERE TRUE
+            ON DUPLICATE KEY UPDATE `ChangedAtUtc` = UTC_TIMESTAMP(6)
+            """, cancellationToken);
         var linked = await _db.Database.ExecuteSqlRawAsync("""
             UPDATE `CanvasEnrollments` e
             INNER JOIN `StudentProfiles` p ON p.`CanvasUserId` = e.`CanvasUserId`
@@ -913,6 +981,13 @@ internal sealed partial class CanvasSyncService
             SET s.`StudentProfileId` = p.`Id`, s.`WarehouseUpdatedAt` = UTC_TIMESTAMP(6)
             WHERE s.`StudentProfileId` IS NULL
             """, cancellationToken);
+        linked += await _db.Database.ExecuteSqlRawAsync("""
+            UPDATE `CanvasCourseScores` score
+            INNER JOIN `CanvasEnrollments` e ON e.`CanvasEnrollmentId` = score.`CanvasEnrollmentId`
+            SET score.`StudentProfileId` = e.`StudentProfileId`, score.`WarehouseUpdatedAt` = UTC_TIMESTAMP(6)
+            WHERE score.`StudentProfileId` IS NULL AND e.`StudentProfileId` IS NOT NULL
+            """, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         _db.ChangeTracker.Clear();
         return linked;
     }

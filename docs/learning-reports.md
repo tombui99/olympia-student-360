@@ -14,6 +14,21 @@ manual operational rebuild, run
 `dotnet run --project backend/OlympiaStudent360.CanvasEtl -- --rebuild-dashboard-aggregates-only`
 in an environment with the configured database connection.
 
+Normal syncs now save `CanvasReportCourseChanges` in the same transaction as changed course
+facts. Refresh replaces only those courses' metric and leadership rows, then clears their
+invalidations and advances the build cursor in one transaction. Timestamp-only polls and
+enrollment activity changes do not rebuild reports. Historical SIS identity relinks also queue
+their courses. A failed refresh retains both the previous readable snapshot and the pending
+course changes, so retrying does not require another Canvas download.
+
+The initial build, explicit manual rebuild, an academic-period configuration change, or a
+completed import from an older version without change tracking requires a full refresh.
+Deploying this version adopts an already compatible snapshot without rewriting its history.
+Metric writes use parameterized multi-value batches; score-point joins explicitly use the
+existing composite leadership index to avoid the poor MySQL 8.4 plan observed on RDS.
+Use `--refresh-dashboard-aggregates-only` (or manual workflow mode `reports-only`) to retry pending
+aggregation without reimporting Canvas or forcing a full historical rebuild.
+
 | Report | Stored facts used | Teacher configuration |
 | --- | --- | --- |
 | Missing assignment frequency | submitted and non-excused missing counts | year, term, month, courses, Canvas assignment groups, maximum missing count |

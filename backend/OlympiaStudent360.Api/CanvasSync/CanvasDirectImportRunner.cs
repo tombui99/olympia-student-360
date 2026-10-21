@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using System.Diagnostics;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
@@ -44,20 +45,29 @@ public sealed class CanvasDirectImportRunner
         Console.WriteLine("Canvas import committed; refreshing report aggregates.");
         try
         {
-            var count = await ApplicationDatabase.CreateRetryStrategy(db).ExecuteAsync(async token =>
-            {
-                await using var reportDb = new AppDbContext(options);
-                return await new CanvasDashboardAggregateService(reportDb).RefreshIfNeededAsync(token);
-            }, cancellationToken);
-            if (count.HasValue)
-                Console.WriteLine($"Rebuilt {count.Value} pre-calculated Canvas dashboard metric rows.");
+            await RefreshReports(db, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             throw new InvalidOperationException(
-                "Canvas data import completed, but report aggregation failed. Retry with --rebuild-dashboard-aggregates-only; the committed import does not need to be repeated.", exception);
+                "Canvas data import completed, but report aggregation failed. Retry with --refresh-dashboard-aggregates-only; the committed import does not need to be repeated.", exception);
         }
         return result;
+    }
+
+    public static async Task<int?> RefreshReports(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var options = (DbContextOptions<AppDbContext>)db.GetService<IDbContextOptions>();
+        var elapsed = Stopwatch.StartNew();
+        var count = await ApplicationDatabase.CreateRetryStrategy(db).ExecuteAsync(async token =>
+        {
+            await using var reportDb = new AppDbContext(options);
+            return await new CanvasDashboardAggregateService(reportDb).RefreshIfNeededAsync(token);
+        }, cancellationToken);
+        Console.WriteLine(count.HasValue
+            ? $"Canvas report refresh committed: {count.Value} metric rows rebuilt; elapsed {elapsed.Elapsed:hh\\:mm\\:ss}."
+            : "Canvas reports already cover the latest completed import; no rebuild needed.");
+        return count;
     }
 
     private static async Task<CanvasDirectImportResult> RunAttempt(
@@ -91,6 +101,7 @@ public sealed class CanvasDirectImportRunner
             SourceKey = sourceKey,
             Source = $"Canvas ({request.BaseUri.Host}, account {request.AccountId.Trim()})",
             Workflow = request.Mode,
+            ReportChangesTracked = true,
             Status = "running",
             StartedAtUtc = startedAtUtc,
             WatermarkUtc = startedAtUtc,
@@ -138,6 +149,7 @@ public sealed class CanvasDirectImportRunner
             AccessToken = request.AccessToken,
             AccountId = request.AccountId.Trim(),
             PerPage = request.PerPage,
+            MaxConcurrentRequests = request.MaxConcurrentRequests,
             AllowEmptyCourses = request.AllowEmptyCourses,
             AllowEmptyStudents = request.AllowEmptyStudents,
             IncludeAllCourses = request.IncludeAllCourses,
@@ -217,7 +229,8 @@ public sealed record CanvasDirectImportRequest(
     string Mode,
     int OverlapMinutes,
     int? ReconciliationDays,
-    int PerPage = 100);
+    int PerPage = 100,
+    int MaxConcurrentRequests = 8);
 
 public sealed record CanvasDirectImportResult(
     DateTime CompletedAtUtc,

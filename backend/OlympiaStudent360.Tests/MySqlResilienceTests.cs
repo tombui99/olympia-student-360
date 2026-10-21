@@ -197,6 +197,8 @@ public sealed class MySqlResilienceTests
     [InlineData("20261017152023_TriggerCanvasReportAggregationOnCompletedSync", "20261017145751_PrecomputeCanvasLeadershipReports", 1)]
     [InlineData("20261017161256_PersistCanvasGroupScorePoints", "20261017152023_TriggerCanvasReportAggregationOnCompletedSync", 1)]
     [InlineData("20261017162556_OptimizeCanvasScorePointBackfill", "20261017161256_PersistCanvasGroupScorePoints", 1)]
+    [InlineData("20261020200719_TrackCanvasReportCourseChanges", "20261019113745_ReclassifyGrade5AsLowerSecondary", 1)]
+    [InlineData("20261020200719_TrackCanvasReportCourseChanges", "20261019113745_ReclassifyGrade5AsLowerSecondary", 3)]
     public async Task InterruptedReportMigrationsResumeWithoutDroppingCommittedSchema(
         string interruptedMigration, string previousMigration, int completedOperations)
     {
@@ -212,20 +214,25 @@ public sealed class MySqlResilienceTests
         // A marker on the existing table proves recovery adopts it rather than
         // dropping/recreating already committed DDL after an App Runner rollback.
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE `CanvasLeadershipReportAggregates` COMMENT='preserve-on-recovery'");
-        var latestRun = CompletedRun(DateTime.UtcNow);
-        db.CanvasSyncRuns.Add(latestRun);
-        await db.SaveChangesAsync();
+        // Seed using the old schema: current entities may include columns that this
+        // interrupted migration has not created yet.
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO `CanvasSyncRuns`
+                (`Id`,`SourceKey`,`Source`,`Workflow`,`Status`,`StartedAtUtc`,`CompletedAtUtc`,`WatermarkUtc`,`WarehouseCreatedAt`)
+            VALUES (9999,'test','test','incremental','completed',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+            """);
         if (interruptedMigration.Contains("TriggerCanvas"))
         {
-            db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
-            { SchemaVersion = 4, CompletedAtUtc = DateTime.UtcNow });
-            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync("""
+                INSERT INTO `CanvasDashboardAggregateBuilds` (`SchemaVersion`,`CompletedAtUtc`,`CreatedAt`)
+                VALUES (4,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """);
         }
         await db.MigrateWithRecoveryAsync();
         Assert.Null(db.Database.GetCommandTimeout());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         if (interruptedMigration.Contains("TriggerCanvas"))
-            Assert.Equal(latestRun.Id, await db.CanvasDashboardAggregateBuilds.AsNoTracking()
+            Assert.Equal(9999, await db.CanvasDashboardAggregateBuilds.AsNoTracking()
                 .Select(item => item.LastCompletedSyncRunId).SingleAsync());
         await db.Database.OpenConnectionAsync();
         try
@@ -343,6 +350,7 @@ public sealed class MySqlResilienceTests
         await db.SaveChangesAsync();
         Assert.False(await CanvasDashboardAggregateService.HasReadableSnapshotAsync(db));
         var count = await new CanvasDashboardAggregateService(db).RebuildAsync(default);
+        Assert.Null(db.Database.GetCommandTimeout());
         Assert.Equal(count, await db.CanvasDashboardMetricAggregates.CountAsync());
         var metrics = await db.CanvasDashboardMetricAggregates.ToListAsync();
         foreach (var courseId in new long[] { 100, 200 })
@@ -355,10 +363,227 @@ public sealed class MySqlResilienceTests
         }
         db.CanvasSyncRuns.Add(CompletedRun(now.AddDays(1)));
         await db.SaveChangesAsync();
+        db.Database.SetCommandTimeout(47);
         Assert.True(await CanvasDashboardAggregateService.HasReadableSnapshotAsync(db));
         Assert.NotNull(await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default));
         Assert.Null(await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default));
+        Assert.Equal(47, db.Database.GetCommandTimeout());
         await AssertWarehouseLockReleased(db);
+    }
+
+    [MySqlFact]
+    public async Task IncrementalReportsPreserveUnchangedHistoryAndSkipIdenticalImports()
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        await using var db = test.Open();
+        await SeedHistoricalCourseAsync(db);
+        await ImportReportFactsAsync(db);
+        var original = await db.CanvasDashboardMetricAggregates.AsNoTracking().ToListAsync();
+        var unchangedIds = original.Where(item => item.CanvasCourseId != 100).Select(item => item.Id).Order().ToArray();
+        Assert.Contains(original, item => item.AcademicYear == "2025-2026");
+        await ImportReportFactsAsync(db, 9);
+        Assert.Equal(unchangedIds, await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId != 100).OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync());
+        Assert.All(await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId == 100 && item.MetricKey == CanvasDashboardAggregateService.SubmissionScoreAverage)
+            .ToListAsync(), item => Assert.Equal(90, item.ValueSum));
+        var leadership = await db.CanvasLeadershipReportAggregates.AsNoTracking()
+            .SingleAsync(item => item.CanvasCourseId == 100);
+        Assert.Equal(576, leadership.EarnedPoints);
+        Assert.Equal(640, leadership.PossiblePoints);
+        Assert.Empty(await db.CanvasReportCourseChanges.ToListAsync());
+        var refreshedIds = await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync();
+        await ImportReportFactsAsync(db, 9);
+        Assert.Equal(refreshedIds, await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync());
+        Assert.Equal(await db.CanvasSyncRuns.MaxAsync(item => item.Id),
+            (await db.CanvasDashboardAggregateBuilds.AsNoTracking().SingleAsync()).LastCompletedSyncRunId);
+
+        // The first deployment adopts a compatible snapshot instead of rebuilding history.
+        await db.CanvasDashboardAggregateBuilds.ExecuteUpdateAsync(setters =>
+            setters.SetProperty(item => item.PeriodConfigurationHash, (string?)null));
+        Assert.Null(await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default));
+        Assert.Equal(refreshedIds, await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync());
+
+        // Configured academic periods affect historical bucketing even without a new import.
+        db.AcademicPeriods.Add(new AcademicPeriod
+        {
+            AcademicYear = "2026-2027", Term = "hk2",
+            StartDate = new DateTime(2026, 10, 1), EndDate = new DateTime(2026, 11, 1)
+        });
+        await db.SaveChangesAsync();
+        Assert.NotNull(await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default));
+        Assert.All(await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId == 100).ToListAsync(), item => Assert.Equal("hk2", item.Term));
+        Assert.Null(await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default));
+    }
+
+    [MySqlFact]
+    public async Task FailedIncrementalPublicationKeepsReadableSnapshotAndDurableCourseChanges()
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        await using var db = test.Open();
+        await SeedHistoricalCourseAsync(db);
+        await ImportReportFactsAsync(db);
+        var originalIds = await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync();
+        var historicalIds = await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId == 3000).OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync();
+        var fault = new FailMetricInsertOnce();
+        var options = new DbContextOptionsBuilder<AppDbContext>(test.Options).AddInterceptors(fault).Options;
+        await using (var failingDb = new AppDbContext(options))
+            await Assert.ThrowsAsync<InvalidOperationException>(() => ImportReportFactsAsync(failingDb, 9));
+        Assert.True(await CanvasDashboardAggregateService.HasReadableSnapshotAsync(db));
+        Assert.Equal(originalIds, await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync());
+        Assert.Equal(new long[] { 100 }, await db.CanvasReportCourseChanges.AsNoTracking()
+            .Select(item => item.CanvasCourseId).ToArrayAsync());
+        Assert.All(await db.CanvasSyncRuns.AsNoTracking().ToListAsync(), item => Assert.Equal("completed", item.Status));
+        await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default);
+        Assert.Empty(await db.CanvasReportCourseChanges.ToListAsync());
+        Assert.All(await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId == 100 && item.MetricKey == CanvasDashboardAggregateService.SubmissionScoreAverage)
+            .ToListAsync(), item => Assert.Equal(90, item.ValueSum));
+        Assert.Equal(historicalIds, await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId == 3000).OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync());
+    }
+
+    private static async Task SeedHistoricalCourseAsync(AppDbContext db)
+    {
+        var student = new StudentProfile { SISUserId = "test", CanvasUserId = 10, FullName = "Test" };
+        db.StudentProfiles.Add(student);
+        db.CanvasSyncStates.Add(new CanvasSyncState
+        { SourceKey = "canvas:canvas.test:1", LastSuccessfulWatermarkUtc = new DateTime(2026, 10, 1) });
+        db.CanvasCourses.Add(new CanvasCourse { CanvasCourseId = 3000, Name = "Historical" });
+        db.CanvasAssignments.Add(new CanvasAssignment
+        { CanvasAssignmentId = 3000, CanvasCourseId = 3000, PointsPossible = 10, Published = true });
+        db.CanvasSubmissions.Add(new CanvasSubmission
+        {
+            CanvasSubmissionId = 3000, CanvasAssignmentId = 3000, CanvasCourseId = 3000,
+            Student = student, CanvasUserId = 10, Score = 4, WorkflowState = "graded",
+            SubmittedAt = new DateTime(2025, 10, 10), GradedAt = new DateTime(2025, 10, 10)
+        });
+        await db.SaveChangesAsync();
+    }
+
+    [MySqlFact]
+    public async Task HistoricalIdentityRelinksRefreshOnlyTheirCourseOutsideTheImportWindow()
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        await using var db = test.Open();
+        await SeedHistoricalCourseAsync(db);
+        await db.CanvasSubmissions.Where(item => item.CanvasCourseId == 3000)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.StudentProfileId, (int?)null)
+                .SetProperty(item => item.CanvasUserId, 88L));
+        await ImportReportFactsAsync(db);
+        Assert.False(await db.CanvasDashboardMetricAggregates.AnyAsync(item => item.CanvasCourseId == 3000));
+        var currentIds = await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync();
+        db.StudentProfiles.Add(new StudentProfile { SISUserId = "new-student", CanvasUserId = 88, FullName = "Historical student" });
+        await db.SaveChangesAsync();
+        await ImportReportFactsAsync(db);
+        Assert.Equal(currentIds, await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId != 3000).OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync());
+        Assert.Equal(40, (await db.CanvasDashboardMetricAggregates.AsNoTracking().SingleAsync(item =>
+            item.CanvasCourseId == 3000 && item.MetricKey == CanvasDashboardAggregateService.SubmissionScoreAverage)).ValueSum);
+        Assert.Empty(await db.CanvasReportCourseChanges.ToListAsync());
+    }
+
+    private static async Task ImportReportFactsAsync(AppDbContext db, double firstCourseScore = 8,
+        bool fixedActivity = false, int? onlySubmission = null, bool omitLastAssignment = false,
+        bool deleteFirstCourse = false)
+    {
+        using var handler = new FakeCanvasHandler(includeFacts: true, firstCourseScore,
+            fixedActivity, onlySubmission, omitLastAssignment, deleteFirstCourse);
+        using var http = new HttpClient(handler);
+        await new CanvasDirectImportRunner().Run(db, http,
+            new CanvasDirectImportRequest(new Uri("https://canvas.test"), "test-token", "1",
+                false, true, true, true, [1], "incremental", 120, null), default);
+    }
+
+    [MySqlFact]
+    public async Task IncrementalImportSkipsUnchangedWritesLoadsOnlyIncomingFactsAndPreservesInactiveHistory()
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        await using var db = test.Open();
+        await SeedHistoricalCourseAsync(db);
+        await ImportReportFactsAsync(db, fixedActivity: true);
+        var noOp = new WarehouseReadWriteObserver();
+        await using (var repeat = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>(test.Options)
+            .AddInterceptors(noOp).Options))
+            await ImportReportFactsAsync(repeat, fixedActivity: true);
+        Assert.Equal(0, noOp.CanvasWrites);
+
+        // The partial submission payload must not wipe older facts, and a removed
+        // assignment with inactive-student history must survive source pruning.
+        await db.CanvasSubmissions.Where(item => item.CanvasSubmissionId == 100064)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.StudentProfileId, (int?)null)
+                .SetProperty(item => item.CanvasUserId, 88L));
+        var sparse = new WarehouseReadWriteObserver();
+        await using (var incremental = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>(test.Options)
+            .AddInterceptors(sparse).Options))
+            await ImportReportFactsAsync(incremental, 9, fixedActivity: true, onlySubmission: 1, omitLastAssignment: true);
+        Assert.Equal(2, sparse.SubmissionsLoaded);
+        Assert.Equal(128, await db.CanvasSubmissions.CountAsync()); // 129 before one active assignment was deleted
+        Assert.True(await db.CanvasAssignments.AnyAsync(item => item.CanvasAssignmentId == 100064));
+        Assert.False(await db.CanvasAssignments.AnyAsync(item => item.CanvasAssignmentId == 200064));
+        Assert.Equal(9, (await db.CanvasSubmissions.AsNoTracking().SingleAsync(item => item.CanvasSubmissionId == 100001)).Score);
+        Assert.Equal(8, (await db.CanvasSubmissions.AsNoTracking().SingleAsync(item => item.CanvasSubmissionId == 100002)).Score);
+    }
+
+    private sealed class WarehouseReadWriteObserver : SaveChangesInterceptor, IMaterializationInterceptor
+    {
+        public int CanvasWrites { get; private set; }
+        public int SubmissionsLoaded { get; private set; }
+        public object InitializedInstance(MaterializationInterceptionData data, object entity)
+        {
+            if (entity is CanvasSubmission) SubmissionsLoaded++;
+            return entity;
+        }
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken token = default)
+        {
+            CanvasWrites += eventData.Context!.ChangeTracker.Entries().Count(entry =>
+                entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted &&
+                entry.Entity is CanvasAccount or CanvasUser or CanvasCourse or CanvasCourseSection
+                    or CanvasAssignment or CanvasEnrollment or CanvasCourseScore or CanvasSubmission);
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    [MySqlFact]
+    public async Task DeletedCourseInvalidationIsConsumedWithoutRebuildingOtherSchoolYears()
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        await using var db = test.Open();
+        await SeedHistoricalCourseAsync(db);
+        await ImportReportFactsAsync(db, fixedActivity: true);
+        var unaffected = await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .Where(item => item.CanvasCourseId != 100).OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync();
+        await ImportReportFactsAsync(db, fixedActivity: true, deleteFirstCourse: true);
+        Assert.False(await db.CanvasCourses.AnyAsync(item => item.CanvasCourseId == 100));
+        Assert.False(await db.CanvasDashboardMetricAggregates.AnyAsync(item => item.CanvasCourseId == 100));
+        Assert.Equal(unaffected, await db.CanvasDashboardMetricAggregates.AsNoTracking()
+            .OrderBy(item => item.Id).Select(item => item.Id).ToArrayAsync());
+        Assert.Empty(await db.CanvasReportCourseChanges.ToListAsync());
+    }
+
+    private sealed class FailMetricInsertOnce : DbCommandInterceptor
+    {
+        private bool failed;
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!failed && command.CommandText.StartsWith("INSERT INTO `CanvasDashboardMetricAggregates`"))
+            {
+                failed = true;
+                return ValueTask.FromException<InterceptionResult<int>>(new InvalidOperationException("Injected bulk publication failure"));
+            }
+            return ValueTask.FromResult(result);
+        }
     }
 
     [MySqlTheory]
@@ -387,7 +612,7 @@ public sealed class MySqlResilienceTests
         else
         {
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => import);
-            Assert.Contains("--rebuild-dashboard-aggregates-only", error.Message);
+            Assert.Contains("--refresh-dashboard-aggregates-only", error.Message);
         }
         db.ChangeTracker.Clear();
         Assert.Equal("completed", (await db.CanvasSyncRuns.SingleAsync()).Status);
@@ -465,7 +690,9 @@ public sealed class MySqlResilienceTests
         }
     }
 
-    private sealed class FakeCanvasHandler(bool includeFacts = false) : HttpMessageHandler
+    private sealed class FakeCanvasHandler(bool includeFacts = false, double firstCourseScore = 8,
+        bool fixedActivity = false, int? onlySubmission = null, bool omitLastAssignment = false,
+        bool deleteFirstCourse = false) : HttpMessageHandler
     {
         public int CourseListRequests { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
@@ -477,17 +704,26 @@ public sealed class MySqlResilienceTests
                 "/api/v1/accounts/1" => "{\"id\":1,\"name\":\"Grade 5\"}",
                 "/api/v1/accounts/1/sub_accounts" => "[]",
                 "/api/v1/accounts/1/users" => "[{\"id\":10,\"sis_user_id\":\"test\"}]",
-                "/api/v1/accounts/1/courses" => "[{\"id\":100,\"name\":\"First\"},{\"id\":200,\"name\":\"Second\"}]",
-                _ when path.EndsWith("/enrollments") => "[{\"id\":" + path.Split('/')[4] + ",\"user_id\":10,\"type\":\"StudentEnrollment\",\"enrollment_state\":\"active\"}]",
+                "/api/v1/accounts/1/courses" => System.Text.Json.JsonSerializer.Serialize(new[]
+                {
+                    new { id = 100, name = "First", workflow_state = deleteFirstCourse ? "deleted" : "available" },
+                    new { id = 200, name = "Second", workflow_state = "available" }
+                }),
+                _ when path.EndsWith("/enrollments") => System.Text.Json.JsonSerializer.Serialize(new[] { new
+                {
+                    id = long.Parse(path.Split('/')[4]), user_id = 10, type = "StudentEnrollment",
+                    enrollment_state = "active", last_activity_at = fixedActivity ? new DateTime(2026, 10, 10) : DateTime.UtcNow
+                } }),
                 _ when path.EndsWith("/grading_periods") => "{\"grading_periods\":[]}",
                 _ when includeFacts && path.EndsWith("/assignments") => System.Text.Json.JsonSerializer.Serialize(
-                    Enumerable.Range(1, 64).Select(i => new { id = long.Parse(path.Split('/')[4]) * 1000 + i, points_possible = 10, published = true })),
+                    Enumerable.Range(1, omitLastAssignment ? 63 : 64).Select(i => new { id = long.Parse(path.Split('/')[4]) * 1000 + i, points_possible = 10, published = true })),
                 _ when includeFacts && path.EndsWith("/students/submissions") => System.Text.Json.JsonSerializer.Serialize(
-                    Enumerable.Range(1, 64).Select(i => new
+                    (onlySubmission is { } index ? [index] : Enumerable.Range(1, 64)).Select(i => new
                     {
                         id = long.Parse(path.Split('/')[4]) * 1000 + i,
                         assignment_id = long.Parse(path.Split('/')[4]) * 1000 + i, user_id = 10,
-                        score = 8, workflow_state = "graded", submitted_at = "2026-10-10T00:00:00Z", graded_at = "2026-10-10T00:00:00Z"
+                        score = path.Split('/')[4] == "100" ? firstCourseScore : 8,
+                        workflow_state = "graded", submitted_at = "2026-10-10T00:00:00Z", graded_at = "2026-10-10T00:00:00Z"
                     })),
                 _ => "[]"
             };

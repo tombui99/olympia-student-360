@@ -11,11 +11,20 @@ internal sealed partial class CanvasApiClient
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _httpClient;
     private readonly CanvasEtlOptions _options;
+    private readonly SemaphoreSlim _requests;
+    private long _notBeforeUtcTicks;
+    private int _requestCount;
+    private int _retryCount;
+    public int RequestCount => Volatile.Read(ref _requestCount);
+    public int RetryCount => Volatile.Read(ref _retryCount);
 
     public CanvasApiClient(HttpClient httpClient, CanvasEtlOptions options)
     {
         _httpClient = httpClient;
         _options = options;
+        if (options.MaxConcurrentRequests is < 1 or > 16)
+            throw new ArgumentOutOfRangeException(nameof(options.MaxConcurrentRequests));
+        _requests = new SemaphoreSlim(options.MaxConcurrentRequests);
         // The database retry recreates this wrapper with the same HttpClient. Settings
         // cannot be assigned again after that client has sent its first request.
         if (_httpClient.BaseAddress != options.BaseUri) _httpClient.BaseAddress = options.BaseUri;
@@ -149,7 +158,7 @@ internal sealed partial class CanvasApiClient
         {
             var studentFilter = string.Concat(studentBatch.Select(id => $"&student_ids[]={id}"));
             var path = $"api/v1/courses/{courseId}/students/submissions?per_page={_options.PerPage}" +
-                $"{studentFilter}&include[]=user&state_based_on_date=false";
+                $"{studentFilter}&state_based_on_date=false";
             if (_options.SinceUtc is null)
             {
                 submissions.AddRange(await GetAll<CanvasSubmissionDto>(path, cancellationToken));
@@ -214,10 +223,15 @@ internal sealed partial class CanvasApiClient
         for (var attempt = 1; ; attempt++)
         {
             HttpResponseMessage response;
+            await _requests.WaitAsync(cancellationToken);
             try
             {
+                // Bound HTTP concurrency across all courses, endpoints and pages.
+                // A throttled request pauses the shared client to avoid retry storms.
+                await WaitForCooldown(cancellationToken);
+                Interlocked.Increment(ref _requestCount);
                 response = await _httpClient.GetAsync(
-                    uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                    uri, HttpCompletionOption.ResponseContentRead, cancellationToken);
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < 6)
             {
@@ -225,8 +239,13 @@ internal sealed partial class CanvasApiClient
                 Console.WriteLine(
                     $"Canvas request timed out; retrying in {timeoutDelay.TotalSeconds:0} seconds " +
                     $"(attempt {attempt}/6).");
-                await Task.Delay(timeoutDelay, cancellationToken);
+                Interlocked.Increment(ref _retryCount);
+                PostponeRequests(timeoutDelay);
                 continue;
+            }
+            finally
+            {
+                _requests.Release();
             }
             if (response.IsSuccessStatusCode)
             {
@@ -246,8 +265,30 @@ internal sealed partial class CanvasApiClient
             Console.WriteLine(
                 $"Canvas returned HTTP {(int)response.StatusCode}; retrying in {delay.TotalSeconds:0} seconds (attempt {attempt}/6).");
             response.Dispose();
-            await Task.Delay(delay, cancellationToken);
+            Interlocked.Increment(ref _retryCount);
+            PostponeRequests(delay);
         }
+    }
+
+    private async Task WaitForCooldown(CancellationToken token)
+    {
+        while (true)
+        {
+            var remaining = Volatile.Read(ref _notBeforeUtcTicks) - DateTime.UtcNow.Ticks;
+            if (remaining <= 0) return;
+            await Task.Delay(TimeSpan.FromTicks(remaining), token);
+        }
+    }
+
+    private void PostponeRequests(TimeSpan delay)
+    {
+        var until = DateTime.UtcNow.Add(delay).Ticks;
+        long previous;
+        do
+        {
+            previous = Volatile.Read(ref _notBeforeUtcTicks);
+            if (previous >= until) return;
+        } while (Interlocked.CompareExchange(ref _notBeforeUtcTicks, until, previous) != previous);
     }
 
     private static TimeSpan RetryDelay(HttpResponseMessage response, int attempt)

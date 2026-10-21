@@ -26,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="OlympiaStudent360.Tests" />
     <Content Include="Assets/olympia_logo.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

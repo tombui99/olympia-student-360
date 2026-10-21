@@ -26,7 +26,11 @@ required build marker is missing. It does not fall back to an expensive raw-data
 Canvas readers continue serving the last committed snapshot with a compatible schema while a
 newer completed sync is materialized. The rebuild cursor still triggers retries until that
 snapshot catches up. Canvas rebuilding holds only one course's metric keys in API memory and
-writes entity batches without allocating a second warehouse-sized array.
+writes parameterized multi-value batches without allocating a second warehouse-sized array.
+Normal Canvas refreshes consume durable changed-course invalidations instead of rewriting every
+stored school year. Invalidations, replacement rows, and the build cursor commit together;
+unchanged imports advance the cursor without rewriting metric facts. Academic-period changes
+invalidate the whole snapshot, and an initial or explicit manual build still covers all history.
 
 Exact-record drilldowns are the deliberate exception to the persisted-summary source rule: health
 visits and behaviour details read their source records because those records are the requested

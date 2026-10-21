@@ -621,6 +621,10 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<int>("LastCompletedSyncRunId")
                         .HasColumnType("int");
 
+                    b.Property<string>("PeriodConfigurationHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
                     b.Property<int>("SchemaVersion")
                         .HasColumnType("int");
 
@@ -877,6 +881,19 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("CanvasLeadershipReportAggregates");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasReportCourseChange", b =>
+                {
+                    b.Property<long>("CanvasCourseId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("ChangedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("CanvasCourseId");
+
+                    b.ToTable("CanvasReportCourseChanges");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.CanvasSubmission", b =>
                 {
                     b.Property<int>("Id")
@@ -1000,6 +1017,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<string>("Error")
                         .HasMaxLength(2000)
                         .HasColumnType("varchar(2000)");
+
+                    b.Property<bool>("ReportChangesTracked")
+                        .HasColumnType("tinyint(1)");
 
                     b.Property<int?>("Scores")
                         .HasColumnType("int");

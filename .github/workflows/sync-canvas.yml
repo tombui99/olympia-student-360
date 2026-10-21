@@ -5,6 +5,14 @@ on:
     # 17:00 Asia/Ho_Chi_Minh (UTC+7). GitHub schedules use UTC.
     - cron: "0 10 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Incremental Canvas sync, or retry pending reports without downloading Canvas again"
+        type: choice
+        options:
+          - incremental
+          - reports-only
+        default: incremental
 
 permissions:
   contents: read
@@ -20,6 +28,17 @@ jobs:
     # The current-year scope contains hundreds of courses and Canvas may throttle bursts.
     timeout-minutes: 180
     environment: production
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 13361:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=10
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       APP_RUNNER_SERVICE_ARN: ${{ vars.APP_RUNNER_SERVICE_ARN }}
@@ -33,6 +52,8 @@ jobs:
       # 337: OIS Grade 5; 338: OIS G6-9; 339: OIS academic office; 340: clubs.
       Canvas__EnrollmentTermIds: "333,334,335,336,337,338,339,340"
       Canvas__WatermarkOverlapMinutes: "120"
+      Canvas__MaxConcurrentRequests: "8"
+      CANVAS_SYNC_MODE: ${{ inputs.mode || 'incremental' }}
       ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
 
     steps:
@@ -50,10 +71,12 @@ jobs:
           dotnet build backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
             --configuration Release --no-restore
 
-      - name: Verify database retry policy
+      - name: Verify Canvas sync and report recovery on MySQL 8.4
+        env:
+          OLYMPIA_TEST_MYSQL: "Server=127.0.0.1;Port=13361;User=root;SslMode=Disabled;AllowPublicKeyRetrieval=true"
         run: >-
           dotnet test backend/OlympiaStudent360.Tests/OlympiaStudent360.Tests.csproj
-          --configuration Release --filter FullyQualifiedName~DatabaseResilienceTests
+          --configuration Release
 
       - name: Configure AWS credentials
         if: env.ConnectionStrings__DefaultConnection == ''
@@ -88,9 +111,11 @@ jobs:
       - name: Verify Canvas and direct RDS configuration
         run: |
           missing=()
-          if [ -z "$Canvas__BaseUrl" ]; then missing+=("Canvas base URL"); fi
-          if [ -z "$Canvas__AccessToken" ]; then missing+=("production secret CANVAS_ACCESS_TOKEN"); fi
-          if [ -z "$Canvas__AccountId" ]; then missing+=("Canvas account id"); fi
+          if [ "$CANVAS_SYNC_MODE" != "reports-only" ]; then
+            if [ -z "$Canvas__BaseUrl" ]; then missing+=("Canvas base URL"); fi
+            if [ -z "$Canvas__AccessToken" ]; then missing+=("production secret CANVAS_ACCESS_TOKEN"); fi
+            if [ -z "$Canvas__AccountId" ]; then missing+=("Canvas account id"); fi
+          fi
           if [ -z "$ConnectionStrings__DefaultConnection" ]; then
             missing+=("production database connection")
           fi
@@ -101,5 +126,10 @@ jobs:
 
       - name: Sync Canvas into RDS
         run: |
+          case "$CANVAS_SYNC_MODE" in
+            incremental) sync_argument=--incremental ;;
+            reports-only) sync_argument=--refresh-dashboard-aggregates-only ;;
+            *) echo "Unknown Canvas sync mode"; exit 1 ;;
+          esac
           dotnet run --project backend/OlympiaStudent360.CanvasEtl/OlympiaStudent360.CanvasEtl.csproj \
-            --configuration Release --no-build -- --incremental
+            --configuration Release --no-build -- "$sync_argument"

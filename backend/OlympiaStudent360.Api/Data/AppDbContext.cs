@@ -62,6 +62,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CanvasDashboardMetricAggregate> CanvasDashboardMetricAggregates { get; set; }
     public DbSet<CanvasLeadershipReportAggregate> CanvasLeadershipReportAggregates { get; set; }
     public DbSet<CanvasDashboardAggregateBuild> CanvasDashboardAggregateBuilds { get; set; }
+    public DbSet<CanvasReportCourseChange> CanvasReportCourseChanges { get; set; }
     public DbSet<CanvasSyncState> CanvasSyncStates { get; set; }
     public DbSet<CanvasSyncRun> CanvasSyncRuns { get; set; }
     public DbSet<StudentClassificationSetting> StudentClassificationSettings { get; set; }
@@ -903,6 +904,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .HasForeignKey(item => item.CanvasCourseId)
                 .HasPrincipalKey(item => item.CanvasCourseId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CanvasDashboardAggregateBuild>()
+            .Property(item => item.PeriodConfigurationHash).HasMaxLength(64);
+        modelBuilder.Entity<CanvasReportCourseChange>(change =>
+        {
+            change.HasKey(item => item.CanvasCourseId);
+            change.Property(item => item.CanvasCourseId).ValueGeneratedNever();
         });
 
         modelBuilder.Entity<CanvasSyncState>(state =>

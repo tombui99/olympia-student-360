@@ -8,6 +8,7 @@ public sealed class CanvasEtlOptions
     public required string AccessToken { get; init; }
     public required string AccountId { get; init; }
     public int PerPage { get; init; } = 100;
+    public int MaxConcurrentRequests { get; init; } = 8;
     public bool AllowEmptyCourses { get; init; }
     public bool AllowEmptyStudents { get; init; }
     public bool IncludeAllCourses { get; init; }
@@ -50,6 +51,8 @@ public sealed class CanvasEtlOptions
             AccessToken = Required(configuration, "Canvas:AccessToken"),
             AccountId = Required(configuration, "Canvas:AccountId"),
             PerPage = perPage,
+            MaxConcurrentRequests = ParseBoundedInt(configuration["Canvas:MaxConcurrentRequests"],
+                8, 1, 16, "Canvas:MaxConcurrentRequests"),
             AllowEmptyCourses = bool.TryParse(
                 configuration["Canvas:AllowEmptyCourses"], out var allowEmptyCourses) && allowEmptyCourses,
             AllowEmptyStudents = bool.TryParse(

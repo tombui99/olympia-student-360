@@ -209,6 +209,10 @@ merge_submissions_in_batches() {
 }
 
 write_line "-- Stable-identity upserts; local auto-increment IDs are never copied."
+write_line "-- Retain report invalidations even if a later transfer batch fails."
+write_line 'INSERT INTO `CanvasReportCourseChanges` (`CanvasCourseId`, `ChangedAtUtc`)'
+write_line 'SELECT `CanvasCourseId`, UTC_TIMESTAMP(6) FROM `_CanvasImport_CanvasCourses` WHERE TRUE'
+write_line 'ON DUPLICATE KEY UPDATE `ChangedAtUtc` = UTC_TIMESTAMP(6);'
 merge_table CanvasAccounts CanvasAccountId false
 merge_table CanvasUsers CanvasUserId false
 merge_table CanvasCourses CanvasCourseId false

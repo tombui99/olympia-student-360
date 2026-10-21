@@ -704,6 +704,15 @@ public class CanvasDashboardAggregateBuild : BaseEntity
     public int SchemaVersion { get; set; }
     public DateTime CompletedAtUtc { get; set; }
     public int LastCompletedSyncRunId { get; set; }
+    public string? PeriodConfigurationHash { get; set; }
+}
+
+/// <summary>Durable invalidation saved with course facts and drained only when reports commit.</summary>
+public class CanvasReportCourseChange
+{
+    // No course FK: a deleted course must also invalidate its old report rows.
+    public long CanvasCourseId { get; set; }
+    public DateTime ChangedAtUtc { get; set; }
 }
 
 /// <summary>Durable high-water mark and last-run status for one Canvas account.</summary>
@@ -721,6 +730,7 @@ public class CanvasSyncState : BaseEntity
 /// <summary>An append-only audit record for one Canvas ETL execution.</summary>
 public class CanvasSyncRun : BaseEntity
 {
+    public bool ReportChangesTracked { get; set; }
     public string SourceKey { get; set; } = default!;
     public string Source { get; set; } = default!;
     public string Workflow { get; set; } = default!;

@@ -113,6 +113,7 @@ public sealed class CanvasSyncController : ControllerBase
 
         var run = new CanvasSyncRun
         {
+            ReportChangesTracked = true,
             SourceKey = sourceKey,
             Source = $"Canvas ({baseUri.Host}, account {request.AccountId.Trim()})",
             Workflow = mode,

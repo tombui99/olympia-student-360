@@ -1,4 +1,8 @@
 using System.Text;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Globalization;
+using MySql.Data.MySqlClient;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
@@ -47,20 +51,58 @@ public sealed class CanvasDashboardAggregateService
             // manual RebuildAsync remains available for a legacy warehouse without run records.
             if (latestRunId == 0)
                 return (int?)null;
-            if (await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
-                    .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion &&
-                        item.LastCompletedSyncRunId >= latestRunId, cancellationToken))
-                return (int?)null;
-            // A v4 snapshot retains assignment-level metric lineage. Pivot it and attach
-            // earned/possible points from the matching submissions inside MySQL rather than
-            // rewriting the much larger dashboard metric table. Older snapshots are rebuilt
-            // because their assignment-grain lineage may be incomplete.
+            var periods = await LoadPeriodsAsync(cancellationToken);
+            var periodHash = PeriodHash(periods);
+            var build = await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
+                .Where(item => item.SchemaVersion >= ReportSchemaVersion)
+                .OrderByDescending(item => item.Id).FirstOrDefaultAsync(cancellationToken);
+            if (build is not null)
+            {
+                // Adopt an existing v5 snapshot without rewriting its historical rows.
+                // Later period edits are detected by a hash, including deleted periods.
+                var periodsChanged = build.PeriodConfigurationHash is null
+                    ? await _db.AcademicPeriods.AnyAsync(item => item.CreatedAt > build.CompletedAtUtc ||
+                        item.UpdatedAt > build.CompletedAtUtc, cancellationToken)
+                    : build.PeriodConfigurationHash != periodHash;
+                if (periodsChanged)
+                    return await RebuildCoreAsync(cancellationToken, latestRunId, periods: periods);
+                if (build.PeriodConfigurationHash is null)
+                    await _db.CanvasDashboardAggregateBuilds.Where(item => item.Id == build.Id)
+                        .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.PeriodConfigurationHash, periodHash),
+                            cancellationToken);
+                if (build.LastCompletedSyncRunId >= latestRunId)
+                    return (int?)null;
+
+                // An older importer did not record changes (including historical identity
+                // relinks). Refresh it fully rather than silently publishing incomplete data.
+                // A compatible snapshot already covering that run was returned above.
+                if (await _db.CanvasSyncRuns.AnyAsync(item => item.Status == "completed" &&
+                    item.Id > build.LastCompletedSyncRunId && item.Id <= latestRunId && !item.ReportChangesTracked,
+                    cancellationToken))
+                    return await RebuildCoreAsync(cancellationToken, latestRunId, periods: periods);
+                var changedCourses = await _db.CanvasReportCourseChanges.AsNoTracking()
+                    .Select(item => item.CanvasCourseId).ToListAsync(cancellationToken);
+                if (changedCourses.Count == 0)
+                {
+                    // No numeric report data changed. Advance freshness without emitting
+                    // another imported-report/risk invalidation for the same facts.
+                    await _db.CanvasDashboardAggregateBuilds.Where(item => item.Id == build.Id)
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(item => item.LastCompletedSyncRunId, latestRunId)
+                            .SetProperty(item => item.CompletedAtUtc, DateTime.UtcNow)
+                            .SetProperty(item => item.PeriodConfigurationHash, periodHash), cancellationToken);
+                    Console.WriteLine("Canvas reports are unchanged; advanced the completed-import cursor without rebuilding facts.");
+                    return 0;
+                }
+                return await RebuildCoreAsync(cancellationToken, latestRunId,
+                    changedCourses.Distinct().Order().ToArray(), periods);
+            }
             if (await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
                     .AnyAsync(item => item.SchemaVersion >= 4 && item.SchemaVersion < ReportSchemaVersion &&
                         item.LastCompletedSyncRunId >= latestRunId, cancellationToken) &&
                 await _db.CanvasDashboardMetricAggregates.AsNoTracking().AnyAsync(cancellationToken))
                 return await BackfillLeadershipFromDashboardAsync(latestRunId, cancellationToken);
-            return await RebuildCoreAsync(cancellationToken, latestRunId);
+            return await RebuildCoreAsync(cancellationToken, latestRunId, periods: periods);
         }, cancellationToken);
 
     public Task<int?> BackfillIfNeededAsync(CancellationToken cancellationToken) =>
@@ -81,8 +123,16 @@ public sealed class CanvasDashboardAggregateService
     private async Task<T> WithWarehouseAndRebuildLockAsync<T>(
         Func<Task<T>> operation, CancellationToken cancellationToken)
     {
-        await using var warehouseLock = await CanvasWarehouseLock.AcquireAsync(_db, cancellationToken);
-        return await WithRebuildLockAsync(operation, cancellationToken);
+        var previousTimeout = _db.Database.GetCommandTimeout();
+        // Initial/backfill SQL can legitimately exceed the connector's 30-second
+        // request default on RDS. Bound report commands while retaining caller overrides.
+        if (previousTimeout is null) _db.Database.SetCommandTimeout(600);
+        try
+        {
+            await using var warehouseLock = await CanvasWarehouseLock.AcquireAsync(_db, cancellationToken);
+            return await WithRebuildLockAsync(operation, cancellationToken);
+        }
+        finally { _db.Database.SetCommandTimeout(previousTimeout); }
     }
 
     private async Task<int> LatestCompletedSyncRunIdAsync(CancellationToken cancellationToken) =>
@@ -124,28 +174,44 @@ public sealed class CanvasDashboardAggregateService
         }
     }
 
+    private Task<List<ReportingPeriod>> LoadPeriodsAsync(CancellationToken cancellationToken) =>
+        _db.AcademicPeriods.AsNoTracking()
+            .Select(item => new ReportingPeriod(item.AcademicYear, item.Term, item.StartDate, item.EndDate))
+            .ToListAsync(cancellationToken);
+
+    private static string PeriodHash(IEnumerable<ReportingPeriod> periods) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(periods
+            .OrderBy(item => item.AcademicYear, StringComparer.Ordinal)
+            .ThenBy(item => item.Term, StringComparer.Ordinal).ThenBy(item => item.Start).ThenBy(item => item.End))));
+
     private async Task<int> RebuildCoreAsync(
         CancellationToken cancellationToken,
-        int? completedSyncRunId = null)
+        int? completedSyncRunId = null,
+        long[]? affectedCourseIds = null,
+        List<ReportingPeriod>? periods = null)
     {
         completedSyncRunId ??= await LatestCompletedSyncRunIdAsync(cancellationToken);
-        var periods = await _db.AcademicPeriods.AsNoTracking()
-            .Select(item => new ReportingPeriod(
-                item.AcademicYear,
-                item.Term,
-                item.StartDate,
-                item.EndDate))
-            .ToListAsync(cancellationToken);
-        var courseIds = await _db.CanvasCourses.AsNoTracking()
+        periods ??= await LoadPeriodsAsync(cancellationToken);
+        var courseIds = affectedCourseIds ?? await _db.CanvasCourses.AsNoTracking()
             .OrderBy(item => item.CanvasCourseId)
             .Select(item => item.CanvasCourseId).ToArrayAsync(cancellationToken);
         var rowCount = 0;
         var processedCourses = 0;
         var elapsed = Stopwatch.StartNew();
-        Console.WriteLine($"Rebuilding Canvas report aggregates for {courseIds.Length} courses.");
+        Console.WriteLine($"Rebuilding Canvas report aggregates for {courseIds.Length} {(affectedCourseIds is null ? "stored" : "changed")} courses.");
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        await _db.CanvasLeadershipReportAggregates.ExecuteDeleteAsync(cancellationToken);
-        await _db.CanvasDashboardMetricAggregates.ExecuteDeleteAsync(cancellationToken);
+        if (affectedCourseIds is null)
+        {
+            await _db.CanvasLeadershipReportAggregates.ExecuteDeleteAsync(cancellationToken);
+            await _db.CanvasDashboardMetricAggregates.ExecuteDeleteAsync(cancellationToken);
+        }
+        else if (courseIds.Length > 0)
+        {
+            await _db.CanvasLeadershipReportAggregates
+                .WhereMatchesAnyValue(item => item.CanvasCourseId, courseIds).ExecuteDeleteAsync(cancellationToken);
+            await _db.CanvasDashboardMetricAggregates
+                .WhereMatchesAnyValue(item => item.CanvasCourseId, courseIds).ExecuteDeleteAsync(cancellationToken);
+        }
         // Bound peak memory to one course instead of retaining millions of assignment
         // metric keys and a second full entity array in the API process. Keep publication
         // atomic so readers can continue using the previous committed snapshot.
@@ -278,23 +344,34 @@ public sealed class CanvasDashboardAggregateService
 
             foreach (var batch in rows.Chunk(1000))
             {
-                _db.CanvasDashboardMetricAggregates.AddRange(batch);
-                await _db.SaveChangesAsync(cancellationToken);
-                _db.ChangeTracker.Clear();
+                await InsertMetricBatchAsync(batch, cancellationToken);
                 rowCount += batch.Length;
             }
             if (++processedCourses % 10 == 0 || processedCourses == courseIds.Length)
                 Console.WriteLine($"Canvas report progress: {processedCourses}/{courseIds.Length} courses, {rowCount} metric rows; elapsed {elapsed.Elapsed:hh\\:mm\\:ss}.");
         }
-        Console.WriteLine("Building Canvas leadership report summaries and score points.");
-        await PopulateLeadershipFromDashboardFactsAsync(cancellationToken);
-        await PopulateLeadershipScorePointsAsync(cancellationToken);
+        if (affectedCourseIds is null || courseIds.Length > 0)
+        {
+            Console.WriteLine("Building Canvas leadership report summaries and score points.");
+            var leadershipElapsed = Stopwatch.StartNew();
+            await PopulateLeadershipFromDashboardFactsAsync(cancellationToken, affectedCourseIds);
+            Console.WriteLine($"Canvas leadership summaries prepared; elapsed {leadershipElapsed.Elapsed:hh\\:mm\\:ss}. Calculating score points.");
+            await PopulateLeadershipScorePointsAsync(cancellationToken, affectedCourseIds);
+            Console.WriteLine($"Canvas leadership score points prepared; elapsed {leadershipElapsed.Elapsed:hh\\:mm\\:ss}. Publishing snapshot.");
+        }
+        // Invalidation survives failures and is consumed atomically with the new snapshot.
+        if (affectedCourseIds is null)
+            await _db.CanvasReportCourseChanges.ExecuteDeleteAsync(cancellationToken);
+        else if (courseIds.Length > 0)
+            await _db.CanvasReportCourseChanges.WhereMatchesAnyValue(item => item.CanvasCourseId, courseIds)
+                .ExecuteDeleteAsync(cancellationToken);
         await _db.CanvasDashboardAggregateBuilds.ExecuteDeleteAsync(cancellationToken);
         _db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
         {
             SchemaVersion = ReportSchemaVersion,
             CompletedAtUtc = DateTime.UtcNow,
-            LastCompletedSyncRunId = completedSyncRunId.Value
+            LastCompletedSyncRunId = completedSyncRunId.Value,
+            PeriodConfigurationHash = PeriodHash(periods)
         });
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -314,7 +391,8 @@ public sealed class CanvasDashboardAggregateService
         {
             SchemaVersion = ReportSchemaVersion,
             CompletedAtUtc = DateTime.UtcNow,
-            LastCompletedSyncRunId = completedSyncRunId
+            LastCompletedSyncRunId = completedSyncRunId,
+            PeriodConfigurationHash = PeriodHash(await LoadPeriodsAsync(cancellationToken))
         });
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -326,9 +404,10 @@ public sealed class CanvasDashboardAggregateService
     /// a normal ETL rebuild and upgrades v2 installations without transferring a million metric
     /// rows to the API process or rewriting the dashboard aggregate table.
     /// </summary>
-    private async Task<int> PopulateLeadershipFromDashboardFactsAsync(CancellationToken cancellationToken)
+    private async Task<int> PopulateLeadershipFromDashboardFactsAsync(
+        CancellationToken cancellationToken, long[]? courseIds = null)
     {
-        var count = await _db.Database.ExecuteSqlRawAsync($"""
+        var pivotSql = $"""
             INSERT INTO `CanvasLeadershipReportAggregates`
                 (`StudentProfileId`, `CanvasCourseId`, `AcademicYear`, `Term`,
                  `AcademicPeriodStart`, `IsFinalCourseScore`, `AssignmentGroupName`,
@@ -359,12 +438,14 @@ public sealed class CanvasDashboardAggregateService
             WHERE source.`MetricKey` IN ('{AssignmentsSubmitted}', '{AssignmentsMissing}',
                                          '{AssignmentsLate}', '{SubmittedAssignmentsGraded}',
                                          '{SubmissionScoreAverage}', '{FinalScoreAverage}')
+              {CourseFilter("source", courseIds)}
             GROUP BY source.`StudentProfileId`, source.`CanvasCourseId`,
                      source.`AcademicYear`, source.`Term`, source.`AcademicPeriodStart`,
                      CASE WHEN source.`MetricKey` = '{FinalScoreAverage}' THEN 1 ELSE 0 END,
                      CASE WHEN source.`MetricKey` = '{FinalScoreAverage}'
                           THEN NULL ELSE assignment.`AssignmentGroupName` END
-            """, cancellationToken);
+            """;
+        var count = await _db.Database.ExecuteSqlRawAsync(pivotSql, cancellationToken);
 
         var groupNames = await _db.CanvasAssignments.AsNoTracking()
             .Where(item => item.AssignmentGroupName != null && item.AssignmentGroupName != "")
@@ -386,7 +467,8 @@ public sealed class CanvasDashboardAggregateService
                 parameters.Add(item.Name);
                 parameters.Add(item.Category!);
             }
-            sql.Append(" ELSE NULL END WHERE `IsFinalCourseScore` = 0");
+            sql.Append(" ELSE NULL END WHERE `IsFinalCourseScore` = 0 ")
+                .Append(CourseFilter(null, courseIds));
             await _db.Database.ExecuteSqlRawAsync(sql.ToString(), parameters, cancellationToken);
         }
         return count;
@@ -398,9 +480,12 @@ public sealed class CanvasDashboardAggregateService
     /// v4 snapshot without rerunning the entire dashboard build. Only scored, graded, published,
     /// included and non-excused assignments contribute to a Canvas group score estimate.
     /// </summary>
-    private Task<int> PopulateLeadershipScorePointsAsync(CancellationToken cancellationToken) =>
-        _db.Database.ExecuteSqlRawAsync($"""
+    private Task<int> PopulateLeadershipScorePointsAsync(
+        CancellationToken cancellationToken, long[]? courseIds = null)
+    {
+        var sql = $"""
             UPDATE `CanvasLeadershipReportAggregates` AS leadership
+                FORCE INDEX (`IX_CanvasLeadershipReportAggregates_ScorePointJoin`)
             INNER JOIN (
                 SELECT metric.`StudentProfileId`, metric.`CanvasCourseId`, metric.`AcademicYear`,
                        metric.`Term`, metric.`AcademicPeriodStart`, assignment.`AssignmentGroupName`,
@@ -420,6 +505,7 @@ public sealed class CanvasDashboardAggregateService
                   AND submission.`WorkflowState` = 'graded'
                   AND submission.`Score` IS NOT NULL
                   AND (submission.`Excused` IS NULL OR submission.`Excused` = 0)
+                  {CourseFilter("metric", courseIds)}
                 GROUP BY metric.`StudentProfileId`, metric.`CanvasCourseId`, metric.`AcademicYear`,
                          metric.`Term`, metric.`AcademicPeriodStart`, assignment.`AssignmentGroupName`
             ) AS points
@@ -432,7 +518,48 @@ public sealed class CanvasDashboardAggregateService
             SET leadership.`EarnedPoints` = points.`Earned`,
                 leadership.`PossiblePoints` = points.`Possible`
             WHERE leadership.`IsFinalCourseScore` = 0
-            """, cancellationToken);
+            """;
+        return _db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+    }
+
+    // IDs are typed warehouse integers, formatted invariantly; never accept SQL text here.
+    private static string CourseFilter(string? alias, long[]? courseIds) => courseIds is null ? "" :
+        $"AND {(alias is null ? "" : alias + ".")}`CanvasCourseId` IN ({string.Join(',', courseIds.Select(id => id.ToString(CultureInfo.InvariantCulture)))})";
+
+    private async Task InsertMetricBatchAsync(CanvasDashboardMetricAggregate[] rows, CancellationToken token)
+    {
+        // One parameterized multi-value INSERT per batch avoids an EF round trip per fact
+        // across the RDS connection. Keep the existing transaction and command interceptors.
+        var sql = new StringBuilder("INSERT INTO `CanvasDashboardMetricAggregates` " +
+            "(`MetricKey`,`StudentProfileId`,`CanvasCourseId`,`CanvasAssignmentId`,`AcademicYear`," +
+            "`Term`,`PeriodStart`,`AcademicPeriodStart`,`ValueSum`,`SampleCount`,`CreatedAt`) VALUES ");
+        var parameters = new List<object>(rows.Length * 11);
+        foreach (var row in rows)
+        {
+            if (parameters.Count > 0) sql.Append(',');
+            sql.Append('(');
+            AddParameter(row.MetricKey, MySqlDbType.VarChar);
+            AddParameter(row.StudentProfileId, MySqlDbType.Int32);
+            AddParameter(row.CanvasCourseId, MySqlDbType.Int64);
+            AddParameter(row.CanvasAssignmentId, MySqlDbType.Int64);
+            AddParameter(row.AcademicYear, MySqlDbType.VarChar);
+            AddParameter(row.Term, MySqlDbType.VarChar);
+            AddParameter(row.PeriodStart, MySqlDbType.DateTime);
+            AddParameter(row.AcademicPeriodStart, MySqlDbType.DateTime);
+            AddParameter(row.ValueSum, MySqlDbType.Double);
+            AddParameter(row.SampleCount, MySqlDbType.Int32);
+            AddParameter(row.CreatedAt, MySqlDbType.DateTime);
+            sql.Length--;
+            sql.Append(')');
+        }
+        await _db.Database.ExecuteSqlRawAsync(sql.ToString(), parameters, token);
+        void AddParameter(object? value, MySqlDbType type)
+        {
+            var name = "@p" + parameters.Count;
+            sql.Append(name).Append(',');
+            parameters.Add(new MySqlParameter(name, type) { Value = value ?? DBNull.Value });
+        }
+    }
 
     private static void Add(
         IDictionary<AggregateKey, AggregateValue> values,

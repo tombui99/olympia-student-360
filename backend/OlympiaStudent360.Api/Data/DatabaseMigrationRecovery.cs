@@ -19,7 +19,8 @@ public static class DatabaseMigrationRecovery
         "20261017145751_PrecomputeCanvasLeadershipReports",
         "20261017152023_TriggerCanvasReportAggregationOnCompletedSync",
         "20261017161256_PersistCanvasGroupScorePoints",
-        "20261017162556_OptimizeCanvasScorePointBackfill"
+        "20261017162556_OptimizeCanvasScorePointBackfill",
+        "20261020200719_TrackCanvasReportCourseChanges"
     ];
 
     private static readonly string[] LearningReportTables =

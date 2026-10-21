@@ -177,8 +177,16 @@ The ETL avoids sending an unlimited burst of requests:
 - Full and reconciliation runs process courses in batches of 8.
 - Within one course, independent assignment, group, grading-period, enrollment, and submission
   requests run concurrently.
+- A shared HTTP limit caps all endpoints and pages at 8 requests, configurable through
+  `Canvas__MaxConcurrentRequests` (1–16). Throttling pauses the shared client before it retries,
+  rather than letting each course independently issue another burst.
 
-All three GitHub workflows share the `canvas-production-sync` concurrency group, so two production
+Incremental database reads seek only the incoming submission IDs. Older facts remain intact;
+only a full, authoritative response can prune missing submissions. Unchanged warehouse records
+are not rewritten merely to update a polling timestamp. Logs separate Canvas fetch time,
+database write time, request/retry counts, and the report publication phases.
+
+Canvas GitHub workflows share the `canvas-production-sync` concurrency group, so two production
 Canvas syncs do not run at the same time.
 
 ## Student identity linking
@@ -276,10 +284,18 @@ refresh in the ETL process. Production API backfills are disabled by default bec
 throttles idle CPU: a background rebuild can hold an open transaction and block the next import.
 On an always-on host, set `Canvas__EnableApiReportBackfill=true` to enable the API retry worker;
 it remains enabled by default in development. To retry a failed refresh independently, run the
-ETL with `--rebuild-dashboard-aggregates-only` and the production database connection. The
+ETL with `--refresh-dashboard-aggregates-only` and the production database connection. This
+consumes pending course invalidations and does not download Canvas again or force all history
+to rebuild. The daily workflow's manual dispatch also offers `mode: reports-only`. Reserve
+`--rebuild-dashboard-aggregates-only` for an intentional full rebuild. The
 aggregate build marker records the last completed run included in the summaries. The report
 tables are swapped in one transaction, so a
 failed refresh leaves the previous completed snapshot in place.
+
+Normal refreshes replace only affected courses, using parameterized batches and the composite
+score-point join index. A compatible existing snapshot is adopted on deployment. Initial builds,
+academic-period configuration changes, and imports from an older version without change
+tracking still require a full refresh; all school years remain available.
 
 Report retries use their own fresh contexts after the import commits and releases its warehouse
 lock. If materialization still fails, the CLI exits with an error and a repair command while
