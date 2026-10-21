@@ -1711,7 +1711,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       const report = this.activeReport();
       if (report === 'learning-diligence') {
         const title = this.languageService.t('reports.learning.title');
-        this.excel.download({
+        await this.excel.download({
           fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
           title,
           period: this.periodLabel(),
@@ -1729,7 +1729,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
 
       if (report === 'support-classes') {
         const title = this.languageService.t('reports.classes.title');
-        this.excel.download({
+        await this.excel.download({
           fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
           title,
           period: this.periodLabel(),
@@ -1741,9 +1741,9 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
             { header: this.languageService.t(this.cohortView() === 'grade' ? 'reports.table.grade' : 'reports.table.class'), value: row => row.label },
             { header: this.languageService.t('reports.table.grade'), value: row => row.grade },
             { header: this.languageService.t('reports.table.students'), value: row => row.students },
-            { header: this.languageService.t('reports.table.canvasAverage'), value: row => row.averageCanvasScorePercentage },
+            { header: this.languageService.t('reports.table.canvasAverage'), value: row => row.averageCanvasScorePercentage, format: 'percentage' },
             { header: this.languageService.t('reports.table.needSupport'), value: row => row.atRisk },
-            { header: this.languageService.t('reports.table.riskRate'), value: row => row.students ? row.atRisk / row.students * 100 : null },
+            { header: this.languageService.t('reports.table.riskRate'), value: row => row.students ? row.atRisk / row.students * 100 : null, format: 'percentage' },
             { header: this.languageService.t('reports.table.status'), value: row => this.statusLabel(this.classStatus(row)) },
             { header: this.languageService.t('reports.table.followUp'), value: row => this.classFollowUpKey(row) },
           ],
@@ -1760,7 +1760,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
           return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
         });
         const title = this.languageService.t('reports.students.title');
-        this.excel.download({
+        await this.excel.download({
           fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
           title,
           period: this.periodLabel(),
@@ -1770,7 +1770,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
             { header: 'SIS ID', value: row => row.sisStudentCode || row.sisUserId },
             { header: this.languageService.t('reports.table.grade'), value: row => row.gradeLevel },
             { header: this.languageService.t('reports.table.class'), value: row => row.homeroom },
-            { header: this.languageService.t('reports.table.canvasAverage'), value: row => row.averageCanvasScorePercentage },
+            { header: this.languageService.t('reports.table.canvasAverage'), value: row => row.averageCanvasScorePercentage, format: 'percentage' },
             { header: this.languageService.t('reports.table.riskLevel'), value: row => this.riskLabel(row.riskLevel) },
             { header: this.languageService.t('reports.table.signals'), value: row => row.riskFlagCount },
             { header: this.languageService.t('reports.behaviour.positive'), value: row => row.positiveBehaviourCount },

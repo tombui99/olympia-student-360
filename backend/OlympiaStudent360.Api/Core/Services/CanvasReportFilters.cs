@@ -56,6 +56,9 @@ public static class CanvasReportFilters
         // Canvas often names these groups by term and assessment number, e.g. HK1-HS1.1.
         // Match coefficient tokens in the group label, but not unrelated numbers such as HS10.
         var label = normalized.ToString();
+        // Both midterm assignment groups use coefficient 2. The trailing digit is
+        // the semester, so GHK1 must not be interpreted as coefficient 1.
+        if (label is "ghk1" or "ghk2") return "HS2";
         var coefficients = CoefficientGroupPattern.Matches(label)
             .Select(match => match.Groups[1].Value).Distinct().ToList();
         var hasGpa = GpaGroupPattern.IsMatch(label);

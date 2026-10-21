@@ -6,6 +6,9 @@ export type ReportExportCell = string | number | boolean | Date | null | undefin
 export interface ReportExportColumn<T> {
   header: string;
   value: (row: T) => ReportExportCell;
+  /** Percentage inputs use the report API's 0–100 scale. */
+  format?: 'integer' | 'decimal' | 'percentage' | 'text';
+  width?: number;
 }
 
 export interface ReportExportDefinition<T> {
@@ -52,40 +55,31 @@ export class ReportExcelExportService {
     }
   }
 
-  download<T>(definition: ReportExportDefinition<T>): void {
-    const metadata = [
-      [definition.title],
-      ...(definition.period ? [[definition.period]] : []),
-      ...(definition.filters ?? []).map(([label, value]) => [label, this.displayValue(value)]),
-      [this.language.t('reports.exportedAt'), new Date().toISOString()],
-      [],
-    ];
-    const table = [
-      ...metadata,
-      definition.columns.map(column => column.header),
-      ...definition.rows.map(row => definition.columns.map(column => this.displayValue(column.value(row)))),
-    ];
-    const content = table.map(row => row.map(cell => this.safeCell(cell)).join('\t')).join('\r\n');
-    const blob = new Blob([`\uFEFF${content}`], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  async download<T>(definition: ReportExportDefinition<T>): Promise<void> {
+    if (definition.rows.length > this.maximumRows)
+      throw new ReportExportLimitError(definition.rows.length, this.maximumRows);
+    // Load the workbook engine only when exporting; keep it out of the initial app bundle.
+    const { createReportWorkbook } = await import('./report-excel-workbook');
+    const workbook = createReportWorkbook(definition, this.language.t('reports.exportedAt'));
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([new Uint8Array(buffer)], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${this.safeFileName(definition.fileName)}.xls`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
-
-  private displayValue(value: ReportExportCell): string {
-    if (value == null) return '';
-    if (value instanceof Date) return value.toISOString();
-    return String(value);
-  }
-
-  private safeCell(value: string): string {
-    const singleLine = value.replace(/[\t\r\n]+/g, ' ').trim();
-    return /^[=+\-@]/.test(singleLine) ? `'${singleLine}` : singleLine;
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = `${this.safeFileName(definition.fileName)}.xlsx`;
+    document.body.appendChild(link);
+    try { link.click(); }
+    finally {
+      link.remove();
+      // Allow the browser to consume the download before releasing its URL.
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    }
   }
 
   private safeFileName(value: string): string {
-    return value.normalize('NFKD').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').slice(0, 120) || 'report';
+    return value.normalize('NFC').replace(/\.xlsx?$/i, '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-')
+      .replace(/\s+/g, '-').slice(0, 120) || 'report';
   }
 }

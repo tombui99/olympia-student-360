@@ -3,7 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
-import { ReportExcelExportService } from './report-excel-export.service';
+import { ToastService } from '../core/toast/toast.service';
+import { ReportExcelExportService, ReportExportColumn } from './report-excel-export.service';
 import { ReportExportButtonComponent } from './report-export-button.component';
 import { SearchableMultiSelectComponent } from './searchable-multi-select.component';
 import { AssessmentCategory } from './leadership-reports.service';
@@ -55,7 +56,7 @@ interface MatrixSubject {
           <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ t(reportBase() + '.description') }}</p>
         </div>
         <div class="flex flex-col items-start gap-2 sm:items-end">
-          <app-report-export-button [disabled]="loading() || !data()?.rows?.length || !data()?.aggregateAvailable" (exportRequested)="exportExcel()" />
+          <app-report-export-button [exporting]="exporting()" [disabled]="loading() || !data()?.rows?.length || !data()?.aggregateAvailable" (exportRequested)="exportExcel()" />
           <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ sourceLabel() }}</span>
         </div>
       </header>
@@ -260,6 +261,8 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   private readonly reports = inject(ScoreReportsService);
   private readonly language = inject(LanguageService);
   private readonly excel = inject(ReportExcelExportService);
+  private readonly toast = inject(ToastService);
+  readonly exporting = signal(false);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly options = signal<ScoreReportOptions | null>(null);
@@ -499,58 +502,65 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
     });
   }
 
-  exportExcel(): void {
+  async exportExcel(): Promise<void> {
     const result = this.data();
     const applied = this.appliedQuery;
-    if (!result?.aggregateAvailable || !result.rows.length || !applied) return;
-    const title = this.t(this.reportBase() + '.title');
-    const filters: Array<[string, string]> = [
-      [this.t('reports.score.schoolLevel'), applied.schoolLevel ? this.schoolLevelLabel(applied.schoolLevel) : this.t('reports.score.allSchoolLevels')],
-      [this.t('reports.leadership.grade'), applied.grade || this.t('reports.leadership.allGrades')],
-      [this.t('reports.leadership.homeroom'), applied.homeroom || this.t('reports.leadership.allHomerooms')],
-      ...(this.showSubjectFilter() ? [
-        [this.t('reports.score.subject'), this.options()?.subjects.find(subject => subject.code === applied.subjectCode)?.name || this.t('reports.score.allSubjects')] as [string, string],
-      ] : []),
-      ...(this.showSectionFilter() ? [
-        [this.t('reports.score.section'), applied.canvasSectionName || this.t('reports.score.allSections')] as [string, string],
-      ] : []),
-      ...(!this.isCourseScore() ? [
-        [this.t('reports.leadership.assessmentCategory'), this.t('reports.leadership.category.' + applied.assessmentCategory)] as [string, string],
-      ] : []),
-      ...(this.isRanking() ? [
-        [this.t('reports.score.rankingLimit'), String(applied.rankingLimit)] as [string, string],
-      ] : []),
-      [this.t('reports.leadership.subaccounts'), this.selectedSubaccountOptions(applied.subaccountIds).map(account => account.name).join(', ') || this.t('reports.leadership.allSubaccounts')],
-    ];
-    const labelColumn = { header: this.rowHeading(), value: (row: ScoreReportRow) => row.label };
-    const columns = this.isBandReport() ? [
-      labelColumn,
-      { header: 'A+', value: (row: ScoreReportRow) => row.aPlus },
-      { header: 'A', value: (row: ScoreReportRow) => row.a },
-      { header: 'B', value: (row: ScoreReportRow) => row.b },
-      { header: 'C', value: (row: ScoreReportRow) => row.c },
-      { header: 'D', value: (row: ScoreReportRow) => row.d },
-      { header: this.t('reports.score.cdRate'), value: (row: ScoreReportRow) => row.cdPercent },
-      { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
-    ] : this.isMatrix() ? [
-      { header: this.t('reports.score.subject'), value: (row: ScoreReportRow) => row.subjectName || row.label },
-      { header: this.t('reports.leadership.grade'), value: (row: ScoreReportRow) => row.grade },
-      { header: this.t('reports.score.averageScore10'), value: (row: ScoreReportRow) => row.averageScore },
-      { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
-    ] : this.isHistogram() ? [
-      { header: this.t('reports.score.range'), value: (row: ScoreReportRow) => this.binLabel(row) },
-      { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
-    ] : this.isRanking() ? [
-      labelColumn,
-      { header: this.t('reports.leadership.grade'), value: (row: ScoreReportRow) => row.grade },
-      { header: this.t('reports.leadership.homeroom'), value: (row: ScoreReportRow) => row.homeroom },
-      { header: this.t(primaryValueKeyForExport(result.unit)), value: (row: ScoreReportRow) => row.averageScore },
-    ] : [
-      labelColumn,
-      { header: this.t(primaryValueKeyForExport(result.unit)), value: (row: ScoreReportRow) => row.averageScore },
-      { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
-    ];
-    this.excel.download({ fileName: `${title}-${this.academicYear}-${this.term}`, title, period: this.periodLabel, filters, columns, rows: result.rows });
+    if (!result?.aggregateAvailable || !result.rows.length || !applied || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const title = this.t(this.reportBase() + '.title');
+      const filters: Array<[string, string]> = [
+        [this.t('reports.score.schoolLevel'), applied.schoolLevel ? this.schoolLevelLabel(applied.schoolLevel) : this.t('reports.score.allSchoolLevels')],
+        [this.t('reports.leadership.grade'), applied.grade || this.t('reports.leadership.allGrades')],
+        [this.t('reports.leadership.homeroom'), applied.homeroom || this.t('reports.leadership.allHomerooms')],
+        ...(this.showSubjectFilter() ? [
+          [this.t('reports.score.subject'), this.options()?.subjects.find(subject => subject.code === applied.subjectCode)?.name || this.t('reports.score.allSubjects')] as [string, string],
+        ] : []),
+        ...(this.showSectionFilter() ? [
+          [this.t('reports.score.section'), applied.canvasSectionName || this.t('reports.score.allSections')] as [string, string],
+        ] : []),
+        ...(!this.isCourseScore() ? [
+          [this.t('reports.leadership.assessmentCategory'), this.t('reports.leadership.category.' + applied.assessmentCategory)] as [string, string],
+        ] : []),
+        ...(this.isRanking() ? [
+          [this.t('reports.score.rankingLimit'), String(applied.rankingLimit)] as [string, string],
+        ] : []),
+        [this.t('reports.leadership.subaccounts'), this.selectedSubaccountOptions(applied.subaccountIds).map(account => account.name).join(', ') || this.t('reports.leadership.allSubaccounts')],
+      ];
+      const labelColumn = { header: this.rowHeading(), value: (row: ScoreReportRow) => row.label };
+      const columns: ReportExportColumn<ScoreReportRow>[] = this.isBandReport() ? [
+        labelColumn,
+        { header: 'A+', value: (row: ScoreReportRow) => row.aPlus },
+        { header: 'A', value: (row: ScoreReportRow) => row.a },
+        { header: 'B', value: (row: ScoreReportRow) => row.b },
+        { header: 'C', value: (row: ScoreReportRow) => row.c },
+        { header: 'D', value: (row: ScoreReportRow) => row.d },
+        { header: this.t('reports.score.cdRate'), value: (row: ScoreReportRow) => row.cdPercent, format: 'percentage' },
+        { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
+      ] : this.isMatrix() ? [
+        { header: this.t('reports.score.subject'), value: (row: ScoreReportRow) => row.subjectName || row.label },
+        { header: this.t('reports.leadership.grade'), value: (row: ScoreReportRow) => row.grade },
+        { header: this.t('reports.score.averageScore10'), value: (row: ScoreReportRow) => row.averageScore, format: result.unit === 'percent' ? 'percentage' : 'decimal' },
+        { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
+      ] : this.isHistogram() ? [
+        { header: this.t('reports.score.range'), value: (row: ScoreReportRow) => this.binLabel(row) },
+        { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
+      ] : this.isRanking() ? [
+        labelColumn,
+        { header: this.t('reports.leadership.grade'), value: (row: ScoreReportRow) => row.grade },
+        { header: this.t('reports.leadership.homeroom'), value: (row: ScoreReportRow) => row.homeroom },
+        { header: this.t(primaryValueKeyForExport(result.unit)), value: (row: ScoreReportRow) => row.averageScore, format: result.unit === 'percent' ? 'percentage' : 'decimal' },
+      ] : [
+        labelColumn,
+        { header: this.t(primaryValueKeyForExport(result.unit)), value: (row: ScoreReportRow) => row.averageScore, format: result.unit === 'percent' ? 'percentage' : 'decimal' },
+        { header: this.t('reports.score.scoreCount'), value: (row: ScoreReportRow) => row.scoreCount },
+      ];
+      await this.excel.download({ fileName: `${title}-${this.academicYear}-${this.term}`, title, period: this.periodLabel, filters, columns, rows: result.rows });
+    } catch {
+      this.toast.error(this.t('reports.exportError'));
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   private defaultQuery(): ScoreReportQuery {

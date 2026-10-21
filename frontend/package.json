@@ -8,6 +8,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "test:resilience": "node --test tests/auth-resilience.test.cjs",
+    "test:reports": "node --test tests/report-excel-export.test.cjs",
     "generate:api": "openapi-generator-cli generate -i http://localhost:5279/openapi/v1.json -g typescript-angular -o src/app/api --skip-validate-spec"
   },
   "prettier": {
@@ -34,6 +35,7 @@
     "@fortawesome/angular-fontawesome": "^4.0.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "echarts": "^6.1.0",
+    "exceljs": "^4.4.0",
     "ngx-echarts": "^21.0.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"

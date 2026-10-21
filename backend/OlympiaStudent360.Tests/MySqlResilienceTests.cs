@@ -199,6 +199,7 @@ public sealed class MySqlResilienceTests
     [InlineData("20261017162556_OptimizeCanvasScorePointBackfill", "20261017161256_PersistCanvasGroupScorePoints", 1)]
     [InlineData("20261020200719_TrackCanvasReportCourseChanges", "20261019113745_ReclassifyGrade5AsLowerSecondary", 1)]
     [InlineData("20261020200719_TrackCanvasReportCourseChanges", "20261019113745_ReclassifyGrade5AsLowerSecondary", 3)]
+    [InlineData("20261021093911_ClassifyGhkGroupsAsHs2", "20261020200719_TrackCanvasReportCourseChanges", 1)]
     public async Task InterruptedReportMigrationsResumeWithoutDroppingCommittedSchema(
         string interruptedMigration, string previousMigration, int completedOperations)
     {
@@ -246,6 +247,54 @@ public sealed class MySqlResilienceTests
         db.Database.SetCommandTimeout(37);
         await db.MigrateWithRecoveryAsync();
         Assert.Equal(37, db.Database.GetCommandTimeout());
+    }
+
+    [MySqlFact]
+    public async Task GhkMigrationReclassifiesPublishedReportsWithoutRebuildingFacts()
+    {
+        await using var test = await TestDatabase.CreateAsync(
+            targetMigration: "20261020200719_TrackCanvasReportCourseChanges");
+        await using var db = test.Open();
+        var student = new StudentProfile { SISUserId = "ghk-test", FullName = "Report student" };
+        var course = new CanvasCourse { CanvasCourseId = 100, Name = "Report course" };
+        db.CanvasLeadershipReportAggregates.AddRange(new[] { "GHK1", "GHK2", " ghk1 ", "GHK10", "HS1" }
+            .Select(group => new CanvasLeadershipReportAggregate
+            {
+                Student = student, Course = course, AcademicYear = "2026-2027", Term = "HK1",
+                AssignmentGroupName = group, AssessmentCategory = group == "HS1" ? "HS1" : null,
+                ScoreSum = 75, ScoreCount = 1, EarnedPoints = 7.5, PossiblePoints = 10
+            }));
+        db.CanvasDashboardMetricAggregates.Add(new CanvasDashboardMetricAggregate
+        {
+            Student = student, Course = course, AcademicYear = "2026-2027", Term = "HK1",
+            MetricKey = CanvasDashboardAggregateService.SubmissionScoreAverage, ValueSum = 75, SampleCount = 1
+        });
+        db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
+        {
+            SchemaVersion = 5, LastCompletedSyncRunId = 24,
+            CompletedAtUtc = new DateTime(2026, 10, 20), PeriodConfigurationHash = "existing-snapshot"
+        });
+        await db.SaveChangesAsync();
+        var metricId = (await db.CanvasDashboardMetricAggregates.SingleAsync()).Id;
+        var reportIds = await db.CanvasLeadershipReportAggregates.OrderBy(row => row.Id).Select(row => row.Id).ToArrayAsync();
+
+        await db.MigrateWithRecoveryAsync();
+        await db.MigrateWithRecoveryAsync();
+        var rows = await db.CanvasLeadershipReportAggregates.AsNoTracking().OrderBy(row => row.Id).ToListAsync();
+        Assert.Equal(reportIds, rows.Select(row => row.Id));
+        Assert.Equal(new string?[] { "HS2", "HS2", "HS2", null, "HS1" }, rows.Select(row => row.AssessmentCategory));
+        Assert.All(rows, row =>
+        {
+            Assert.Equal(75, row.ScoreSum);
+            Assert.Equal(7.5, row.EarnedPoints);
+            Assert.Equal(10, row.PossiblePoints);
+        });
+        Assert.Equal(metricId, (await db.CanvasDashboardMetricAggregates.AsNoTracking().SingleAsync()).Id);
+        var snapshot = await db.CanvasDashboardAggregateBuilds.AsNoTracking().SingleAsync();
+        Assert.Equal(5, snapshot.SchemaVersion);
+        Assert.Equal(24, snapshot.LastCompletedSyncRunId);
+        Assert.Equal("existing-snapshot", snapshot.PeriodConfigurationHash);
+        Assert.Empty(await db.CanvasReportCourseChanges.ToListAsync());
     }
 
     [MySqlFact]

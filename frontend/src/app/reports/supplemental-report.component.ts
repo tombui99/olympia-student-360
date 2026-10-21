@@ -246,7 +246,7 @@ export class SupplementalReportComponent implements OnChanges {
         return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
       });
       const title = this.languageService.t(this.report.titleKey);
-      this.excel.download({
+      await this.excel.download({
         fileName: `${title}-${this.academicYear}-${this.term}`,
         title,
         period: this.periodLabel,

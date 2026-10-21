@@ -2,6 +2,7 @@ import { Component, computed, HostListener, inject, Input, OnChanges, OnDestroy,
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LanguageService } from '../core/language/language.service';
+import { ToastService } from '../core/toast/toast.service';
 import { ReportExcelExportService } from './report-excel-export.service';
 import { ReportExportButtonComponent } from './report-export-button.component';
 import {
@@ -224,6 +225,7 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
 
   private readonly reports = inject(BehaviourReportsService);
   private readonly excel = inject(ReportExcelExportService);
+  private readonly toast = inject(ToastService);
   readonly languageService = inject(LanguageService);
   readonly summary = signal<BehaviourReportSummary | null>(null);
   readonly loading = signal(true);
@@ -291,12 +293,12 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
     });
   }
 
-  exportExcel(): void {
+  async exportExcel(): Promise<void> {
     const summary = this.summary();
     if (!summary || this.exporting()) return;
     this.exporting.set(true);
     try {
-      this.excel.download({
+      await this.excel.download({
         fileName: `${this.languageService.t('reports.behaviour.title')}-${this.academicYear}-${this.term}`,
         title: this.languageService.t('reports.behaviour.title'),
         period: this.periodLabel,
@@ -316,6 +318,8 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
         ],
         rows: summary.byStudent,
       });
+    } catch {
+      this.toast.error(this.languageService.t('reports.exportError'));
     } finally {
       this.exporting.set(false);
     }

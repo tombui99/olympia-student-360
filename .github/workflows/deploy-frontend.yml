@@ -46,6 +46,9 @@ jobs:
       - name: Verify session recovery and safe HTTP retries
         run: npm run test:resilience
 
+      - name: Verify report Excel exports
+        run: npm run test:reports
+
       - name: Build Angular production bundle
         run: npm run build
 

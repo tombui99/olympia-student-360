@@ -404,7 +404,7 @@ export class ErpMealReportComponent implements OnChanges, OnDestroy {
         return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
       });
       const title = this.languageService.t(this.titleKey());
-      this.excel.download({
+      await this.excel.download({
         fileName: `${title}-${from}-${to}`,
         title,
         period: `${from} – ${to}`,

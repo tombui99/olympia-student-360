@@ -367,7 +367,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
         .map(account => account.name);
       const assignmentNames = this.assignments()
         .filter(assignment => applied.assignmentIds.includes(assignment.id)).map(assignment => assignment.name);
-      this.excel.download({
+      await this.excel.download({
         fileName: `${title}-${this.academicYear}-${this.term}`,
         title,
         period: this.periodLabel,
@@ -390,8 +390,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
           { header: this.t('reports.learningReview.missing'), value: row => row.missing },
           { header: this.t('reports.learningReview.submitted'), value: row => row.submitted },
           { header: this.t('reports.learningReview.graded'), value: row => row.graded },
-          { header: this.t('reports.learningReview.score'), value: row => row.score },
-          { header: this.t('reports.learningReview.rate'), value: row => row.rate },
+          { header: this.t('reports.learningReview.score'), value: row => row.score, format: 'percentage' },
+          { header: this.t('reports.learningReview.rate'), value: row => row.rate, format: 'percentage' },
           { header: this.t('reports.table.status'), value: row => this.t(`reports.learningReview.status.${row.status}`) },
         ],
         rows,

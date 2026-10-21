@@ -143,7 +143,7 @@ interface FinalScorePanel {
                   <h4 class="mt-1 text-lg font-semibold text-[#32124f]">{{ t('reports.leadership.finalScores.title') }}</h4>
                   <p class="mt-1 max-w-3xl text-sm leading-6 text-[#756b7c]">{{ t('reports.leadership.finalScores.description') }}</p>
                 </div>
-                <app-report-export-button [disabled]="!finalScores.summary.scoreCount" (exportRequested)="exportFinalScores(finalScores)" />
+                <app-report-export-button [exporting]="exporting()" [disabled]="loading() || !finalScores.summary.scoreCount" (exportRequested)="exportFinalScores(finalScores)" />
               </div>
               <div class="mx-5 grid gap-px overflow-hidden rounded-lg border border-[#eadfca] bg-[#eadfca] sm:grid-cols-2 xl:grid-cols-4 sm:mx-6">
                 <div class="bg-white px-4 py-4"><p class="text-[10px] font-bold uppercase tracking-[0.12em] text-[#817589]">{{ t('reports.leadership.students') }}</p><p class="mt-1 text-xl font-semibold text-[#32124f]">{{ formatNumber(finalScores.summary.studentCount) }}</p></div>
@@ -152,13 +152,14 @@ interface FinalScorePanel {
                 <div class="bg-white px-4 py-4"><p class="text-[10px] font-bold uppercase tracking-[0.12em] text-[#817589]">{{ t('reports.leadership.finalScores.average') }}</p><p class="mt-1 text-xl font-semibold text-[#32124f]">{{ formatPercent(finalScores.summary.averageScorePercent) }}</p></div>
               </div>
               @if (finalScores.summary.scoreCount > 0) {
-                <div class="grid gap-4 p-5 xl:grid-cols-2 sm:p-6">
+                <div class="grid items-start gap-4 p-5 xl:grid-cols-2 sm:p-6">
                   @for (panel of finalScorePanels(finalScores); track panel.key) {
-                    <section class="min-w-0 overflow-hidden rounded-lg border border-[#eadfca] bg-white">
-                      <div class="flex items-center justify-between border-b border-[#eee8f1] px-4 py-3">
-                        <h5 class="text-sm font-semibold text-[#32124f]">{{ t(panel.titleKey) }}</h5>
+                    <details class="group min-w-0 overflow-hidden rounded-lg border border-[#eadfca] bg-white">
+                      <summary class="flex cursor-pointer list-none items-center gap-3 border-b border-transparent px-4 py-3 text-[#32124f] transition hover:bg-[#fffaf0] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#6d3a91] group-open:border-[#eee8f1] [&::-webkit-details-marker]:hidden">
+                        <span class="min-w-0 flex-1 text-sm font-semibold">{{ t(panel.titleKey) }}</span>
                         <span class="text-xs text-[#817589]">{{ panel.rows.length }}</span>
-                      </div>
+                        <svg class="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+                      </summary>
                       <div class="max-h-[330px] divide-y divide-[#f0ebf2] overflow-y-auto">
                         @for (row of panel.rows; track row.key) {
                           <div class="grid grid-cols-[minmax(0,1fr)_88px] items-center gap-4 px-4 py-3">
@@ -171,7 +172,7 @@ interface FinalScorePanel {
                           </div>
                         }
                       </div>
-                    </section>
+                    </details>
                   }
                 </div>
               } @else {
@@ -183,13 +184,14 @@ interface FinalScorePanel {
           @if (result.totalCount === 0) {
             <div class="grid min-h-52 place-items-center px-6 py-10 text-center text-sm text-[#817589]">{{ t('reports.leadership.noRows') }}</div>
           } @else {
-            <div class="grid gap-4 bg-[#faf8fb] p-5 xl:grid-cols-2">
+            <div class="grid items-start gap-4 bg-[#faf8fb] p-5 xl:grid-cols-2">
               @for (panel of breakdownPanels(result); track panel.key) {
-                <section class="min-w-0 overflow-hidden rounded-lg border border-[#e7e0eb] bg-white">
-                  <div class="flex items-center justify-between border-b border-[#eee8f1] px-4 py-3">
-                    <h4 class="text-sm font-semibold text-[#32124f]">{{ t(panel.titleKey) }}</h4>
+                <details class="group min-w-0 overflow-hidden rounded-lg border border-[#e7e0eb] bg-white">
+                  <summary class="flex cursor-pointer list-none items-center gap-3 border-b border-transparent px-4 py-3 text-[#32124f] transition hover:bg-[#fdfbfe] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#6d3a91] group-open:border-[#eee8f1] [&::-webkit-details-marker]:hidden">
+                    <span class="min-w-0 flex-1 text-sm font-semibold">{{ t(panel.titleKey) }}</span>
                     <span class="text-xs text-[#817589]">{{ panel.rows.length }}</span>
-                  </div>
+                    <svg class="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+                  </summary>
                   @if (panel.rows.length) {
                     <div class="max-h-[330px] divide-y divide-[#f0ebf2] overflow-y-auto">
                       @for (row of panel.rows; track row.key) {
@@ -206,14 +208,17 @@ interface FinalScorePanel {
                   } @else {
                     <p class="px-4 py-8 text-center text-sm text-[#817589]">{{ t('reports.leadership.noRows') }}</p>
                   }
-                </section>
+                </details>
               }
             </div>
 
             <section class="border-t border-[#eee8f1]">
               <div class="flex flex-wrap items-center justify-between gap-2 px-5 py-4 sm:px-6">
                 <div><h4 class="text-base font-semibold text-[#32124f]">{{ t('reports.leadership.detail') }}</h4><p class="mt-0.5 text-xs text-[#817589]">{{ formatNumber(result.totalCount) }} {{ t('reports.leadership.pageResults') }}</p></div>
-                <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ t(primaryLabelKey()) }}</span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <app-report-export-button labelKey="reports.exportDetails" [exporting]="exporting()" [disabled]="loading() || !!error() || !result.totalCount" (exportRequested)="exportExcel()" />
+                  <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ t(primaryLabelKey()) }}</span>
+                </div>
               </div>
               <div class="overflow-x-auto">
                 <table class="w-full min-w-[1160px] border-collapse text-left text-sm">
@@ -501,36 +506,43 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
       .map(key => ({ key, titleKey: `reports.leadership.${key}`, rows: scores[key] }));
   }
 
-  exportFinalScores(scores: LeadershipFinalCourseScores): void {
-    if (!scores.summary.scoreCount) return;
-    const sections = this.finalScorePanels(scores);
-    const rows = sections.flatMap(panel => panel.rows.map(row => ({ panel: panel.titleKey, row })));
-    const title = this.t('reports.leadership.finalScores.title');
-    const applied = this.appliedQuery;
-    const selectedAccounts = this.selectedSubaccountOptions(applied?.subaccountIds ?? [])
-      .map(account => account.name);
-    this.excel.download({
-      fileName: `${title}-${this.academicYear}-${this.term}`,
-      title,
-      period: this.periodLabel,
-      filters: [
-        [this.t('reports.leadership.subaccounts'), selectedAccounts.join(', ') || this.t('reports.leadership.allSubaccounts')],
-        [this.t('reports.leadership.grade'), applied?.grade || this.t('reports.leadership.allGrades')],
-        [this.t('reports.leadership.homeroom'), applied?.homeroom || this.t('reports.leadership.allHomerooms')],
-        [this.t('reports.leadership.finalScores.average'), scores.summary.averageScorePercent],
-      ],
-      columns: [
-        { header: this.t('reports.leadership.breakdown'), value: item => this.t(item.panel) },
-        { header: this.t('reports.leadership.breakdownName'), value: item =>
-          item.panel === 'reports.leadership.byMonth' && item.row.key === 'Undated'
-            ? this.t('reports.leadership.undated') : item.row.label },
-        { header: this.t('reports.leadership.students'), value: item => item.row.studentCount },
-        { header: this.t('reports.leadership.courses'), value: item => item.row.courseCount },
-        { header: this.t('reports.leadership.finalScores.scoreCount'), value: item => item.row.scoreCount },
-        { header: this.t('reports.leadership.finalScores.average'), value: item => item.row.averageScorePercent },
-      ],
-      rows,
-    });
+  async exportFinalScores(scores: LeadershipFinalCourseScores): Promise<void> {
+    if (!scores.summary.scoreCount || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const sections = this.finalScorePanels(scores);
+      const rows = sections.flatMap(panel => panel.rows.map(row => ({ panel: panel.titleKey, row })));
+      const title = this.t('reports.leadership.finalScores.title');
+      const applied = this.appliedQuery;
+      const selectedAccounts = this.selectedSubaccountOptions(applied?.subaccountIds ?? [])
+        .map(account => account.name);
+      await this.excel.download({
+        fileName: `${title}-${this.academicYear}-${this.term}`,
+        title,
+        period: this.periodLabel,
+        filters: [
+          [this.t('reports.leadership.subaccounts'), selectedAccounts.join(', ') || this.t('reports.leadership.allSubaccounts')],
+          [this.t('reports.leadership.grade'), applied?.grade || this.t('reports.leadership.allGrades')],
+          [this.t('reports.leadership.homeroom'), applied?.homeroom || this.t('reports.leadership.allHomerooms')],
+          [this.t('reports.leadership.finalScores.average'), scores.summary.averageScorePercent],
+        ],
+        columns: [
+          { header: this.t('reports.leadership.breakdown'), value: item => this.t(item.panel) },
+          { header: this.t('reports.leadership.breakdownName'), value: item =>
+            item.panel === 'reports.leadership.byMonth' && item.row.key === 'Undated'
+              ? this.t('reports.leadership.undated') : item.row.label },
+          { header: this.t('reports.leadership.students'), value: item => item.row.studentCount },
+          { header: this.t('reports.leadership.courses'), value: item => item.row.courseCount },
+          { header: this.t('reports.leadership.finalScores.scoreCount'), value: item => item.row.scoreCount },
+          { header: this.t('reports.leadership.finalScores.average'), value: item => item.row.averageScorePercent, format: 'percentage' },
+        ],
+        rows,
+      });
+    } catch {
+      this.toast.error(this.t('reports.exportError'));
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   async exportExcel(): Promise<void> {
@@ -547,7 +559,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
       const selectedAccounts = this.selectedSubaccountOptions(applied.subaccountIds)
         .map(account => account.name);
       const title = this.t(this.titleKey());
-      this.excel.download({
+      await this.excel.download({
         fileName: `${title}-${applied.academicYear}-${applied.term}-${applied.assessmentCategory}`,
         title, period: this.periodLabel,
         filters: [
@@ -557,20 +569,22 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
           [this.t('reports.leadership.assessmentCategory'), this.t('reports.leadership.category.' + applied.assessmentCategory)],
         ],
         columns: [
-          { header: 'SIS ID', value: row => row.sisUserId },
           { header: this.t('reports.leadership.students'), value: row => row.name },
+          { header: 'SIS ID', value: row => row.sisUserId, format: 'text' },
           { header: this.t('reports.leadership.grade'), value: row => row.grade },
           { header: this.t('reports.leadership.homeroom'), value: row => row.homeroom },
           { header: this.t('reports.leadership.byCourse'), value: row => row.courseName },
           { header: this.t('reports.leadership.subaccounts'), value: row => row.subaccountName },
-          { header: this.t('reports.leadership.category'), value: row => row.assessmentCategory },
+          { header: this.t('reports.leadership.category'), value: row => row.assessmentCategory
+            ? this.categoryLabel(row.assessmentCategory)
+            : this.reportKey === 'school-learning-engagement' ? this.t('reports.leadership.allCategories') : '—' },
           { header: this.t('reports.leadership.group'), value: row => row.assignmentGroupName },
           { header: this.t('reports.leadership.activities'), value: row => row.activityCount },
           { header: this.t('reports.leadership.submitted'), value: row => row.submitted },
           { header: this.t('reports.leadership.missing'), value: row => row.missing },
           { header: this.t('reports.leadership.late'), value: row => row.late },
           { header: this.t('reports.leadership.graded'), value: row => row.graded },
-          { header: this.t('reports.leadership.averageScore'), value: row => row.averageScorePercent },
+          { header: this.t('reports.leadership.averageScore'), value: row => row.averageScorePercent, format: 'percentage' },
         ],
         rows,
       });
