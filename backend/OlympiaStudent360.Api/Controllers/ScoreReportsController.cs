@@ -553,14 +553,13 @@ public sealed class ScoreReportsController(
         return scores.GroupBy(key).Select(group =>
         {
             var first = group.First();
-            // Use the application's established transcript thresholds, collapsed into the five
-            // bands requested here, after rounding the 10-point result to one decimal.
-            // A+ >=9.5, A >=8, B >=6.5, C >=5, D <5.
+            // School report bands apply to each rounded 10-point course result:
+            // A+ >=9, A >=8, B >=6.5, C >=5, D <5.
             var values = group.Select(row => Math.Round(row.ScoreValue, 1,
                     MidpointRounding.AwayFromZero))
                 .ToList();
-            var aPlus = values.Count(value => value >= 9.5);
-            var a = values.Count(value => value >= 8 && value < 9.5);
+            var aPlus = values.Count(value => value >= 9);
+            var a = values.Count(value => value >= 8 && value < 9);
             var b = values.Count(value => value >= 6.5 && value < 8);
             var c = values.Count(value => value >= 5 && value < 6.5);
             var d = values.Count(value => value < 5);

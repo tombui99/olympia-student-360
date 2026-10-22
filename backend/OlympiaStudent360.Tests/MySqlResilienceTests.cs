@@ -1,11 +1,14 @@
 using System.Data.Common;
 using System.Net;
 using System.Text;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using MySql.Data.MySqlClient;
+using OlympiaStudent360.Api.Controllers;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
@@ -34,6 +37,79 @@ public sealed class MySqlTheoryAttribute : TheoryAttribute
 
 public sealed class MySqlResilienceTests
 {
+    [MySqlTheory]
+    [InlineData("subject-letter-distribution")]
+    [InlineData("grade-letter-distribution")]
+    [InlineData("class-letter-distribution")]
+    [InlineData("class-subject-distribution")]
+    public async Task ScoreReportsApplyNewBandsToExistingSnapshotWithoutReaggregation(string viewKey)
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        await using var db = test.Open();
+        var course = new CanvasCourse
+        {
+            CanvasCourseId = 100, Name = "Math 5H1", CanvasAccountId = 20, CanvasGradeLevel = "5"
+        };
+        var section = new CanvasCourseSection { CanvasSectionId = 200, Course = course, Name = "5H1" };
+        db.CanvasAccounts.Add(new CanvasAccount { CanvasAccountId = 20, Name = "G5_Math" });
+        db.CanvasCourseSections.Add(section);
+        // Exercise both the new A/A+ cutoff and the unchanged B/C/D cutoffs,
+        // including values that round across each boundary at one decimal.
+        double[] scores = [0, 4.94, 4.95, 5, 6.44, 6.45, 6.5, 7.94,
+            7.95, 8, 8.9, 8.94, 8.95, 9, 9.4, 9.5, 10];
+        for (var index = 0; index < scores.Length; index++)
+        {
+            var student = new StudentProfile
+            {
+                SISUserId = $"band-{index}", FullName = $"Student {index}", GradeLevel = "5", Homeroom = "5H1"
+            };
+            db.CanvasLeadershipReportAggregates.Add(new CanvasLeadershipReportAggregate
+            {
+                Student = student, Course = course, AcademicYear = "2026-2027", Term = "hk1",
+                AssignmentGroupName = "GHK1", AssessmentCategory = "HS2",
+                EarnedPoints = scores[index] * 10, PossiblePoints = 100,
+                ScoreSum = scores[index] * 10, ScoreCount = 1, Graded = 1
+            });
+            db.CanvasEnrollments.Add(new CanvasEnrollment
+            {
+                CanvasEnrollmentId = index + 1, CanvasUserId = index + 1,
+                Course = course, Section = section, Student = student,
+                Type = "StudentEnrollment", EnrollmentState = "active"
+            });
+        }
+        var snapshot = new CanvasDashboardAggregateBuild
+        {
+            SchemaVersion = 5, LastCompletedSyncRunId = 24, CompletedAtUtc = new DateTime(2026, 10, 20)
+        };
+        db.CanvasDashboardAggregateBuilds.Add(snapshot);
+        await db.SaveChangesAsync();
+        var originalFacts = await db.CanvasLeadershipReportAggregates.AsNoTracking().OrderBy(row => row.Id)
+            .Select(row => new { row.Id, row.EarnedPoints, row.PossiblePoints }).ToListAsync();
+        var controller = new ScoreReportsController(db, new UserAccessService(db, new HttpContextAccessor()));
+        var response = await controller.Run(new ScoreReportQuery
+        {
+            ViewKey = viewKey, AcademicYear = "2026-2027", Term = "hk1", Grade = "5",
+            SubaccountIds = [20], AssessmentCategory = "HS2",
+            CanvasSectionName = viewKey == "class-subject-distribution" ? "5H1" : null
+        }, default);
+        var result = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+        Assert.True(result.AggregateAvailable);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal((5, 4, 3, 3, 2), (row.APlus, row.A, row.B, row.C, row.D));
+        Assert.Equal(scores.Length, row.ScoreCount);
+        Assert.Equal(29.4, row.CdPercent);
+        Assert.Equal((5, 4, 3, 3, 2), (result.Total.APlus, result.Total.A, result.Total.B, result.Total.C, result.Total.D));
+        Assert.Equal(scores.Length, result.Total.StudentCount);
+        Assert.Equal(29.4, result.Total.CdPercent);
+        Assert.Equal(originalFacts, await db.CanvasLeadershipReportAggregates.AsNoTracking().OrderBy(item => item.Id)
+            .Select(item => new { item.Id, item.EarnedPoints, item.PossiblePoints }).ToListAsync());
+        var currentSnapshot = await db.CanvasDashboardAggregateBuilds.AsNoTracking().SingleAsync();
+        Assert.Equal(snapshot.Id, currentSnapshot.Id);
+        Assert.Equal(snapshot.CompletedAtUtc, currentSnapshot.CompletedAtUtc);
+        Assert.Equal(24, currentSnapshot.LastCompletedSyncRunId);
+        Assert.Empty(await db.CanvasReportCourseChanges.ToListAsync());
+    }
+
     [MySqlTheory]
     [InlineData(false)]
     [InlineData(true)]
