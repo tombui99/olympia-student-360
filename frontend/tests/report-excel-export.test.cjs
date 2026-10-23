@@ -5,7 +5,7 @@ const { resolve } = require('node:path');
 const ts = require('typescript');
 require('@angular/compiler');
 const { createEnvironmentInjector, runInInjectionContext } = require('@angular/core');
-const { ActivatedRoute, Router } = require('@angular/router');
+const { ActivatedRoute, Router, convertToParamMap } = require('@angular/router');
 const { of } = require('rxjs');
 const { Workbook } = require('exceljs');
 
@@ -20,6 +20,8 @@ const { createReportWorkbook } = require('../src/app/reports/report-excel-workbo
 const { ReportExcelExportService, ReportExportLimitError } = require('../src/app/reports/report-excel-export.service.ts');
 const { LeadershipReportComponent } = require('../src/app/reports/leadership-report.component.ts');
 const { LeadershipReportsService } = require('../src/app/reports/leadership-reports.service.ts');
+const { ScoreReportComponent } = require('../src/app/reports/score-report.component.ts');
+const { ScoreReportsService } = require('../src/app/reports/score-reports.service.ts');
 const { LanguageService } = require('../src/app/core/language/language.service.ts');
 const { ToastService } = require('../src/app/core/toast/toast.service.ts');
 
@@ -57,8 +59,8 @@ for (const language of ['en', 'vi']) {
         { header: 'C+D share', value: row => row.share, format: 'percentage' },
         { header: 'Scored course results', value: row => row.total, format: 'integer' },
       ],
-      rows: [{ course: '2627 Tiếng Anh/English ELA 5H1', 'A+': 1, A: 11, B: 4, C: 10, D: 1, share: 40.7, total: 27 },
-        { course: '2627 Nhân văn/Humanities 9H1', 'A+': 5, A: 6, B: 2, C: 0, D: 0, share: 0, total: 13 }],
+      rows: [{ course: '2627 Tiếng Anh/English ESL 5H1', 'A+': 1, A: 11, B: 4, C: 10, D: 1, share: 40.7, total: 27 },
+        { course: '2627 Tiếng Anh/English ESL 9H1', 'A+': 5, A: 6, B: 2, C: 0, D: 0, share: 0, total: 13 }],
     };
     const original = createReportWorkbook(definition, t('reports.exportedAt'), new Date('2026-10-21T03:27:47Z'));
     const buffer = await original.xlsx.writeBuffer();
@@ -91,6 +93,95 @@ for (const language of ['en', 'vi']) {
     }
   });
 }
+
+for (const language of ['en', 'vi']) {
+  for (const selection of [['ESL'], ['ELA'], ['ESL', 'ELA'], []]) {
+    test(`${language}: score export documents ${selection.join('+') || 'default both'} and retains the applied results`, async () => {
+      let exported;
+      const injector = createEnvironmentInjector([
+        { provide: LanguageService, useValue: languageService(language) },
+        { provide: ToastService, useValue: { error: () => assert.fail('Export should succeed') } },
+        { provide: ReportExcelExportService, useValue: { download: async definition => { exported = definition; } } },
+        { provide: ScoreReportsService, useValue: {} },
+        { provide: ActivatedRoute, useValue: {} }, { provide: Router, useValue: {} },
+      ]);
+      try {
+        const component = runInInjectionContext(injector, () => new ScoreReportComponent());
+        component.reportKey = 'subject-band-by-subject';
+        component.academicYear = '2026-2027';
+        component.term = 'hk1';
+        component.periodLabel = '2026–2027 · HK1';
+        component.appliedQuery = { ...component.query, subaccountIds: [20], englishProgrammes: selection };
+        component.options.set({ subjects: [], subaccounts: [{ id: 20, name: 'English/Tiếng Anh', accountIds: [20], gradeLevels: ['5'] }] });
+        const programmes = selection.length ? selection : ['ESL', 'ELA'];
+        const rows = programmes.map(programme => ({ key: `english-${programme}`, label: `English ${programme} 5H1`,
+          aPlus: programme === 'ELA' ? 1 : 0, a: programme === 'ESL' ? 1 : 0, b: 0, c: 0, d: 0, cdPercent: 0, scoreCount: 1 }));
+        component.data.set({ aggregateAvailable: true, unit: 'score10', rows });
+        const notice = component.englishProgrammeNotice(selection);
+        assert.ok(notice.startsWith(programmes.join(' + ') + '.'));
+        assert.equal(notice.includes(dictionaries[language]['reports.score.englishBothNotice']), programmes.length === 2);
+        // Editing the form must not relabel the previously applied results or export.
+        component.selectEnglishProgrammes(programmes.length === 1 && programmes[0] === 'ELA' ? ['ESL'] : ['ELA']);
+        assert.equal(component.englishProgrammeNotice(), notice);
+        await component.exportExcel();
+        assert.deepEqual(exported.rows, rows);
+        assert.ok(exported.filters.some(([label, value]) => label === dictionaries[language]['reports.score.englishScope']
+          && value === notice));
+        const workbook = createReportWorkbook(exported, dictionaries[language]['reports.exportedAt']);
+        const sheet = workbook.worksheets[0];
+        const header = headerNumber(sheet, exported.columns[0].header);
+        assert.equal(sheet.getCell(header + 1, 1).value, rows[0].label);
+        assert.equal(sheet.getCell('A3').value, dictionaries[language]['reports.score.englishScope']);
+        assert.equal(sheet.getCell('B3').value, notice);
+        assert.equal(component.exporting(), false);
+      } finally { injector.destroy(); }
+    });
+  }
+}
+
+test('English multi-select defaults to both and persists requests, URLs, pending edits and reset', () => {
+  const requests = [];
+  const navigations = [];
+  const route = { snapshot: { queryParamMap: convertToParamMap({ scoreReport: 'subject-band-by-subject', scoreEnglish: ['ELA'] }) } };
+  const injector = createEnvironmentInjector([
+    { provide: LanguageService, useValue: languageService('en') },
+    { provide: ToastService, useValue: {} },
+    { provide: ReportExcelExportService, useValue: {} },
+    { provide: ScoreReportsService, useValue: { run: request => {
+      requests.push(request);
+      return of({ aggregateAvailable: true, rows: [], unit: 'score10' });
+    } } },
+    { provide: ActivatedRoute, useValue: route },
+    { provide: Router, useValue: { navigate: (_, options) => { navigations.push(options); return Promise.resolve(true); } } },
+  ]);
+  try {
+    const component = runInInjectionContext(injector, () => new ScoreReportComponent());
+    component.reportKey = 'subject-band-by-subject';
+    component.academicYear = '2026-2027';
+    assert.deepEqual(component.query.englishProgrammes, ['ESL', 'ELA']);
+    component.query = component.queryFromUrl();
+    assert.deepEqual(component.query.englishProgrammes, ['ELA']);
+    component.run(true);
+    assert.deepEqual(requests.at(-1).englishProgrammes, ['ELA']);
+    assert.deepEqual(navigations.at(-1).queryParams.scoreEnglish, ['ELA']);
+    component.selectEnglishProgrammes(['ESL']);
+    assert.equal(component.filtersPending(), true);
+    assert.ok(component.englishProgrammeNotice().startsWith('ELA.'));
+    component.run(true);
+    assert.deepEqual(requests.at(-1).englishProgrammes, ['ESL']);
+    component.selectEnglishProgrammes([]);
+    component.run(true);
+    assert.deepEqual(requests.at(-1).englishProgrammes, ['ESL', 'ELA']);
+    assert.equal(navigations.at(-1).queryParams.scoreEnglish, null);
+    component.selectEnglishProgrammes(['ELA']);
+    component.resetFilters();
+    assert.deepEqual(component.query.englishProgrammes, ['ESL', 'ELA']);
+    assert.deepEqual(requests.at(-1).englishProgrammes, ['ESL', 'ELA']);
+    route.snapshot.queryParamMap = convertToParamMap({ scoreReport: 'subject-band-by-subject', scoreEnglish: ['invalid'] });
+    assert.deepEqual(component.queryFromUrl().englishProgrammes, ['ESL', 'ELA']);
+    component.ngOnDestroy();
+  } finally { injector.destroy(); }
+});
 
 test('XLSX preserves Vietnamese, leading-zero IDs, literal formula-like text, blanks and numeric zero', async () => {
   const workbook = createReportWorkbook({

@@ -9,7 +9,7 @@ import { ReportExportButtonComponent } from './report-export-button.component';
 import { SearchableMultiSelectComponent } from './searchable-multi-select.component';
 import { AssessmentCategory } from './leadership-reports.service';
 import {
-  ScoreReportOptions, ScoreReportQuery, ScoreReportResult, ScoreReportRow,
+  EnglishProgramme, ScoreReportOptions, ScoreReportQuery, ScoreReportResult, ScoreReportRow,
   ScoreReportsService, ScoreReportViewKey,
 } from './score-reports.service';
 
@@ -136,6 +136,13 @@ interface MatrixSubject {
               </select>
             </label>
           }
+          <app-searchable-multi-select
+            [label]="t('reports.score.englishProgrammes')"
+            [searchPlaceholder]="t('reports.score.searchEnglishProgrammes')"
+            [emptySelectionLabel]="t('reports.score.allEnglishProgrammes')"
+            [hint]="t('reports.score.englishProgrammesHint')"
+            [options]="englishProgrammeChoices" [selected]="query.englishProgrammes"
+            (selectedChange)="selectEnglishProgrammes($event)" />
         </div>
         @if (!requiredFiltersSelected()) {
           <p class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ missingSelectionText() }}</p>
@@ -272,6 +279,20 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   readonly optionsError = signal(false);
   readonly error = signal<string | null>(null);
   readonly rankingLimitChoices = [10, 25, 50, 100] as const;
+  readonly englishProgrammeChoices = [{ value: 'ESL', label: 'ESL' }, { value: 'ELA', label: 'ELA' }];
+  selectEnglishProgrammes(values: Array<string | number>): void {
+    this.query.englishProgrammes = this.englishProgrammeChoices
+      .filter(option => values.includes(option.value)).map(option => option.value as EnglishProgramme);
+  }
+  private normalizedEnglishProgrammes(values?: readonly string[]): EnglishProgramme[] {
+    return !values?.length ? ['ESL', 'ELA'] : this.englishProgrammeChoices
+      .filter(option => values.includes(option.value)).map(option => option.value as EnglishProgramme);
+  }
+  englishProgrammeNotice(values = this.appliedQuery?.englishProgrammes ?? this.query.englishProgrammes): string {
+    const programmes = this.normalizedEnglishProgrammes(values);
+    return `${programmes.join(' + ')}. ${this.t('reports.score.englishProgrammeScope')}`
+      + (programmes.length === 2 ? ` ${this.t('reports.score.englishBothNotice')}` : '');
+  }
   categoryChoices(): AssessmentCategory[] {
     return (this.options()?.assessmentCategories ?? [])
       .filter((category): category is AssessmentCategory =>
@@ -510,6 +531,7 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
     try {
       const title = this.t(this.reportBase() + '.title');
       const filters: Array<[string, string]> = [
+        [this.t('reports.score.englishScope'), this.englishProgrammeNotice(applied.englishProgrammes)],
         [this.t('reports.score.schoolLevel'), applied.schoolLevel ? this.schoolLevelLabel(applied.schoolLevel) : this.t('reports.score.allSchoolLevels')],
         [this.t('reports.leadership.grade'), applied.grade || this.t('reports.leadership.allGrades')],
         [this.t('reports.leadership.homeroom'), applied.homeroom || this.t('reports.leadership.allHomerooms')],
@@ -566,12 +588,13 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   private defaultQuery(): ScoreReportQuery {
     return { viewKey: this.viewKey(), academicYear: this.academicYear, term: this.term,
       grade: '', homeroom: '', schoolLevel: '', canvasSectionId: null, canvasSectionName: '', subjectCode: '', canvasCourseId: null,
-      subaccountIds: [], assessmentCategory: 'all', rankingLimit: 10 };
+      subaccountIds: [], assessmentCategory: 'all', englishProgrammes: ['ESL', 'ELA'], rankingLimit: 10 };
   }
 
   private requestFromQuery(): ScoreReportQuery {
     const request = { ...this.query, viewKey: this.viewKey(), academicYear: this.academicYear, term: this.term,
       subaccountIds: [...new Set(this.query.subaccountIds)].sort((a, b) => a - b),
+      englishProgrammes: this.normalizedEnglishProgrammes(this.query.englishProgrammes),
       assessmentCategory: this.isCourseScore() ? 'all' : this.query.assessmentCategory };
     if (!this.showSubjectFilter()) {
       request.subjectCode = '';
@@ -588,6 +611,8 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
     const query = this.defaultQuery();
     const params = this.route.snapshot.queryParamMap;
     if (params.get('scoreReport') !== this.reportKey) return query;
+    query.englishProgrammes = this.normalizedEnglishProgrammes(params.getAll('scoreEnglish')
+      .filter(value => value === 'ESL' || value === 'ELA'));
     query.grade = this.shortValue(params.get('scoreGrade'), 50);
     query.homeroom = this.shortValue(params.get('scoreHomeroom'), 100);
     const schoolLevel = params.get('scoreLevel');
@@ -676,6 +701,7 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
       scoreSectionName: request.canvasSectionName || null,
       scoreAccount: request.subaccountIds.length ? request.subaccountIds : null,
       scoreCategory: !this.isCourseScore() && request.assessmentCategory !== 'all' ? request.assessmentCategory : null,
+      scoreEnglish: request.englishProgrammes.length === 2 ? null : request.englishProgrammes,
       scoreLimit: this.isRanking() && request.rankingLimit !== 10 ? request.rankingLimit : null,
       scoreBandSource: null,
     }, queryParamsHandling: 'merge', replaceUrl: true });

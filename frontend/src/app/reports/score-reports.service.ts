@@ -16,6 +16,8 @@ export type ScoreReportViewKey =
   | 'top-students'
   | 'bottom-students';
 
+export type EnglishProgramme = 'ESL' | 'ELA';
+
 export interface ScoreReportOptions {
   academicYears: string[];
   terms: string[];
@@ -42,6 +44,7 @@ export interface ScoreReportQuery {
   canvasCourseId: number | null;
   subaccountIds: number[];
   assessmentCategory: AssessmentCategory;
+  englishProgrammes: EnglishProgramme[];
   rankingLimit: number;
 }
 

@@ -31,8 +31,11 @@ public sealed class ScoreReportsController(
     {
         if (!access.Current.CanAccessAcademic) return Forbid();
         var visible = VisibleLeadershipFacts();
-        var courseIds = (await visible.Select(item => item.CanvasCourseId).Distinct()
-            .ToListAsync(cancellationToken)).ToHashSet();
+        // Options include both programmes so ELA remains available after selecting ESL alone.
+        var courseRows = await LoadScoreCourses(visible.Select(item => item.CanvasCourseId),
+            CanvasScoreCoursePolicy.Programmes, cancellationToken);
+        var courseIds = courseRows.Select(course => course.CanvasCourseId).ToHashSet();
+        visible = visible.WhereMatchesAnyValue(item => item.CanvasCourseId, courseIds);
         var periods = await visible.Select(item => new { item.AcademicYear, item.Term })
             .Distinct().ToListAsync(cancellationToken);
         var students = await visible.Select(item => new
@@ -43,12 +46,6 @@ public sealed class ScoreReportsController(
         var categories = CanvasReportFilters.AvailableCategories(await visible
             .Where(item => !item.IsFinalCourseScore && item.AssessmentCategory != null)
             .Select(item => item.AssessmentCategory).Distinct().ToListAsync(cancellationToken));
-        var courseRows = await db.CanvasCourses.AsNoTracking()
-            .Where(course => visible.Any(fact => fact.CanvasCourseId == course.CanvasCourseId))
-            .Select(course => new
-            { course.CanvasCourseId, course.SisCourseId, course.CourseCode, course.Name,
-                course.CanvasAccountId })
-            .ToListAsync(cancellationToken);
         var subjectOptions = courseRows
             .Select(course => CanvasCourseSubject(course.CanvasCourseId, course.SisCourseId,
                 course.CourseCode, course.Name))
@@ -151,7 +148,8 @@ public sealed class ScoreReportsController(
             string.IsNullOrWhiteSpace(request.CanvasSectionName) && request.CanvasSectionId is null)
             return Ok(EmptyResult(request.ViewKey, source, unit, "select_section", true));
 
-        var courseMap = await LoadCourseMap(request.AcademicYear!, isCurrent, cancellationToken);
+        var courseMap = await LoadCourseMap(request.AcademicYear!, isCurrent,
+            request.EnglishProgrammes, cancellationToken);
         HashSet<long>? subjectCourseIds = courseMap.Keys.ToHashSet();
         if (!string.IsNullOrWhiteSpace(request.SubjectCode))
             subjectCourseIds = courseMap.Values
@@ -223,7 +221,8 @@ public sealed class ScoreReportsController(
     }
 
     private async Task<Dictionary<long, CourseInfo>> LoadCourseMap(
-        string academicYear, bool isCurrent, CancellationToken cancellationToken)
+        string academicYear, bool isCurrent, IReadOnlyCollection<string> englishProgrammes,
+        CancellationToken cancellationToken)
     {
         var year = DashboardPeriodNormalizer.AcademicYear(academicYear);
         var visibleCourseIds = isCurrent
@@ -232,13 +231,30 @@ public sealed class ScoreReportsController(
                 .Select(item => item.CanvasCourseId)
             : VisibleLeadershipFacts().Where(item => item.AcademicYear == year &&
                 !item.IsFinalCourseScore).Select(item => item.CanvasCourseId);
-        var courses = await db.CanvasCourses.AsNoTracking()
-            .Where(item => visibleCourseIds.Any(id => id == item.CanvasCourseId))
-            .Select(item => new { item.CanvasCourseId, item.SisCourseId, item.CourseCode, item.Name })
-            .ToListAsync(cancellationToken);
+        var courses = await LoadScoreCourses(visibleCourseIds, englishProgrammes, cancellationToken);
         return courses.ToDictionary(item => item.CanvasCourseId, item => new CourseInfo(
             item.CanvasCourseId, CanvasCourseSubject(item.CanvasCourseId, item.SisCourseId,
                 item.CourseCode, item.Name)));
+    }
+
+    private async Task<List<ScoreCourse>> LoadScoreCourses(
+        IQueryable<long> visibleCourseIds, IReadOnlyCollection<string> englishProgrammes,
+        CancellationToken cancellationToken)
+    {
+        var courses = await db.CanvasCourses.AsNoTracking()
+            .Where(course => visibleCourseIds.Any(id => id == course.CanvasCourseId))
+            .Select(course => new ScoreCourse(course.CanvasCourseId, course.SisCourseId,
+                course.CourseCode, course.Name, course.CanvasAccountId))
+            .ToListAsync(cancellationToken);
+        var accounts = await db.CanvasAccounts.AsNoTracking()
+            .Select(account => new { account.CanvasAccountId, account.ParentAccountId, account.Name })
+            .ToListAsync(cancellationToken);
+        var englishAccounts = CanvasScoreCoursePolicy.EnglishAccountIds(accounts.Select(account =>
+            (account.CanvasAccountId, account.ParentAccountId, account.Name)));
+        // Course IDs survive in the stored report facts. Apply the policy when reading
+        // them; no ETL rebuild or deletion of ELA history is needed.
+        return courses.Where(course => CanvasScoreCoursePolicy.Include(course.Name, course.CourseCode,
+            course.CanvasAccountId is { } id && englishAccounts.Contains(id), englishProgrammes)).ToList();
     }
 
     private static ScoreSubject CanvasCourseSubject(long canvasCourseId, string? sisCourseId,
@@ -634,6 +650,9 @@ public sealed class ScoreReportsController(
             return "Select a valid reporting term.";
         if (CanvasReportFilters.CanonicalCategory(request.AssessmentCategory) is null)
             return "Unknown assessment category.";
+        if (request.EnglishProgrammes is null || request.EnglishProgrammes.Count > 2 ||
+            request.EnglishProgrammes.Any(value => !CanvasScoreCoursePolicy.Programmes.Contains(value)))
+            return "Select ESL, ELA, or both English programmes.";
         if (!string.IsNullOrWhiteSpace(request.SchoolLevel) && request.SchoolLevel != "all" &&
             TeacherSchoolLevels.Canonical(request.SchoolLevel) is null)
             return "Unknown school level.";
@@ -663,6 +682,8 @@ public sealed class ScoreReportsController(
     }
 
     private sealed record ScoreSubject(string Code, string Name);
+    private sealed record ScoreCourse(long CanvasCourseId, string? SisCourseId,
+        string? CourseCode, string? Name, long? CanvasAccountId);
     private sealed record CourseInfo(long Id, ScoreSubject Subject);
     private sealed record ScoreObservation(int StudentId, string? SisUserId, string Name,
         string? Grade, string? Homeroom, long CourseId, double ScoreSum, int ScoreCount);
@@ -692,6 +713,7 @@ public sealed record ScoreReportQuery
     public long? CanvasCourseId { get; init; }
     public List<long> SubaccountIds { get; init; } = [];
     public string AssessmentCategory { get; init; } = "all";
+    public List<string> EnglishProgrammes { get; init; } = ["ESL", "ELA"];
     public int RankingLimit { get; init; } = 10;
 }
 

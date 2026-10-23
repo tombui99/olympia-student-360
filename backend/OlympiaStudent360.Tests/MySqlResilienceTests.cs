@@ -38,6 +38,139 @@ public sealed class MySqlTheoryAttribute : TheoryAttribute
 public sealed class MySqlResilienceTests
 {
     [MySqlTheory]
+    [InlineData("subject-grade-average")]
+    [InlineData("subject-letter-distribution")]
+    [InlineData("grade-letter-distribution")]
+    [InlineData("class-letter-distribution")]
+    [InlineData("class-subject-distribution")]
+    [InlineData("assessment-average")]
+    [InlineData("current-course-score")]
+    [InlineData("score-histogram")]
+    [InlineData("top-students")]
+    [InlineData("bottom-students")]
+    public async Task EnglishScoreReportsFilterEslElaOrBothWithoutChangingStoredFacts(string viewKey)
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        await using var db = test.Open();
+        db.CanvasAccounts.AddRange(
+            new CanvasAccount { CanvasAccountId = 20, Name = "G5_English/Tiếng Anh" },
+            new CanvasAccount { CanvasAccountId = 21, ParentAccountId = 20, Name = "Other courses" },
+            new CanvasAccount { CanvasAccountId = 30, Name = "G5_Math/Toán" });
+        var student = new StudentProfile { SISUserId = "paired", FullName = "Paired student", GradeLevel = "5", Homeroom = "5H1" };
+        (long Id, string Name, string Code, long AccountId, double Score)[] courses =
+        [
+            (100, "2627 Tiếng Anh/English ESL 5H1", "2627-EnglishESL5H1", 20, 80),
+            (101, "2627 Tiếng Anh/English ELA 5H1", "2627-EnglishELA5H1", 20, 100),
+            (102, "2627 Tiếng Anh/English OIDP1", "2627-EnglishOIDP1", 20, 40),
+            (103, "2627 Nhân văn/Humanities 5H1", "2627-Humanities5H1", 21, 60),
+            (200, "2627 Toán/Math 5H1", "2627-Math5H1", 30, 90)
+        ];
+        foreach (var item in courses)
+        {
+            var course = new CanvasCourse
+            {
+                CanvasCourseId = item.Id, Name = item.Name, CourseCode = item.Code,
+                CanvasAccountId = item.AccountId, CanvasGradeLevel = "5"
+            };
+            db.CanvasLeadershipReportAggregates.Add(new CanvasLeadershipReportAggregate
+            {
+                Student = student, Course = course, AcademicYear = "2026-2027", Term = "hk1",
+                AssignmentGroupName = "GHK1", AssessmentCategory = "HS2",
+                EarnedPoints = item.Score, PossiblePoints = 100, ScoreSum = item.Score, ScoreCount = 1, Graded = 1
+            });
+            db.CanvasDashboardMetricAggregates.Add(new CanvasDashboardMetricAggregate
+            {
+                Student = student, Course = course, AcademicYear = "2026-2027", Term = "hk1",
+                MetricKey = CanvasDashboardAggregateService.CurrentScoreAverage,
+                ValueSum = item.Score, SampleCount = 1
+            });
+            db.CanvasEnrollments.Add(new CanvasEnrollment
+            {
+                CanvasEnrollmentId = item.Id, CanvasUserId = 1, Course = course, Student = student,
+                Section = new CanvasCourseSection { CanvasSectionId = item.Id, Course = course, Name = "5H1" },
+                Type = "StudentEnrollment", EnrollmentState = "active"
+            });
+        }
+        db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
+        {
+            SchemaVersion = 5, LastCompletedSyncRunId = 24, CompletedAtUtc = new DateTime(2026, 10, 20)
+        });
+        await db.SaveChangesAsync();
+        var originalIds = await db.CanvasLeadershipReportAggregates.AsNoTracking().OrderBy(row => row.Id).Select(row => row.Id).ToListAsync();
+        var controller = new ScoreReportsController(db, new UserAccessService(db, new HttpContextAccessor()));
+        var request = new ScoreReportQuery
+        {
+            ViewKey = viewKey, AcademicYear = "2026-2027", Term = "hk1", Grade = "5",
+            SubaccountIds = [20], AssessmentCategory = "HS2",
+            EnglishProgrammes = ["ESL"],
+            CanvasSectionName = viewKey == "class-subject-distribution" ? "5H1" : null
+        };
+        var response = await controller.Run(request, default);
+        var result = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+        Assert.Equal(1, result.Total.ScoreCount);
+        Assert.Equal(1, result.Total.StudentCount);
+        Assert.Equal(viewKey == "current-course-score" ? 80 : 8, result.Total.AverageScore);
+        if (viewKey.Contains("distribution"))
+            Assert.Equal((0, 1, 0, 0, 0), (result.Total.APlus, result.Total.A, result.Total.B, result.Total.C, result.Total.D));
+
+        // Every report uses the same selected programme set. Clearing the multi-select
+        // means both; one learner's two English courses remain two course results.
+        foreach (var selection in new List<string>[] { ["ELA"], ["ESL", "ELA"], [] })
+        {
+            var selectedResponse = await controller.Run(request with { EnglishProgrammes = selection }, default);
+            var selected = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(selectedResponse.Result).Value);
+            var onlyEla = selection.Count == 1;
+            // Ranking rows count students after averaging their selected course results.
+            var ranking = viewKey is "top-students" or "bottom-students";
+            Assert.Equal(onlyEla || ranking ? 1 : 2, selected.Total.ScoreCount);
+            Assert.Equal(1, selected.Total.StudentCount);
+            Assert.Equal(viewKey == "current-course-score" ? (onlyEla ? 100 : 90) : (onlyEla ? 10 : 9), selected.Total.AverageScore);
+            if (viewKey.Contains("distribution"))
+                Assert.Equal((1, onlyEla ? 0 : 1, 0, 0, 0),
+                    (selected.Total.APlus, selected.Total.A, selected.Total.B, selected.Total.C, selected.Total.D));
+        }
+
+        // Other subjects still contribute to school-wide views; an explicit stale ELA
+        // course selection cannot bypass the policy, including in current-score reports.
+        if (viewKey is "subject-grade-average" or "current-course-score" or "assessment-average")
+        {
+            var schoolResponse = await controller.Run(request with { SubaccountIds = [] }, default);
+            var school = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(schoolResponse.Result).Value);
+            Assert.Equal(2, school.Total.ScoreCount);
+            Assert.Equal(viewKey == "current-course-score" ? 85 : 8.5, school.Total.AverageScore);
+            Assert.Contains(school.Rows, row => row.Label.Contains("Math"));
+            var elaResponse = await controller.Run(request with { CanvasCourseId = 101 }, default);
+            var ela = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(elaResponse.Result).Value);
+            Assert.Empty(ela.Rows);
+            var includedElaResponse = await controller.Run(request with { CanvasCourseId = 101, EnglishProgrammes = ["ELA"] }, default);
+            var includedEla = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(includedElaResponse.Result).Value);
+            Assert.Equal(1, includedEla.Total.ScoreCount);
+            var mathResponse = await controller.Run(request with { SubaccountIds = [30], EnglishProgrammes = ["ELA"] }, default);
+            var math = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(mathResponse.Result).Value);
+            Assert.Equal(1, math.Total.ScoreCount);
+            Assert.Equal(viewKey == "current-course-score" ? 90 : 9, math.Total.AverageScore);
+        }
+        if (viewKey == "assessment-average")
+        {
+            var defaultsResponse = await controller.Run(new ScoreReportQuery
+            {
+                ViewKey = viewKey, AcademicYear = "2026-2027", Term = "hk1", SubaccountIds = [20]
+            }, default);
+            var defaults = Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(defaultsResponse.Result).Value);
+            Assert.Equal(2, defaults.Total.ScoreCount);
+            Assert.IsType<BadRequestObjectResult>((await controller.Run(request with { EnglishProgrammes = ["unknown"] }, default)).Result);
+            Assert.IsType<BadRequestObjectResult>((await controller.Run(request with { EnglishProgrammes = null! }, default)).Result);
+        }
+        var optionsResponse = await controller.Options(default);
+        var options = Assert.IsType<ScoreReportOptions>(Assert.IsType<OkObjectResult>(optionsResponse.Result).Value);
+        Assert.Equal(new[] { "canvas-course-100", "canvas-course-101", "canvas-course-200" }, options.Subjects.Select(option => option.Code).Order());
+        Assert.Equal(originalIds, await db.CanvasLeadershipReportAggregates.AsNoTracking().OrderBy(row => row.Id).Select(row => row.Id).ToListAsync());
+        Assert.Equal(5, await db.CanvasDashboardMetricAggregates.CountAsync());
+        Assert.Equal(24, (await db.CanvasDashboardAggregateBuilds.AsNoTracking().SingleAsync()).LastCompletedSyncRunId);
+        Assert.Empty(await db.CanvasReportCourseChanges.ToListAsync());
+    }
+
+    [MySqlTheory]
     [InlineData("subject-letter-distribution")]
     [InlineData("grade-letter-distribution")]
     [InlineData("class-letter-distribution")]
