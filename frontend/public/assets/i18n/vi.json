@@ -1621,6 +1621,8 @@
   "reports.activityPeriod.week": "Tuần (Thứ Hai–Chủ Nhật)",
   "reports.activityPeriod.allWeeks": "Tất cả tuần",
   "reports.activityPeriod.chooseMonthFirst": "Chọn tháng trước",
+  "reports.activityPeriod.recordsHint": "Chọn tháng trước để chọn các tuần từ Thứ Hai đến Chủ Nhật trong tháng đó. Đổi hoặc bỏ chọn tháng sẽ xóa tuần đã chọn. Báo cáo lọc theo ngày ghi nhận trong năm học, học kỳ, tháng và tuần đã chọn.",
+  "reports.activityPeriod.supportSignalsHint": "Ngày đã chọn giới hạn danh sách theo học sinh có ghi nhận tín hiệu học tập hoặc hỗ trợ trong giai đoạn đó. Mức nguy cơ, số lượng ghi nhận và điểm khóa học vẫn theo dữ liệu tổng hợp học kỳ hiện có.",
   "reports.activityPeriod.finalScoreHint": "Điểm tổng kết khóa học Canvas tính theo học kỳ hoặc năm học đã chọn. Bộ lọc tuần và tháng áp dụng cho hoạt động và kết quả bài tập.",
   "reports.activityPeriod.currentScoreOnly": "Điểm hiện tại của khóa học Canvas là điểm lũy kế theo học kỳ hoặc năm học đã chọn. Để so sánh theo tuần và tháng, vui lòng sử dụng các báo cáo điểm bài tập.",
   "reports.activityPeriod.hint": "Chọn tháng trước để chọn các tuần từ Thứ Hai đến Chủ Nhật trong tháng đó. Đổi hoặc bỏ chọn tháng sẽ xóa tuần đã chọn. Chỉ tính các ngày thuộc cả tháng và tuần. Hoạt động tính theo ngày nộp, bài thiếu theo hạn nộp, điểm theo ngày chấm; tỷ lệ chấm bài tính theo ngày nộp.",

@@ -16,10 +16,13 @@ public sealed class SupplementalReportsController(AppDbContext db, UserAccessSer
     [HttpGet("summary")]
     public async Task<IActionResult> Summary(
         [FromQuery] string moduleId, [FromQuery] string field,
-        [FromQuery] string? academicYear = null, [FromQuery(Name = "term")] string? reportingTerm = null)
+        [FromQuery] string? academicYear = null, [FromQuery(Name = "term")] string? reportingTerm = null,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
         if (!access.Current.CanAccessModule(moduleId)) return Forbid();
         if (!ValidField(moduleId, field)) return BadRequest();
+        var dateError = CanvasActivityPeriodFilter.Validate(academicYear, month, weekStart);
+        if (dateError is not null) return BadRequest(dateError);
         if (!await db.ImportedReportBuilds.AsNoTracking().AnyAsync())
             return StatusCode(503, new { Message = "Report aggregates are being prepared." });
 
@@ -62,6 +65,7 @@ public sealed class SupplementalReportsController(AppDbContext db, UserAccessSer
             }
         }
 
+        query = ReportDateFilter.Apply(query, item => item.EventDay, ReportDateFilter.Range(academicYear, month, weekStart));
         var totals = await query.GroupBy(_ => 1).Select(group => new
         {
             Records = group.Sum(item => item.RecordCount),

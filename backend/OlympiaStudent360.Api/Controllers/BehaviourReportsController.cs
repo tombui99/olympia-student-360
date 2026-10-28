@@ -37,11 +37,14 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
     [HttpGet("summary")]
     public async Task<ActionResult<BehaviourReportSummaryDto>> Summary(
         [FromQuery] string? academicYear = null,
-        [FromQuery(Name = "term")] string? reportingTerm = null)
+        [FromQuery(Name = "term")] string? reportingTerm = null,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
+        var dateError = CanvasActivityPeriodFilter.Validate(academicYear, month, weekStart);
+        if (dateError is not null) return BadRequest(dateError);
         if (!await context.ImportedReportBuilds.AsNoTracking().AnyAsync())
             return StatusCode(503, new { Message = "Report aggregates are being prepared." });
-        var source = await BehaviourAggregates(academicYear, reportingTerm);
+        var source = await BehaviourAggregates(academicYear, reportingTerm, ReportDateFilter.Range(academicYear, month, weekStart));
         var total = source.Sum(item => item.RecordCount);
         var studentCount = source.Select(item => item.StudentKey).Distinct().Count();
 
@@ -104,7 +107,7 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
         });
     }
 
-    private async Task<List<ImportedReportAggregate>> BehaviourAggregates(string? academicYear, string? reportingTerm)
+    private async Task<List<ImportedReportAggregate>> BehaviourAggregates(string? academicYear, string? reportingTerm, ReportDateRange? activity)
     {
         var period = await ResolvePeriod(academicYear, reportingTerm);
         var query = userAccess.ApplyStudentScope(
@@ -118,6 +121,7 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
                 query = query.WhereMatchesAny(item => item.Term, period.TermAliases,
                     item => item.Term == null && item.EventDay >= period.Start && item.EventDay < period.End);
         }
+        query = ReportDateFilter.Apply(query, item => item.EventDay, activity);
         // Only bring back the narrow measures required by this summary. The fact
         // table also carries long health text fields that must not cross the wire.
         return await query.Select(item => new ImportedReportAggregate
@@ -146,8 +150,11 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
         [FromQuery] string? studentKey = null,
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
+        var dateError = CanvasActivityPeriodFilter.Validate(academicYear, month, weekStart);
+        if (dateError is not null) return BadRequest(dateError);
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
         if (dimension is not ("all" or "category" or "type" or "grade" or "student")) return BadRequest();
@@ -163,6 +170,7 @@ public sealed class BehaviourReportsController(AppDbContext context, UserAccessS
                 query = query.WhereMatchesAny(item => item.Term, period.TermAliases,
                     item => item.Term == null && item.IncidentDate >= period.Start && item.IncidentDate < period.End);
         }
+        query = ReportDateFilter.Apply(query, item => item.IncidentDate, ReportDateFilter.Range(academicYear, month, weekStart));
         var filterValue = Clean(value);
         if (dimension == "type" && filterValue != null)
         {

@@ -36,7 +36,7 @@ import { ErpMealReportComponent } from './erp-meal-report.component';
 import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
 import { ReportExportButtonComponent } from './report-export-button.component';
 import { ActivityPeriodFilterComponent } from './activity-period-filter.component';
-import { activityWeeks, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
+import { activityWeeks, activityPeriodExportFilters, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
 
 type StaticReportId =
   | 'learning-diligence'
@@ -304,7 +304,10 @@ interface ClassDrilldownPage {
               </div>
             </div>
             @if (supportsActivityPeriod()) {
-              <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.activityPeriod.hint') }}</p>
+              <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t(activityPeriodHintKey()) }}</p>
+            }
+            @if (activeReport() === 'support-students') {
+              <p class="mt-2 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.activityPeriod.supportSignalsHint') }}</p>
             }
             @if (activeReport() === 'support-classes') {
               <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.activityPeriod.semesterOnly') }}</p>
@@ -362,21 +365,21 @@ interface ClassDrilldownPage {
                 <ng-container [ngTemplateOutlet]="supportStudents"></ng-container>
               }
               @case ('behaviour-analysis') {
-                <app-behaviour-report [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
+                <app-behaviour-report [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" />
               }
               @case ('health-diagnoses') {
-                <app-health-report report="diagnoses" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
+                <app-health-report report="diagnoses" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" />
               }
               @case ('health-frequent-students') {
-                <app-health-report report="frequent-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
+                <app-health-report report="frequent-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" />
               }
               @case ('health-student-visits') {
-                <app-health-report report="student-visits" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" />
+                <app-health-report report="student-visits" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" />
               }
-              @case ('meal-ordered-no-ticket') { <app-erp-meal-report report="ordered-no-ticket" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('meal-ordered-not-eaten') { <app-erp-meal-report report="ordered-not-eaten" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('meal-no-order') { <app-erp-meal-report report="no-order" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('meal-coffee-frequency') { <app-erp-meal-report report="coffee-frequency" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('meal-ordered-no-ticket') { <app-erp-meal-report report="ordered-no-ticket" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('meal-ordered-not-eaten') { <app-erp-meal-report report="ordered-not-eaten" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('meal-no-order') { <app-erp-meal-report report="no-order" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('meal-coffee-frequency') { <app-erp-meal-report report="coffee-frequency" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
               @default {
                 @if (activeSupplementalReport(); as report) {
                   <app-supplemental-report
@@ -384,6 +387,7 @@ interface ClassDrilldownPage {
                     [academicYear]="selectedYear"
                     [term]="selectedTerm"
                     [periodLabel]="periodLabel()"
+                    [activityPeriod]="activityPeriod"
                   />
                 }
               }
@@ -1383,6 +1387,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       '',
       this.selectedYear,
       this.selectedTerm,
+      '', false, this.activityPeriod,
     ).subscribe({
       next: (response) => {
         if (requestId !== this.studentRequestId) return;
@@ -1453,9 +1458,13 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
 
   supportsActivityPeriod(): boolean {
     const report = this.activeReport();
-    return report !== 'support-classes' && report !== 'school-current-course-score'
-      && this.reportGroups.some(group => ['learning', 'school-leadership', 'subject-leadership'].includes(group.id)
-        && group.items.some(item => item.id === report));
+    return report !== 'support-classes' && report !== 'school-current-course-score';
+  }
+
+  activityPeriodHintKey(): string {
+    return this.reportGroups.some(group => ['learning', 'school-leadership', 'subject-leadership'].includes(group.id)
+      && group.items.some(item => item.id === this.activeReport()))
+      ? 'reports.activityPeriod.hint' : 'reports.activityPeriod.recordsHint';
   }
 
   diligenceWeekLabel(): string {
@@ -1515,6 +1524,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         '',
         this.selectedYear,
         this.selectedTerm,
+        '', false, this.activityPeriod,
       ) : of(null as AtRiskStudentsPage | null),
     }).subscribe({
       next: ({ metrics, overview, students }) => {
@@ -1815,18 +1825,25 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       }
 
       if (report === 'support-students') {
+        const year = this.selectedYear;
+        const term = this.selectedTerm;
+        const activityPeriod = { ...this.activityPeriod };
+        const search = this.studentSearch();
+        const periodLabel = this.periodLabel();
         const rows = await this.excel.collectPages(async (page, pageSize) => {
           const response = await firstValueFrom(this.studentsService.atRisk(
-            page, pageSize, this.studentSearch(), '', this.selectedYear, this.selectedTerm, '', true,
+            page, pageSize, search, '', year, term, '', true, activityPeriod,
           ));
           return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
         });
         const title = this.languageService.t('reports.students.title');
         await this.excel.download({
-          fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
+          fileName: `${title}-${year}-${term}`,
           title,
-          period: this.periodLabel(),
-          filters: [[this.languageService.t('reports.search'), this.studentSearch()]],
+          period: periodLabel,
+          filters: [...activityPeriodExportFilters(year, activityPeriod, key => this.languageService.t(key)),
+            [this.languageService.t('reports.search'), search],
+            [this.languageService.t('reports.table.signals'), this.languageService.t('reports.activityPeriod.supportSignalsHint')]],
           columns: [
             { header: this.languageService.t('reports.table.student'), value: row => row.fullName },
             { header: 'SIS ID', value: row => row.sisStudentCode || row.sisUserId },

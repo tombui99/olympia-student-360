@@ -42,7 +42,8 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] bool export = false)
+        [FromQuery] bool export = false,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
         if (!KnownReport(report) || !KnownGrouping(groupBy)) return BadRequest();
         page = Math.Max(1, page);
@@ -51,6 +52,13 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
             ? DashboardPeriodNormalizer.AcademicYear(DateTime.UtcNow)
             : academicYear;
         var (start, end) = DashboardPeriodNormalizer.PeriodRange(year, reportingTerm);
+        var dateError = CanvasActivityPeriodFilter.Validate(year, month, weekStart);
+        if (dateError is not null) return BadRequest(dateError);
+        if (ReportDateFilter.Range(year, month, weekStart) is { } activity)
+        {
+            start = start > activity.Start ? start : activity.Start;
+            end = end < activity.End ? end : activity.End;
+        }
         if (!await context.ImportedReportBuilds.AsNoTracking().AnyAsync())
             return StatusCode(503, new { Message = "Report aggregates are being prepared." });
         var searchTerm = Clean(search);
@@ -274,13 +282,28 @@ public sealed class HealthReportsController(AppDbContext context, UserAccessServ
         [FromQuery] string? studentName = null,
         [FromQuery] string? className = null,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? academicYear = null, [FromQuery(Name = "term")] string? reportingTerm = null,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
+        var dateError = CanvasActivityPeriodFilter.Validate(academicYear, month, weekStart);
+        if (dateError is not null) return BadRequest(dateError);
         if (periodEnd <= periodStart || periodEnd - periodStart > TimeSpan.FromDays(370)) return BadRequest();
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
         var start = ToUtc(periodStart);
         var end = ToUtc(periodEnd);
+        if (!string.IsNullOrWhiteSpace(academicYear))
+        {
+            var (scopeStart, scopeEnd) = DashboardPeriodNormalizer.PeriodRange(academicYear, reportingTerm);
+            start = start > scopeStart ? start : scopeStart;
+            end = end < scopeEnd ? end : scopeEnd;
+        }
+        if (ReportDateFilter.Range(academicYear, month, weekStart) is { } activity)
+        {
+            start = start > activity.Start ? start : activity.Start;
+            end = end < activity.End ? end : activity.End;
+        }
         var query = userAccess.ApplyStudentOrHomeroomScope(
             context.StudentHealthVisits.AsNoTracking()
                 .Where(item => item.ExamTime >= start && item.ExamTime < end),

@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
+import { ActivityPeriodSelection, appendActivityPeriod } from '../reports/activity-period';
 
 export type RiskLevel = 'None' | 'Low' | 'Medium' | 'High';
 
@@ -336,6 +337,7 @@ export class StudentsService {
     term = '',
     homeroom = '',
     exportMode = false,
+    activity?: ActivityPeriodSelection | null,
   ): Observable<AtRiskStudentsPage> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) params = params.set('search', search.trim());
@@ -344,6 +346,7 @@ export class StudentsService {
     if (term && term !== 'all') params = params.set('term', term);
     if (homeroom) params = params.set('homeroom', homeroom);
     if (exportMode) params = params.set('export', true);
+    params = appendActivityPeriod(params, activity);
     return this.http.get<AtRiskStudentsPage>(`${this.basePath}/api/students/at-risk`, { params });
   }
 

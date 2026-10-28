@@ -35,7 +35,7 @@ public sealed class MySqlTheoryAttribute : TheoryAttribute
     }
 }
 
-public sealed class MySqlResilienceTests
+public sealed partial class MySqlResilienceTests
 {
     [MySqlTheory]
     [InlineData("missing-frequency")]

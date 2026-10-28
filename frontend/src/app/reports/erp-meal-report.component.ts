@@ -7,6 +7,7 @@ import { LanguageService } from '../core/language/language.service';
 import { ToastService } from '../core/toast/toast.service';
 import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
 import { ReportExportButtonComponent } from './report-export-button.component';
+import { ActivityPeriodSelection, activityDateRange } from './activity-period';
 import {
   ErpMealReportsService, MealGroupBy, MealReportDetail, MealReportDetailsPage,
   MealReportOptions, MealReportPage, MealReportQuery, MealReportRow, MealReportType, MealTypeFilter,
@@ -45,6 +46,7 @@ type TimeMode = 'period' | 'day' | 'month' | 'range';
           </div>
         }
         <div class="no-print grid gap-3 border-b border-[#eee8f1] bg-[#fdfbfe] px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+          @if (activityPeriod?.month == null) {
           <label class="grid gap-1 text-xs font-semibold text-[#625969]">
             {{ languageService.t('reports.meals.timeMode') }}
             <select class="rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm" [(ngModel)]="timeMode" (ngModelChange)="onDateChange()">
@@ -69,6 +71,7 @@ type TimeMode = 'period' | 'day' | 'month' | 'range';
             <label class="grid gap-1 text-xs font-semibold text-[#625969]">{{ languageService.t('reports.meals.to') }}
               <input class="rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-sm" type="date" [(ngModel)]="to" (ngModelChange)="onDateChange()" />
             </label>
+          }
           }
           @if (report !== 'coffee-frequency') {
             <label class="grid gap-1 text-xs font-semibold text-[#625969]">{{ languageService.t('reports.meals.mealFilter') }}
@@ -115,7 +118,9 @@ type TimeMode = 'period' | 'day' | 'month' | 'range';
         @if (failed() && data()) {
           <div class="m-5 rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">{{ languageService.t('reports.loadError') }} <button class="ml-2 font-semibold underline" type="button" (click)="load(page())">{{ languageService.t('reports.retry') }}</button></div>
         }
-        @if (!validDates()) {
+        @if (!validDates() && activityPeriod?.month != null) {
+          <p class="px-5 py-12 text-center text-sm text-[#817589]">{{ languageService.t('reports.noData') }}</p>
+        } @else if (!validDates()) {
           <p class="px-5 py-6 text-sm text-red-700">{{ languageService.t('reports.meals.invalidDates') }}</p>
         } @else if (loading() && !data()) {
           <div class="grid min-h-[360px] place-items-center" role="status"><div class="flex items-center gap-3 text-sm font-semibold text-[#625969]"><span class="h-7 w-7 animate-spin rounded-full border-2 border-[#e6dfea] border-t-[#6d3a91]"></span>{{ languageService.t('reports.loading') }}</div></div>
@@ -249,6 +254,7 @@ export class ErpMealReportComponent implements OnChanges, OnDestroy {
   @Input() academicYear = '';
   @Input() term = 'all';
   @Input() periodLabel = '';
+  @Input() activityPeriod: ActivityPeriodSelection | null = null;
 
   readonly languageService = inject(LanguageService);
   private readonly service = inject(ErpMealReportsService);
@@ -285,7 +291,7 @@ export class ErpMealReportComponent implements OnChanges, OnDestroy {
   private searchTimer: number | undefined;
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['academicYear'] || changes['term']) {
+    if (changes['academicYear'] || changes['term'] || changes['activityPeriod']) {
       this.timeMode = 'period';
       const range = this.periodRange();
       this.from = range.from;
@@ -514,6 +520,7 @@ export class ErpMealReportComponent implements OnChanges, OnDestroy {
   }
 
   private effectiveRange(): { from: string; to: string } {
+    if (this.activityPeriod?.month != null) return activityDateRange(this.academicYear, this.term, this.activityPeriod);
     if (this.timeMode === 'day') return { from: this.day, to: this.day };
     if (this.timeMode === 'month') {
       const [year, month] = this.month.split('-').map(Number);

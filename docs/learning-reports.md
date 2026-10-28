@@ -36,7 +36,7 @@ aggregation without reimporting Canvas or forcing a full historical rebuild.
 | Selected task completion | submitted and non-excused missing counts | year, term, month, week, courses, selected assignment IDs, minimum completion rate |
 | Grading coverage | submitted and submitted-with-graded-status counts | year, term, month, week, courses, minimum grading rate |
 
-The shared period bar exposes calendar months and Monday–Sunday weeks for 16 academic reports:
+The shared period bar exposes calendar months and Monday–Sunday weeks for the academic reports:
 the four configurable reports, learning diligence, both leadership reports, and nine assignment-score
 views (averages, distributions, histogram, class-subject results, and student rankings). The selectors
 stay in the same location as users switch reports and keep their selection across those reports.
@@ -44,6 +44,24 @@ Month choices include the calendar year, and week choices show their inclusive d
 The week selector stays disabled until a month is selected and lists only weeks overlapping that
 month. Changing or clearing the month resets the week; a URL containing a week without a valid
 month is normalized to an unselected week.
+
+The same bar also scopes behaviour, mental-health, health-visit, meal, project/activity, bus, and
+student-support reports. Behaviour uses incident dates; mental-health uses record dates; projects
+use activity dates with the existing creation-date fallback; bus records use attendance dates;
+health uses examination times; and meals use their event days. Daily aggregate summaries and their
+source-record details are filtered before counts and pagination, and exports use the same filters.
+Health drill-downs intersect the selected dates with the row's grouping bucket, so a monthly/yearly
+group cannot expose extra visits outside the chosen week. Meals translate the shared period into
+their existing inclusive `from`/`to` API bounds, including semester and school-year boundaries.
+The advanced meal date controls remain available when no shared month is selected.
+
+The support list narrows existing at-risk semester snapshots to students with dated academic or
+support signals: assignment scores/missing work, concerning behaviour, and permitted mental-health
+or bus alerts. Health/bus signals participate only when the viewer has access to those domains.
+Risk levels, stored counts, and course averages remain the existing semester snapshot values;
+the UI and Excel export explain this scope. The unavailable ordered-but-not-eaten meal report
+retains its source-data-gap notice. Current-course-score and class-support overview reports keep
+their semester scope.
 The school year runs September–August; weeks overlapping its edges are available, while the
 academic-year filter still restricts the included facts. Selecting both month and week intersects
 the ranges. A semester selection additionally restricts the stored reporting term. Undated facts

@@ -1,3 +1,4 @@
+import { ActivityPeriodSelection, activityPeriodExportFilters } from './activity-period';
 import { Component, computed, HostListener, inject, Input, OnChanges, OnDestroy, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -222,6 +223,7 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
   @Input() academicYear = '';
   @Input() term = 'all';
   @Input() periodLabel = '';
+  @Input() activityPeriod: ActivityPeriodSelection | null = null;
 
   private readonly reports = inject(BehaviourReportsService);
   private readonly excel = inject(ReportExcelExportService);
@@ -259,7 +261,7 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
   private searchTimer: number | undefined;
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['academicYear'] || changes['term']) {
+    if (changes['academicYear'] || changes['term'] || changes['activityPeriod']) {
       this.closeDrilldown();
       this.loadSummary();
     }
@@ -279,7 +281,7 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
     const requestId = ++this.summaryRequestId;
     this.loading.set(true);
     this.loadFailed.set(false);
-    this.reports.summary(this.academicYear, this.term).subscribe({
+    this.reports.summary(this.academicYear, this.term, this.activityPeriod).subscribe({
       next: (summary) => {
         if (requestId !== this.summaryRequestId) return;
         this.summary.set(summary);
@@ -295,7 +297,7 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
 
   async exportExcel(): Promise<void> {
     const summary = this.summary();
-    if (!summary || this.exporting()) return;
+    if (!summary || this.exporting() || this.loading() || this.loadFailed()) return;
     this.exporting.set(true);
     try {
       await this.excel.download({
@@ -303,6 +305,7 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
         title: this.languageService.t('reports.behaviour.title'),
         period: this.periodLabel,
         filters: [
+          ...activityPeriodExportFilters(this.academicYear, this.activityPeriod, key => this.languageService.t(key)),
           [this.languageService.t('reports.behaviour.totalRecords'), summary.totalRecords],
           [this.languageService.t('reports.behaviour.students'), summary.studentCount],
         ],
@@ -371,7 +374,7 @@ export class BehaviourReportComponent implements OnChanges, OnDestroy {
     this.reports.details(this.academicYear, this.term, {
       ...context,
       search: this.drilldownSearch(),
-    }, page, this.drilldownPageSize).subscribe({
+    }, page, this.drilldownPageSize, this.activityPeriod).subscribe({
       next: (response) => {
         if (requestId !== this.drilldownRequestId) return;
         this.drilldownItems.set(response.items);

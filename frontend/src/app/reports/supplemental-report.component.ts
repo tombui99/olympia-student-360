@@ -1,3 +1,4 @@
+import { ActivityPeriodSelection, activityPeriodExportFilters } from './activity-period';
 import { NgClass } from '@angular/common';
 import { Component, computed, inject, Input, OnChanges, signal, SimpleChanges } from '@angular/core';
 import { RouterLink } from '@angular/router';
@@ -183,6 +184,7 @@ export class SupplementalReportComponent implements OnChanges {
   @Input() academicYear = '';
   @Input() term = 'all';
   @Input() periodLabel = '';
+  @Input() activityPeriod: ActivityPeriodSelection | null = null;
 
   private readonly recordsService = inject(ModuleRecordsService);
   private readonly excel = inject(ReportExcelExportService);
@@ -202,7 +204,7 @@ export class SupplementalReportComponent implements OnChanges {
   readonly distribution = signal<DistributionRow[]>([]);
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['report'] || changes['academicYear'] || changes['term']) this.load();
+    if (changes['report'] || changes['academicYear'] || changes['term'] || changes['activityPeriod']) this.load();
   }
 
   load(): void {
@@ -211,10 +213,10 @@ export class SupplementalReportComponent implements OnChanges {
     this.loading.set(true);
     this.loadFailed.set(false);
     forkJoin({
-      records: this.recordsService.list(this.report.moduleId, 1, 20, '', this.academicYear, this.term),
+      records: this.recordsService.list(this.report.moduleId, 1, 20, '', this.academicYear, this.term, false, this.activityPeriod),
       summary: this.recordsService.supplementalSummary(
         this.report.moduleId, this.report.dimensionField || this.report.primaryField,
-        this.academicYear, this.term,
+        this.academicYear, this.term, this.activityPeriod,
       ),
     }).subscribe({
       next: ({ records, summary }) => {
@@ -236,30 +238,36 @@ export class SupplementalReportComponent implements OnChanges {
   }
 
   async exportExcel(): Promise<void> {
-    if (!this.report || !this.totalCount() || this.exporting()) return;
+    if (!this.report || !this.totalCount() || this.exporting() || this.loading() || this.loadFailed()) return;
+    const academicYear = this.academicYear;
+    const term = this.term;
+    const activityPeriod = this.activityPeriod ? { ...this.activityPeriod } : null;
+    const report = this.report;
+    const periodLabel = this.periodLabel;
     this.exporting.set(true);
     try {
       const rows = await this.excel.collectPages(async (page, pageSize) => {
         const response = await firstValueFrom(this.recordsService.list(
-          this.report.moduleId, page, pageSize, '', this.academicYear, this.term, true,
+          report.moduleId, page, pageSize, '', academicYear, term, true, activityPeriod,
         ));
         return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
       });
-      const title = this.languageService.t(this.report.titleKey);
+      const title = this.languageService.t(report.titleKey);
       await this.excel.download({
-        fileName: `${title}-${this.academicYear}-${this.term}`,
+        fileName: `${title}-${academicYear}-${term}`,
         title,
-        period: this.periodLabel,
-        filters: [[this.languageService.t('reports.supplemental.breakdown'), this.dimensionLabel()]],
+        period: periodLabel,
+        filters: [...activityPeriodExportFilters(academicYear, activityPeriod, key => this.languageService.t(key)),
+          [this.languageService.t('reports.supplemental.breakdown'), this.languageService.t(`reports.dimension.${report.dimension}`)]],
         columns: [
-          { header: this.languageService.t('reports.supplemental.date'), value: row => this.formatDate(row.values[this.report.dateField]) },
+          { header: this.languageService.t('reports.supplemental.date'), value: row => this.formatDate(row.values[report.dateField]) },
           { header: this.languageService.t('reports.table.student'), value: row => row.studentName },
           { header: 'SIS ID', value: row => row.sisUserId },
           { header: this.languageService.t('reports.table.grade'), value: row => row.canvasGradeLevel || row.gradeLevel },
           { header: this.languageService.t('reports.table.class'), value: row => row.homeroom },
-          { header: this.report.primaryField, value: row => row.values[this.report.primaryField] },
-          { header: this.report.secondaryField, value: row => row.values[this.report.secondaryField] },
-          { header: this.languageService.t('reports.supplemental.group'), value: row => row.values[this.report.dimensionField || this.report.primaryField] },
+          { header: report.primaryField, value: row => row.values[report.primaryField] },
+          { header: report.secondaryField, value: row => row.values[report.secondaryField] },
+          { header: this.languageService.t('reports.supplemental.group'), value: row => row.values[report.dimensionField || report.primaryField] },
           { header: this.languageService.t('moduleRecords.enteredBy'), value: row => row.enteredByName },
         ],
         rows,

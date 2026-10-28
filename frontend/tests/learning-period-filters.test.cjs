@@ -6,6 +6,7 @@ require('@angular/compiler');
 const { createEnvironmentInjector, runInInjectionContext } = require('@angular/core');
 const { ActivatedRoute, Router, convertToParamMap } = require('@angular/router');
 const { of } = require('rxjs');
+const { HttpClient } = require('@angular/common/http');
 
 require.extensions['.ts'] = (loaded, filename) => loaded._compile(ts.transpileModule(readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true },
@@ -28,6 +29,110 @@ const { ScoreReportsService } = require('../src/app/reports/score-reports.servic
 const { LeadershipReportComponent } = require('../src/app/reports/leadership-report.component.ts');
 const { LeadershipReportsService } = require('../src/app/reports/leadership-reports.service.ts');
 const { ActivityPeriodFilterComponent } = require('../src/app/reports/activity-period-filter.component.ts');
+const { activityDateRange } = require('../src/app/reports/activity-period.ts');
+const { BehaviourReportsService } = require('../src/app/reports/behaviour-reports.service.ts');
+const { HealthReportsService } = require('../src/app/reports/health-reports.service.ts');
+const { ModuleRecordsService } = require('../src/app/module-records/module-records.service.ts');
+const { BehaviourReportComponent } = require('../src/app/reports/behaviour-report.component.ts');
+const { HealthReportComponent } = require('../src/app/reports/health-report.component.ts');
+const { SupplementalReportComponent } = require('../src/app/reports/supplemental-report.component.ts');
+const { ErpMealReportComponent } = require('../src/app/reports/erp-meal-report.component.ts');
+const { ErpMealReportsService } = require('../src/app/reports/erp-meal-reports.service.ts');
+const { BASE_PATH } = require('../src/app/api/variables.ts');
+
+test('remaining report APIs preserve month/week across summaries, details, pagination and exports', () => {
+  const calls = [];
+  const injector = createEnvironmentInjector([
+    { provide: HttpClient, useValue: { get: (url, options) => { calls.push({ url, params: options.params }); return of({}); } } },
+    { provide: BASE_PATH, useValue: 'http://test' },
+  ]);
+  const activity = { month: 10, weekStart: '2026-10-26' };
+  try {
+    runInInjectionContext(injector, () => {
+      const behaviours = new BehaviourReportsService();
+      behaviours.summary('2026-2027', 'hk1', activity);
+      behaviours.details('2026-2027', 'hk1', { dimension: 'all' }, 2, 20, activity);
+      const health = new HealthReportsService();
+      health.summary('diagnoses', 'month', '2026-2027', 'hk1', '', 2, 1000, true, activity);
+      health.details({ periodStart: '2026-10-01', periodEnd: '2026-11-01' }, 2, 20, '2026-2027', 'hk1', activity);
+      const records = new ModuleRecordsService();
+      records.list('student-projects', 2, 1000, '', '2026-2027', 'hk1', true, activity);
+      records.supplementalSummary('student-projects', 'status', '2026-2027', 'hk1', activity);
+      new StudentsService().atRisk(2, 1000, '', '', '2026-2027', 'hk1', '', true, activity);
+    });
+    assert.equal(calls.length, 7);
+    for (const { params } of calls) {
+      assert.equal(params.get('month'), '10');
+      assert.equal(params.get('weekStart'), '2026-10-26');
+      assert.equal(params.get('academicYear'), '2026-2027');
+      assert.equal(params.get('term'), 'hk1');
+    }
+  } finally { injector.destroy(); }
+});
+
+for (const kind of ['behaviour', 'health', 'mental', 'projects', 'activities', 'bus', 'meal-ordered-no-ticket', 'meal-no-order', 'meal-coffee-frequency']) {
+  test(`${kind}: shared period changes reload the report and scope exports`, async () => {
+    const calls = [];
+    let exported;
+    const page = { items: [{ key: 'student', name: 'Test', studentName: 'Test', values: {} }], totalCount: 1, totalPages: 1, page: 1, pageSize: 20, totalVisits: 1 };
+    const health = kind === 'health';
+    const behaviour = kind === 'behaviour';
+    const meal = kind.startsWith('meal-');
+    const Service = health ? HealthReportsService : behaviour ? BehaviourReportsService : meal ? ErpMealReportsService : ModuleRecordsService;
+    const Component = health ? HealthReportComponent : behaviour ? BehaviourReportComponent : meal ? ErpMealReportComponent : SupplementalReportComponent;
+    const injector = createEnvironmentInjector([
+      { provide: LanguageService, useValue: { t: key => key, language: () => 'en' } },
+      { provide: ToastService, useValue: { error: message => assert.fail(message) } },
+      { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
+      { provide: Router, useValue: {} },
+      { provide: Service, useValue: {
+        options: (...args) => { calls.push(args); return of({ grades: [], classes: [] }); },
+        summary: (...args) => { calls.push(args); return of(behaviour ? { totalRecords: 1, studentCount: 1, byStudent: [] } : meal ? { ...page, totalEvents: 1 } : page); },
+        details: (...args) => { calls.push(args); return of(page); },
+        list: (...args) => { calls.push(args); return of(page); },
+        supplementalSummary: (...args) => { calls.push(args); return of({ totalCount: 1, distinctStudents: 1, attentionCount: 1, distribution: [] }); },
+      } },
+      { provide: ReportExcelExportService, useValue: {
+        collectPages: async fetch => { await fetch(1, 1000); return []; },
+        download: async definition => { exported = definition; },
+      } },
+    ]);
+    const component = runInInjectionContext(injector, () => new Component());
+    try {
+      component.academicYear = '2026-2027'; component.term = 'all';
+      component.activityPeriod = { month: 10, weekStart: '2026-10-26' };
+      if (health) component.report = 'diagnoses';
+      else if (meal) component.report = kind.slice(5);
+      else if (!behaviour) component.report = { moduleId: kind === 'mental' ? 'student-mental-health' : kind === 'bus' ? 'student-bus-attendance' : 'student-projects',
+        primaryField: 'name', secondaryField: 'status', dimensionField: 'status', titleKey: 'Test', dimension: 'field', dateField: 'activity_date' };
+      component.ngOnChanges({ academicYear: {}, activityPeriod: {} });
+      assert.ok(calls.length > 0);
+      if (meal) assert.deepEqual(component.effectiveRange(), { from: '2026-10-26', to: '2026-10-31' });
+      else assert.ok(calls.some(args => args.some(value => value?.weekStart === '2026-10-26')));
+      component.activityPeriod = { month: 11, weekStart: '2026-10-26' };
+      component.ngOnChanges({ activityPeriod: {} });
+      if (meal) assert.deepEqual(component.effectiveRange(), { from: '2026-11-01', to: '2026-11-01' });
+      else assert.ok(calls.some(args => args.some(value => value?.month === 11)));
+      await component.exportExcel();
+      if (!meal) assert.ok(exported.filters.some(([label, value]) => label === 'reports.activityPeriod.week' && value === '26/10/2026 – 01/11/2026'));
+      else assert.ok(exported.period.includes('2026-11-01'));
+      if (meal) {
+        calls.length = 0;
+        component.term = 'hk2';
+        component.ngOnChanges({ term: {} });
+        assert.equal(component.validDates(), false);
+        assert.equal(component.data(), null);
+        assert.equal(calls.length, 0, 'a month outside the semester has no data and does not send an invalid API range');
+      }
+    } finally { component.ngOnDestroy?.(); injector.destroy(); }
+  });
+}
+
+test('meal ranges intersect academic year, semester, month and week, including school-year boundaries', () => {
+  assert.deepEqual(activityDateRange('2026-2027', 'all', { month: 9, weekStart: '2026-08-31' }), { from: '2026-09-01', to: '2026-09-06' });
+  assert.deepEqual(activityDateRange('2026-2027', 'hk1', { month: 1, weekStart: '2027-01-18' }), { from: '2027-01-18', to: '2027-01-18' });
+  assert.deepEqual(activityDateRange('2026-2027', 'hk2', { month: 1, weekStart: '2027-01-18' }), { from: '2027-01-19', to: '2027-01-24' });
+});
 
 test('week options require a month, follow its dates, and reset when the month changes or is cleared', () => {
   const injector = createEnvironmentInjector([{ provide: LanguageService, useValue: { t: key => key } }]);
@@ -180,15 +285,14 @@ test('learning diligence restores activity filters after loading its year and se
     component.onPeriodChange();
     assert.equal(requests.at(-1).weekStart, undefined);
     assert.equal(navigations.at(-1).queryParams.activityWeekStart, null);
-    const available = component.reportGroups.filter(group => ['learning', 'school-leadership', 'subject-leadership'].includes(group.id))
-      .flatMap(group => group.items.map(item => item.id));
+    const available = component.reportGroups.flatMap(group => group.items.map(item => item.id));
     const eligible = [];
     for (const report of available) {
       component.activeReport.set(report);
       assert.equal(component.supportsActivityPeriod(), !['support-classes', 'school-current-course-score'].includes(report));
       if (component.supportsActivityPeriod()) eligible.push(report);
     }
-    assert.equal(eligible.length, 16);
+    assert.equal(eligible.length, 29);
     assert.ok(component.periodLabel().includes('2027–2028'));
   } finally { component.ngOnDestroy(); injector.destroy(); }
 });

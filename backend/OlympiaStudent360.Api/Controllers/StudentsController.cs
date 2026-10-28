@@ -182,8 +182,11 @@ public class StudentsController : ControllerBase
         [FromQuery] string? homeroom = null,
         [FromQuery] string? academicYear = null,
         [FromQuery] string? term = null,
-        [FromQuery] bool export = false)
+        [FromQuery] bool export = false,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
+        var dateError = CanvasActivityPeriodFilter.Validate(academicYear, month, weekStart);
+        if (dateError is not null) return BadRequest(dateError);
         (page, pageSize) = export
             ? (Math.Max(1, page), Math.Clamp(pageSize, 1, 1000))
             : NormalizePaging(page, pageSize);
@@ -203,6 +206,25 @@ public class StudentsController : ControllerBase
         query = canAccessBus
             ? query.Where(item => item.RiskLevelWithBus != "None")
             : query.Where(item => item.RiskLevelWithoutBus != "None");
+        if (ReportDateFilter.Range(academicYear, month, weekStart) is { } activity)
+        {
+            activity = new ReportDateRange(
+                activity.Start > canvasPeriod.Start ? activity.Start : canvasPeriod.Start,
+                activity.End < canvasPeriod.End ? activity.End : canvasPeriod.End);
+            var canAccessHealth = _userAccess.Current.CanAccessHealth;
+            var signals = ReportDateFilter.Apply(_context.ImportedReportAggregates.AsNoTracking()
+                .Where(item => item.AttentionCount > 0 &&
+                    (item.Source == "student-behaviours" ||
+                     canAccessHealth && item.Source == "student-mental-health" ||
+                     canAccessBus && item.Source == "student-bus-attendance")), item => item.EventDay, activity);
+            var academicSignals = CanvasActivityPeriodFilter.Apply(_context.CanvasDashboardMetricAggregates.AsNoTracking()
+                .Where(item => item.AcademicYear == canvasPeriod.AcademicYear &&
+                    (canvasPeriod.Term == "all" || item.Term == canvasPeriod.Term) &&
+                    (item.MetricKey == CanvasDashboardAggregateService.AssignmentsMissing ||
+                     item.MetricKey == CanvasDashboardAggregateService.SubmissionScoreAverage)), month, weekStart);
+            query = query.Where(item => signals.Any(signal => signal.StudentProfileId == item.StudentProfileId) ||
+                academicSignals.Any(signal => signal.StudentProfileId == item.StudentProfileId));
+        }
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {
             var pattern = $"%{EscapeLikePattern(searchTerm)}%";

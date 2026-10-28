@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
+import { ActivityPeriodSelection, appendActivityPeriod } from './activity-period';
 
 export type HealthReportType = 'diagnoses' | 'frequent-students' | 'student-visits';
 export type HealthReportGrouping = 'week' | 'month' | 'year';
@@ -81,6 +82,7 @@ export class HealthReportsService {
     page: number,
     pageSize: number,
     exportMode = false,
+    activity?: ActivityPeriodSelection | null,
   ) {
     let params = new HttpParams()
       .set('report', report)
@@ -91,15 +93,20 @@ export class HealthReportsService {
     if (exportMode) params = params.set('export', true);
     if (term && term !== 'all') params = params.set('term', term);
     if (search.trim()) params = params.set('search', search.trim());
+    params = appendActivityPeriod(params, activity);
     return this.http.get<HealthReportPage>(`${this.basePath}/api/reports/health-visits/summary`, { params });
   }
 
-  details(query: HealthReportDetailsQuery, page: number, pageSize: number) {
+  details(query: HealthReportDetailsQuery, page: number, pageSize: number,
+    academicYear?: string, term?: string, activity?: ActivityPeriodSelection | null) {
     let params = new HttpParams()
       .set('periodStart', query.periodStart)
       .set('periodEnd', query.periodEnd)
       .set('page', page)
       .set('pageSize', pageSize);
+    if (academicYear) params = params.set('academicYear', academicYear);
+    if (term) params = params.set('term', term);
+    params = appendActivityPeriod(params, activity);
     if (query.visitId != null) params = params.set('visitId', query.visitId);
     if (query.diagnosis) params = params.set('diagnosis', query.diagnosis);
     if (query.studentProfileId != null) params = params.set('studentProfileId', query.studentProfileId);

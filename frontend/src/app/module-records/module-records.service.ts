@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
+import { ActivityPeriodSelection, appendActivityPeriod } from '../reports/activity-period';
 
 export interface ModuleRecord {
   id: number;
@@ -44,6 +45,7 @@ export class ModuleRecordsService {
     academicYear?: string,
     reportingTerm?: string,
     exportMode = false,
+    activity?: ActivityPeriodSelection | null,
   ) {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
     if (search.trim()) params = params.set('search', search.trim());
@@ -52,13 +54,16 @@ export class ModuleRecordsService {
       params = params.set('term', reportingTerm.trim());
     }
     if (exportMode) params = params.set('export', true);
+    params = appendActivityPeriod(params, activity);
     return this.http.get<ModuleRecordsPage>(`${this.basePath}/api/module-records/${moduleId}`, { params });
   }
 
-  supplementalSummary(moduleId: string, field: string, academicYear?: string, reportingTerm?: string) {
+  supplementalSummary(moduleId: string, field: string, academicYear?: string, reportingTerm?: string,
+    activity?: ActivityPeriodSelection | null) {
     let params = new HttpParams().set('moduleId', moduleId).set('field', field);
     if (academicYear?.trim()) params = params.set('academicYear', academicYear.trim());
     if (reportingTerm?.trim() && reportingTerm !== 'all') params = params.set('term', reportingTerm.trim());
+    params = appendActivityPeriod(params, activity);
     return this.http.get<SupplementalSummary>(`${this.basePath}/api/reports/supplemental/summary`, { params });
   }
 

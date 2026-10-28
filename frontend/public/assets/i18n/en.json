@@ -1621,6 +1621,8 @@
   "reports.activityPeriod.week": "Week (Monday–Sunday)",
   "reports.activityPeriod.allWeeks": "All weeks",
   "reports.activityPeriod.chooseMonthFirst": "Select a month first",
+  "reports.activityPeriod.recordsHint": "Select a month to enable its Monday–Sunday weeks. Changing or clearing the month resets the week. Reports include recorded events within the selected year, semester, month and week.",
+  "reports.activityPeriod.supportSignalsHint": "Dates narrow this list to students with recorded academic or support signals in the selected period. Risk levels, counts and course averages retain their existing semester snapshot scope.",
   "reports.activityPeriod.finalScoreHint": "Canvas final course scores cover the selected semester or school year. Week and month filters apply to assignment activity and results.",
   "reports.activityPeriod.currentScoreOnly": "Canvas current course scores are cumulative course measures for the selected semester or school year. Use the assignment score reports for week and month comparisons.",
   "reports.activityPeriod.hint": "Select a month to enable its Monday–Sunday weeks. Changing or clearing the month resets the week. Only dates within both selections are included. Activity uses submission dates, due dates for missing work, and grading dates for scores; grading coverage uses submission dates.",

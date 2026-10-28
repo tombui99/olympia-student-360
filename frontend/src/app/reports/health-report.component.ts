@@ -1,3 +1,4 @@
+import { ActivityPeriodSelection, activityPeriodExportFilters } from './activity-period';
 import { Component, HostListener, inject, Input, OnChanges, OnDestroy, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -189,6 +190,7 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
   @Input() academicYear = '';
   @Input() term = 'all';
   @Input() periodLabel = '';
+  @Input() activityPeriod: ActivityPeriodSelection | null = null;
 
   private readonly reports = inject(HealthReportsService);
   private readonly excel = inject(ReportExcelExportService);
@@ -222,7 +224,7 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
   private searchTimer: number | undefined;
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['report'] || changes['academicYear'] || changes['term']) {
+    if (changes['report'] || changes['academicYear'] || changes['term'] || changes['activityPeriod']) {
       this.closeDetails();
       this.load(1);
     }
@@ -278,7 +280,7 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
     const requestId = ++this.requestId;
     this.loading.set(true);
     this.loadFailed.set(false);
-    this.reports.summary(this.report, this.groupBy(), this.academicYear, this.term, this.search(), page, this.pageSize).subscribe({
+    this.reports.summary(this.report, this.groupBy(), this.academicYear, this.term, this.search(), page, this.pageSize, false, this.activityPeriod).subscribe({
       next: (response) => {
         if (requestId !== this.requestId) return;
         this.rows.set(response.items);
@@ -297,26 +299,34 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
   }
 
   async exportExcel(): Promise<void> {
-    if (!this.report || !this.academicYear || !this.totalCount() || this.exporting()) return;
+    if (!this.report || !this.academicYear || !this.totalCount() || this.exporting() || this.loading() || this.loadFailed()) return;
+    const academicYear = this.academicYear;
+    const term = this.term;
+    const activityPeriod = this.activityPeriod ? { ...this.activityPeriod } : null;
+    const report = this.report;
+    const periodLabel = this.periodLabel;
+    const grouping = this.groupBy();
+    const search = this.search();
     this.exporting.set(true);
     try {
       const rows = await this.excel.collectPages(async (page, pageSize) => {
         const response = await firstValueFrom(this.reports.summary(
-          this.report, this.groupBy(), this.academicYear, this.term, this.search(), page, pageSize, true,
+          report, grouping, academicYear, term, search, page, pageSize, true, activityPeriod,
         ));
         return { items: response.items, totalCount: response.totalCount, totalPages: response.totalPages };
       });
-      const title = this.languageService.t(this.titleKey());
+      const title = this.languageService.t(`reports.health.${report}.title`);
       await this.excel.download({
-        fileName: `${title}-${this.academicYear}-${this.term}`,
+        fileName: `${title}-${academicYear}-${term}`,
         title,
-        period: this.periodLabel,
+        period: periodLabel,
         filters: [
-          [this.languageService.t('reports.health.groupBy'), this.languageService.t(`reports.health.groupBy.${this.groupBy()}`)],
-          [this.languageService.t('reports.health.search'), this.search()],
+          ...activityPeriodExportFilters(academicYear, activityPeriod, key => this.languageService.t(key)),
+          [this.languageService.t('reports.health.groupBy'), this.languageService.t(`reports.health.groupBy.${grouping}`)],
+          [this.languageService.t('reports.health.search'), search],
         ],
         columns: [
-          { header: this.languageService.t('reports.health.period'), value: row => this.formatPeriod(row) },
+          { header: this.languageService.t('reports.health.period'), value: row => this.formatPeriod(row, grouping) },
           { header: this.languageService.t('reports.table.student'), value: row => row.studentName },
           { header: 'SIS ID', value: row => row.sisUserId },
           { header: this.languageService.t('reports.health.class'), value: row => row.className },
@@ -364,7 +374,7 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
     const requestId = ++this.detailsRequestId;
     this.detailsLoading.set(true);
     this.detailsLoadFailed.set(false);
-    this.reports.details(query, page, this.detailsPageSize).subscribe({
+    this.reports.details(query, page, this.detailsPageSize, this.academicYear, this.term, this.activityPeriod).subscribe({
       next: (response) => {
         if (requestId !== this.detailsRequestId) return;
         this.details.set(response.items);
@@ -391,12 +401,12 @@ export class HealthReportComponent implements OnChanges, OnDestroy {
     return this.languageService.t('reports.health.details.count').replace('{count}', this.formatNumber(this.detailsTotalCount()));
   }
 
-  formatPeriod(row: HealthReportRow): string {
+  formatPeriod(row: HealthReportRow, grouping = this.groupBy()): string {
     const start = new Date(row.periodStart);
     const end = new Date(row.periodEnd);
     const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-GB';
-    if (this.groupBy() === 'year') return String(start.getUTCFullYear());
-    if (this.groupBy() === 'month') return new Intl.DateTimeFormat(locale, { month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(start);
+    if (grouping === 'year') return String(start.getUTCFullYear());
+    if (grouping === 'month') return new Intl.DateTimeFormat(locale, { month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(start);
     const lastDay = new Date(end.getTime() - 86_400_000);
     const formatter = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
     return `${formatter.format(start)} – ${formatter.format(lastDay)}`;

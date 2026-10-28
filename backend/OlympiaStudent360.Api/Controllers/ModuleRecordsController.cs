@@ -24,9 +24,13 @@ public sealed class ModuleRecordsController(
         [FromQuery] string? search = null,
         [FromQuery] string? academicYear = null,
         [FromQuery(Name = "term")] string? reportingTerm = null,
-        [FromQuery] bool export = false)
+        [FromQuery] bool export = false,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId)) return NotFound();
+        var dateError = CanvasActivityPeriodFilter.Validate(academicYear, month, weekStart);
+        if (dateError is not null) return BadRequest(dateError);
+        var activity = ReportDateFilter.Range(academicYear, month, weekStart);
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, export ? 1000 : 100);
         var searchTerm = Clean(search);
@@ -35,11 +39,11 @@ public sealed class ModuleRecordsController(
 
         return moduleId switch
         {
-            "student-behaviours" => Ok(await ListBehaviours(page, pageSize, searchTerm, period)),
-            "student-projects" => Ok(await ListProjects(page, pageSize, searchTerm, period)),
-            "student-mental-health" => Ok(await ListMentalHealth(page, pageSize, searchTerm, period)),
-            "student-bus-attendance" => Ok(await ListBusAttendance(page, pageSize, searchTerm, period)),
-            "student-health-visits" => Ok(await ListHealthVisits(page, pageSize, searchTerm, period)),
+            "student-behaviours" => Ok(await ListBehaviours(page, pageSize, searchTerm, period, activity)),
+            "student-projects" => Ok(await ListProjects(page, pageSize, searchTerm, period, activity)),
+            "student-mental-health" => Ok(await ListMentalHealth(page, pageSize, searchTerm, period, activity)),
+            "student-bus-attendance" => Ok(await ListBusAttendance(page, pageSize, searchTerm, period, activity)),
+            "student-health-visits" => Ok(await ListHealthVisits(page, pageSize, searchTerm, period, activity)),
             _ => NotFound()
         };
     }
@@ -119,7 +123,7 @@ public sealed class ModuleRecordsController(
     }
 
     private async Task<ModuleRecordsPageDto> ListBehaviours(
-        int page, int pageSize, string? term, ModuleRecordPeriod? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period, ReportDateRange? activity)
     {
         var query = context.StudentBehaviours.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
@@ -135,6 +139,7 @@ public sealed class ModuleRecordsController(
                     item => item.Term == null && item.IncidentDate >= period.Start && item.IncidentDate < period.End);
             }
         }
+        query = ReportDateFilter.Apply(query, item => item.IncidentDate, activity);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -172,7 +177,7 @@ public sealed class ModuleRecordsController(
     }
 
     private async Task<ModuleRecordsPageDto> ListProjects(
-        int page, int pageSize, string? term, ModuleRecordPeriod? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period, ReportDateRange? activity)
     {
         var query = context.StudentProjects.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
@@ -191,6 +196,7 @@ public sealed class ModuleRecordsController(
                         (item.ActivityDate ?? item.CreatedAt) < period.End);
             }
         }
+        query = ReportDateFilter.Apply(query, item => item.ActivityDate ?? item.CreatedAt, activity);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -212,7 +218,7 @@ public sealed class ModuleRecordsController(
     }
 
     private async Task<ModuleRecordsPageDto> ListMentalHealth(
-        int page, int pageSize, string? term, ModuleRecordPeriod? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period, ReportDateRange? activity)
     {
         var query = context.StudentMentalHealthRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
@@ -223,6 +229,7 @@ public sealed class ModuleRecordsController(
             if (period.Term != "all")
                 query = query.Where(item => item.RecordDate >= period.Start && item.RecordDate < period.End);
         }
+        query = ReportDateFilter.Apply(query, item => item.RecordDate, activity);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -244,7 +251,7 @@ public sealed class ModuleRecordsController(
     }
 
     private async Task<ModuleRecordsPageDto> ListBusAttendance(
-        int page, int pageSize, string? term, ModuleRecordPeriod? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period, ReportDateRange? activity)
     {
         var query = context.StudentBusAttendanceRecords.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
@@ -260,6 +267,7 @@ public sealed class ModuleRecordsController(
                     item => item.Term == null && item.AttendanceDate >= period.Start && item.AttendanceDate < period.End);
             }
         }
+        query = ReportDateFilter.Apply(query, item => item.AttendanceDate, activity);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -281,7 +289,7 @@ public sealed class ModuleRecordsController(
     }
 
     private async Task<ModuleRecordsPageDto> ListHealthVisits(
-        int page, int pageSize, string? term, ModuleRecordPeriod? period)
+        int page, int pageSize, string? term, ModuleRecordPeriod? period, ReportDateRange? activity)
     {
         var query = context.StudentHealthVisits.AsNoTracking()
             .Include(item => item.Student).Include(item => item.ImportHistory).AsQueryable();
@@ -289,6 +297,7 @@ public sealed class ModuleRecordsController(
             item => item.Student, item => item.ClassName);
         if (period != null)
             query = query.Where(item => item.ExamTime >= period.Start && item.ExamTime < period.End);
+        query = ReportDateFilter.Apply(query, item => item.ExamTime, activity);
         if (term != null)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";

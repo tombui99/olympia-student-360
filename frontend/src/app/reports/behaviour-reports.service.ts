@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
+import { ActivityPeriodSelection, appendActivityPeriod } from './activity-period';
 
 export type BehaviourCategory = 'Positive' | 'Concerning' | 'Other';
 export type BehaviourDrilldownDimension = 'all' | 'category' | 'type' | 'grade' | 'student';
@@ -84,10 +85,10 @@ export class BehaviourReportsService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
 
-  summary(academicYear: string, term: string) {
+  summary(academicYear: string, term: string, activity?: ActivityPeriodSelection | null) {
     return this.http.get<BehaviourReportSummary>(
       `${this.basePath}/api/reports/behaviours/summary`,
-      { params: this.periodParams(academicYear, term) },
+      { params: appendActivityPeriod(this.periodParams(academicYear, term), activity) },
     );
   }
 
@@ -97,8 +98,9 @@ export class BehaviourReportsService {
     query: BehaviourReportDetailsQuery,
     page: number,
     pageSize: number,
+    activity?: ActivityPeriodSelection | null,
   ) {
-    let params = this.periodParams(academicYear, term)
+    let params = appendActivityPeriod(this.periodParams(academicYear, term), activity)
       .set('dimension', query.dimension)
       .set('page', page)
       .set('pageSize', pageSize);
