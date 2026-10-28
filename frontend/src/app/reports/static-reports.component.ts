@@ -73,6 +73,8 @@ interface ReportMenuGroup {
   id: string;
   titleKey: string;
   shortLabel: string;
+  /** Source feed is awaiting school data; clear when the group is ready for use. */
+  awaitingData?: boolean;
   items: ReportMenuItem[];
 }
 
@@ -199,14 +201,24 @@ interface ClassDrilldownPage {
                   [class.bg-[#f7f3f9]]="isReportGroupExpanded(group.id) && !reportMenuCollapsed()"
                   type="button"
                   [attr.aria-expanded]="isReportGroupExpanded(group.id)"
-                  [attr.aria-label]="languageService.t(group.titleKey)"
-                  [attr.title]="reportMenuCollapsed() ? languageService.t(group.titleKey) : null"
+                  [attr.aria-label]="languageService.t(group.titleKey) + (group.awaitingData ? ' — ' + languageService.t('reports.awaitingData.badge') : '')"
+                  [attr.title]="group.awaitingData ? languageService.t('reports.awaitingData.description') : reportMenuCollapsed() ? languageService.t(group.titleKey) : null"
                   (click)="toggleReportGroup(group.id)"
                 >
                   @if (reportMenuCollapsed()) {
-                    <span class="grid h-8 w-10 place-items-center rounded-md bg-[#f2ecf5] text-[10px] font-bold text-[#6d3a91]">{{ group.shortLabel }}</span>
+                    <span class="relative grid h-8 w-10 place-items-center rounded-md bg-[#f2ecf5] text-[10px] font-bold text-[#6d3a91]">
+                      {{ group.shortLabel }}
+                      @if (group.awaitingData) {
+                        <span class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-600 ring-2 ring-white" aria-hidden="true"></span>
+                      }
+                    </span>
                   } @else {
-                    <span class="text-[11px] font-bold uppercase tracking-[0.11em] text-[#76500a]">{{ languageService.t(group.titleKey) }}</span>
+                    <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+                      <span class="text-[11px] font-bold uppercase tracking-[0.11em] text-[#76500a]">{{ languageService.t(group.titleKey) }}</span>
+                      @if (group.awaitingData) {
+                        <span class="inline-flex whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-inset ring-red-200">{{ languageService.t('reports.awaitingData.badge') }}</span>
+                      }
+                    </span>
                     <svg
                       class="h-4 w-4 shrink-0 text-[#7d6b87] transition-transform duration-200"
                       [class.rotate-180]="isReportGroupExpanded(group.id)"
@@ -298,9 +310,10 @@ interface ClassDrilldownPage {
                   [month]="activityPeriod.month" [weekStart]="activityPeriod.weekStart" [showHint]="false" [disabled]="loading() || reportLoading()"
                   (periodChange)="onActivityPeriodChange($event)" />
               }
-              <div class="ml-auto flex min-h-10 items-center gap-2 rounded-md bg-[#f7f4f8] px-3 text-xs text-[#746b7b]">
-                <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-                {{ languageService.t('reports.liveData') }}
+              <div class="ml-auto flex min-h-10 items-center gap-2 rounded-md px-3 text-xs"
+                [ngClass]="activeReportAwaitingData() ? 'bg-red-50 text-red-700' : 'bg-[#f7f4f8] text-[#746b7b]'">
+                <span class="h-2 w-2 rounded-full" [ngClass]="activeReportAwaitingData() ? 'bg-red-600' : 'bg-emerald-500'"></span>
+                {{ languageService.t(activeReportAwaitingData() ? 'reports.awaitingData.badge' : 'reports.liveData') }}
               </div>
             </div>
             @if (supportsActivityPeriod()) {
@@ -316,6 +329,13 @@ interface ClassDrilldownPage {
               <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.activityPeriod.currentScoreOnly') }}</p>
             }
           </section>
+
+          @if (activeReportAwaitingData()) {
+            <section class="rounded-xl border border-red-200 bg-red-50 px-5 py-4" role="status">
+              <p class="text-sm font-semibold text-red-800">{{ languageService.t('reports.awaitingData.title') }}</p>
+              <p class="mt-1 text-sm leading-6 text-red-700">{{ languageService.t('reports.awaitingData.description') }}</p>
+            </section>
+          }
 
           <div class="min-h-[560px]" [attr.aria-busy]="loading() || reportLoading()">
           @if (loading()) {
@@ -944,7 +964,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      id: 'mental', titleKey: 'reports.group.mental', shortLabel: 'TL', items: [
+      id: 'mental', titleKey: 'reports.group.mental', shortLabel: 'TL', awaitingData: true, items: [
         this.supplementalMenuItem('mental-wellbeing', 'mentalWellbeing', {
           moduleId: 'student-mental-health', dimension: 'field', dimensionField: 'risk_level',
           primaryField: 'concern_type', secondaryField: 'risk_level', dateField: 'record_date', attentionMode: 'mental-health',
@@ -952,7 +972,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      id: 'health', titleKey: 'reports.group.health', shortLabel: 'YT', items: [
+      id: 'health', titleKey: 'reports.group.health', shortLabel: 'YT', awaitingData: true, items: [
         { id: 'health-diagnoses', titleKey: 'reports.health.diagnoses.title', descriptionKey: 'reports.health.diagnoses.menuDescription' },
         { id: 'health-frequent-students', titleKey: 'reports.health.frequent-students.title', descriptionKey: 'reports.health.frequent-students.menuDescription' },
         { id: 'health-student-visits', titleKey: 'reports.health.student-visits.title', descriptionKey: 'reports.health.student-visits.menuDescription' },
@@ -967,7 +987,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      id: 'projects', titleKey: 'reports.group.projects', shortLabel: 'DA', items: [
+      id: 'projects', titleKey: 'reports.group.projects', shortLabel: 'DA', awaitingData: true, items: [
         this.supplementalMenuItem('learning-projects', 'learningProjects', {
           moduleId: 'student-projects', dimension: 'field', dimensionField: 'status',
           primaryField: 'project_name', secondaryField: 'status', dateField: 'activity_date', attentionMode: 'project',
@@ -979,7 +999,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      id: 'bus', titleKey: 'reports.group.bus', shortLabel: 'XB', items: [
+      id: 'bus', titleKey: 'reports.group.bus', shortLabel: 'XB', awaitingData: true, items: [
         this.supplementalMenuItem('bus-safety', 'busSafety', {
           moduleId: 'student-bus-attendance', dimension: 'field', dimensionField: 'violation_type',
           primaryField: 'violation_type', secondaryField: 'route_name', dateField: 'attendance_date', attentionMode: 'bus',
@@ -992,9 +1012,12 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     if (group.id === 'mental' || group.id === 'health') return this.authService.canAccess('health');
     if (group.id === 'bus') return this.authService.canAccess('bus');
     return this.authService.canAccess('academic');
-  }));
+  }).sort((a, b) => Number(a.awaitingData ?? false) - Number(b.awaitingData ?? false)));
 
   readonly activeReport = signal<StaticReportId>('learning-diligence');
+  readonly activeReportAwaitingData = computed(() => this.visibleReportGroups().some(group =>
+    group.awaitingData && group.items.some(report => report.id === this.activeReport()),
+  ));
   readonly reportMenuCollapsed = signal(false);
   readonly expandedReportGroups = signal<ReadonlySet<string>>(new Set());
   readonly years = signal<string[]>([]);
