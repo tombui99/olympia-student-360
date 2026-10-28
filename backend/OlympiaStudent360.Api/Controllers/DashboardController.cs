@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Globalization;
 using System.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -574,8 +575,11 @@ public class DashboardController : ControllerBase
         [FromQuery] string? program, [FromQuery] string? subject,
         [FromQuery] string? metricIds,
         [FromQuery] bool catalogOnly = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        [FromQuery] int? month = null, [FromQuery] string? weekStart = null)
     {
+        var activityError = CanvasActivityPeriodFilter.Validate(year, month, weekStart);
+        if (activityError is not null) return BadRequest(activityError);
         // The workspace landing page only needs metric metadata for its chart picker. Avoid
         // scanning and materialising the Canvas fact tables until a report actually needs data.
         if (catalogOnly)
@@ -612,6 +616,7 @@ public class DashboardController : ControllerBase
             : string.Join(',', allRequestedMetricIds.Order(StringComparer.Ordinal));
         var cacheKey = DashboardCacheKey("metrics", year, term, cycle, campus, level, grade,
             homeroom, studentId?.ToString(), program, subject, requestedMetricCacheKey,
+            month?.ToString(CultureInfo.InvariantCulture), weekStart,
             _userAccess.Current.CacheKey);
         if (_cache.TryGetValue<List<DashboardMetricDto>>(cacheKey, out var cached) && cached is not null)
         {
@@ -713,7 +718,7 @@ public class DashboardController : ControllerBase
             yearAliases, termAliases, requestedMetricIds, computationToken));
         computed.AddRange(await CanvasDataMetrics(
             year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
-            yearAliases, termAliases, requestedMetricIds, computationToken));
+            yearAliases, termAliases, requestedMetricIds, computationToken, month, weekStart));
         computed = computed
             .Where(metric => _userAccess.Current.CanAccessMetric(metric.Id, metric.Source))
             .ToList();
@@ -1611,7 +1616,8 @@ public class DashboardController : ControllerBase
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
         string? homeroom, int? studentId, string? program, string? subject,
         IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
-        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
+        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken,
+        int? month = null, string? weekStart = null)
     {
         // Avoid even touching the Canvas aggregate tables for imported-only report requests.
         // An empty request means "all metrics", so it intentionally continues below.
@@ -1622,11 +1628,11 @@ public class DashboardController : ControllerBase
         // A migration can be deployed before the first post-deploy Canvas run. The report must
         // remain unavailable until ETL materializes the summary table.
         if (await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
-                _context, cancellationToken))
+                _context, cancellationToken, requireActivityDates: weekStart is not null))
         {
             return await CanvasAggregateMetrics(
                 year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
-                requestedMetricIds, cancellationToken);
+                requestedMetricIds, cancellationToken, month, weekStart);
         }
 
         return CanvasMetricCatalog()
@@ -1642,7 +1648,8 @@ public class DashboardController : ControllerBase
     private async Task<List<DashboardMetricDto>> CanvasAggregateMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
         string? homeroom, int? studentId, string? program, string? subject,
-        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken)
+        IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken,
+        int? month = null, string? weekStart = null)
     {
         if (HasFilter(cycle)) return [];
 
@@ -1708,6 +1715,7 @@ public class DashboardController : ControllerBase
             }
         }
 
+        query = CanvasActivityPeriodFilter.Apply(query, month, weekStart, preserveCourseScores: true);
         var grouped = await query
             .Select(item => new
             {

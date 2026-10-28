@@ -11,10 +11,12 @@ import {
 import { SearchableMultiSelectComponent } from './searchable-multi-select.component';
 import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
 import { ReportExportButtonComponent } from './report-export-button.component';
+import { ActivityPeriodFilterComponent } from './activity-period-filter.component';
+import { activityWeeks, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
 
 @Component({
   selector: 'app-learning-review-report',
-  imports: [FormsModule, SearchableMultiSelectComponent, ReportExportButtonComponent],
+  imports: [FormsModule, SearchableMultiSelectComponent, ReportExportButtonComponent, ActivityPeriodFilterComponent],
   template: `
     <section class="relative overflow-visible rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]" [attr.aria-busy]="loading()">
       @if (loading() && result()) {
@@ -30,6 +32,9 @@ import { ReportExportButtonComponent } from './report-export-button.component';
           <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ periodLabel }}</p>
           <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ t('reports.learningReview.' + reportKey + '.title') }}</h3>
           <p class="mt-1 text-sm leading-6 text-[#6f6877]">{{ t('reports.learningReview.' + reportKey + '.description') }}</p>
+          @if (appliedQuery; as applied) {
+            <p class="mt-2 text-xs text-[#817589]">{{ activityPeriodLabel(applied) }}</p>
+          }
         </div>
         <app-report-export-button [exporting]="exporting()" [disabled]="!result()?.aggregateAvailable || !result()?.totalCount" (exportRequested)="exportExcel()" />
       </div>
@@ -73,14 +78,10 @@ import { ReportExportButtonComponent } from './report-export-button.component';
             [options]="assignmentChoices()" [selected]="query.assignmentIds"
             (selectedChange)="selectAssignments($event)" />
         }
-        @if (reportKey === 'missing-frequency' || reportKey === 'reading-completion') {
-          <label class="grid content-start gap-1 self-start text-sm font-semibold text-[#32124f]">
-            {{ t('reports.learningReview.month') }}
-            <select class="h-11 rounded-md border border-[#d8d0df] bg-white px-3 font-normal" name="month" [(ngModel)]="query.month">
-              <option [ngValue]="null">{{ t('reports.learningReview.allMonths') }}</option>
-              @for (month of months; track month) { <option [ngValue]="month">{{ month }}</option> }
-            </select>
-          </label>
+        @if (!activityPeriod) {
+        <app-activity-period-filter class="sm:col-span-2 xl:col-span-3" [academicYear]="academicYear"
+          [month]="query.month" [weekStart]="query.weekStart"
+          (periodChange)="query.month = $event.month; query.weekStart = $event.weekStart" />
         }
         @if (reportKey === 'missing-frequency') {
           <label class="grid content-start gap-1 self-start text-sm font-semibold text-[#32124f]">
@@ -193,13 +194,13 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   @Input({ required: true }) academicYear = '';
   @Input({ required: true }) term = 'all';
   @Input({ required: true }) periodLabel = '';
+  @Input() activityPeriod: ActivityPeriodSelection | null = null;
   private readonly reports = inject(LearningReportsService);
   private readonly language = inject(LanguageService);
   private readonly excel = inject(ReportExcelExportService);
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  readonly months = Array.from({ length: 12 }, (_, index) => index + 1);
   readonly options = signal<LearningReportOptions | null>(null);
   readonly assignments = signal<LearningAssignmentOption[]>([]);
   readonly assignmentsLoading = signal(false);
@@ -224,7 +225,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   query: LearningReportQuery = this.defaultQuery();
   private loadedKey: LearningReportKey | null = null;
   private requestVersion = 0;
-  private appliedQuery: LearningReportQuery | null = null;
+  appliedQuery: LearningReportQuery | null = null;
   private assignmentRequestVersion = 0;
   private assignmentTimer?: ReturnType<typeof setTimeout>;
 
@@ -239,6 +240,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     else if (this.loadedKey) {
       this.query.academicYear = this.academicYear;
       this.query.term = this.term;
+      Object.assign(this.query, normalizeActivityPeriod(this.academicYear, this.activityPeriod ?? this.query));
       this.query.page = 1;
       this.syncQueryToUrl();
       this.fetchPage();
@@ -251,6 +253,13 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
   }
   t(key: string): string { return this.language.t(key); }
   number(value: number | null): string { return value === null ? '—' : `${value.toFixed(1)}%`; }
+  weekLabel(query: LearningReportQuery): string {
+    return activityWeeks(query.academicYear).find(week => week.value === query.weekStart)?.label
+      ?? this.t('reports.activityPeriod.allWeeks');
+  }
+  activityPeriodLabel(query: LearningReportQuery): string {
+    return `${this.t('reports.learningReview.month')}: ${query.month ?? this.t('reports.learningReview.allMonths')} · ${this.t('reports.activityPeriod.week')}: ${this.weekLabel(query)}`;
+  }
   valid(): boolean {
     return !!this.academicYear && this.query.maxMissing >= 0 && this.query.minScore >= 0 && this.query.minScore <= 100
       && this.query.minCompletion >= 0 && this.query.minCompletion <= 100
@@ -373,6 +382,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
         period: this.periodLabel,
         filters: [
           [this.t('reports.learningReview.month'), applied.month ?? this.t('reports.learningReview.allMonths')],
+          [this.t('reports.activityPeriod.week'), this.weekLabel(applied)],
           [this.t('reports.learningReview.courses'), courseNames.length ? courseNames.join(', ') : this.t('reports.learningReview.allCoursesShort')],
           [this.t('reports.leadership.subaccounts'), subaccountNames.length ? subaccountNames.join(', ') : this.t('reports.leadership.allSubaccounts')],
           [this.t('reports.leadership.assessmentCategory'), this.t('reports.leadership.category.' + applied.assessmentCategory)],
@@ -447,6 +457,9 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     const category = params.get('lrCategory');
     if (category === 'HS1' || category === 'HS2' || category === 'HS3' || category === 'GPA') query.assessmentCategory = category;
     query.month = params.has('lrMonth') ? this.numberFromUrl(params, 'lrMonth', 0, 1, 12, true) || null : null;
+    query.weekStart = params.get('lrWeekStart');
+    Object.assign(query, normalizeActivityPeriod(this.academicYear, query));
+    if (this.activityPeriod) Object.assign(query, this.activityPeriod);
     query.maxMissing = this.numberFromUrl(params, 'lrMaxMissing', defaults.maxMissing, 0, 1000, true);
     query.minScore = this.numberFromUrl(params, 'lrMinScore', defaults.minScore, 0, 100);
     query.minCompletion = this.numberFromUrl(params, 'lrMinCompletion', defaults.minCompletion, 0, 100);
@@ -474,6 +487,8 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: {
+        report: this.reportKey,
+        ...(this.activityPeriod ? { activityMonth: this.activityPeriod.month, activityWeekStart: this.activityPeriod.weekStart } : {}),
         lrReport: this.reportKey,
         lrCourse: this.query.courseIds.length ? this.query.courseIds : null,
         lrSubaccount: this.query.subaccountIds.length ? this.query.subaccountIds : null,
@@ -481,6 +496,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
         lrGroup: this.query.assignmentGroupNames.length ? this.query.assignmentGroupNames : null,
         lrAssignment: this.query.assignmentIds.length ? this.query.assignmentIds : null,
         lrMonth: this.query.month,
+        lrWeekStart: this.query.weekStart,
         lrMaxMissing: this.query.maxMissing,
         lrMinScore: this.query.minScore,
         lrMinCompletion: this.query.minCompletion,
@@ -491,9 +507,10 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     });
   }
   private defaultQuery(): LearningReportQuery {
-    return { reportKey: 'missing-frequency', academicYear: '', term: 'all', month: null,
+    return { reportKey: 'missing-frequency', academicYear: '', term: 'all', month: null, weekStart: null,
       courseIds: [], subaccountIds: [], assignmentIds: [], maxMissing: 2, minScore: 80, minCompletion: 90,
       assignmentGroupNames: [], assessmentCategory: 'all', page: 1,
+      ...(this.activityPeriod ?? {}),
     };
   }
 }

@@ -35,6 +35,8 @@ import { ScoreReportComponent, ScoreReportMenuKey } from './score-report.compone
 import { ErpMealReportComponent } from './erp-meal-report.component';
 import { ReportExcelExportService, ReportExportLimitError } from './report-excel-export.service';
 import { ReportExportButtonComponent } from './report-export-button.component';
+import { ActivityPeriodFilterComponent } from './activity-period-filter.component';
+import { activityWeeks, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
 
 type StaticReportId =
   | 'learning-diligence'
@@ -113,7 +115,7 @@ interface ClassDrilldownPage {
 
 @Component({
   selector: 'app-static-reports',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent, LeadershipReportComponent, ScoreReportComponent, ErpMealReportComponent, ReportExportButtonComponent],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, RouterLink, SupplementalReportComponent, HealthReportComponent, BehaviourReportComponent, LearningReviewReportComponent, LeadershipReportComponent, ScoreReportComponent, ErpMealReportComponent, ReportExportButtonComponent, ActivityPeriodFilterComponent],
   template: `
     <section class="print-region space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
@@ -291,11 +293,25 @@ interface ClassDrilldownPage {
                   }
                 </select>
               </label>
+              @if (supportsActivityPeriod()) {
+                <app-activity-period-filter class="block w-full sm:w-auto sm:flex-none" [academicYear]="selectedYear"
+                  [month]="activityPeriod.month" [weekStart]="activityPeriod.weekStart" [showHint]="false" [disabled]="loading() || reportLoading()"
+                  (periodChange)="onActivityPeriodChange($event)" />
+              }
               <div class="ml-auto flex min-h-10 items-center gap-2 rounded-md bg-[#f7f4f8] px-3 text-xs text-[#746b7b]">
                 <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
                 {{ languageService.t('reports.liveData') }}
               </div>
             </div>
+            @if (supportsActivityPeriod()) {
+              <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.activityPeriod.hint') }}</p>
+            }
+            @if (activeReport() === 'support-classes') {
+              <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.activityPeriod.semesterOnly') }}</p>
+            }
+            @if (activeReport() === 'school-current-course-score') {
+              <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t('reports.activityPeriod.currentScoreOnly') }}</p>
+            }
           </section>
 
           <div class="min-h-[560px]" [attr.aria-busy]="loading() || reportLoading()">
@@ -326,22 +342,22 @@ interface ClassDrilldownPage {
               @case ('support-classes') {
                 <ng-container [ngTemplateOutlet]="supportClasses"></ng-container>
               }
-              @case ('missing-frequency') { <app-learning-review-report reportKey="missing-frequency" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('homework-achievement') { <app-learning-review-report reportKey="homework-achievement" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('reading-completion') { <app-learning-review-report reportKey="reading-completion" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('grading-coverage') { <app-learning-review-report reportKey="grading-coverage" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('school-learning-engagement') { <app-leadership-report reportKey="school-learning-engagement" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('school-assessment-results') { <app-leadership-report reportKey="school-assessment-results" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('school-subject-grade-average') { <app-score-report reportKey="school-subject-grade-average" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('subject-band-by-subject') { <app-score-report reportKey="subject-band-by-subject" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('subject-band-by-grade') { <app-score-report reportKey="subject-band-by-grade" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('subject-band-by-class') { <app-score-report reportKey="subject-band-by-class" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('school-score-histogram') { <app-score-report reportKey="school-score-histogram" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('subject-assessment-average') { <app-score-report reportKey="subject-assessment-average" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('school-current-course-score') { <app-score-report reportKey="school-current-course-score" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('subject-class-results') { <app-score-report reportKey="subject-class-results" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('school-top-students') { <app-score-report reportKey="school-top-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
-              @case ('school-bottom-students') { <app-score-report reportKey="school-bottom-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" /> }
+              @case ('missing-frequency') { <app-learning-review-report reportKey="missing-frequency" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('homework-achievement') { <app-learning-review-report reportKey="homework-achievement" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('reading-completion') { <app-learning-review-report reportKey="reading-completion" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('grading-coverage') { <app-learning-review-report reportKey="grading-coverage" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('school-learning-engagement') { <app-leadership-report reportKey="school-learning-engagement" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('school-assessment-results') { <app-leadership-report reportKey="school-assessment-results" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('school-subject-grade-average') { <app-score-report reportKey="school-subject-grade-average" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('subject-band-by-subject') { <app-score-report reportKey="subject-band-by-subject" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('subject-band-by-grade') { <app-score-report reportKey="subject-band-by-grade" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('subject-band-by-class') { <app-score-report reportKey="subject-band-by-class" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('school-score-histogram') { <app-score-report reportKey="school-score-histogram" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('subject-assessment-average') { <app-score-report reportKey="subject-assessment-average" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('school-current-course-score') { <app-score-report reportKey="school-current-course-score" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('subject-class-results') { <app-score-report reportKey="subject-class-results" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('school-top-students') { <app-score-report reportKey="school-top-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
+              @case ('school-bottom-students') { <app-score-report reportKey="school-bottom-students" [academicYear]="selectedYear" [term]="selectedTerm" [periodLabel]="periodLabel()" [activityPeriod]="activityPeriod" /> }
               @case ('support-students') {
                 <ng-container [ngTemplateOutlet]="supportStudents"></ng-container>
               }
@@ -399,11 +415,13 @@ interface ClassDrilldownPage {
     <ng-template #learningDiligence>
       <section class="overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
         <ng-container *ngTemplateOutlet="reportHeader; context: { titleKey: 'reports.learning.title', descriptionKey: 'reports.learning.longDescription' }"></ng-container>
+        <p class="border-b border-[#eee8f1] px-5 py-3 text-xs text-[#817589]">{{ activityPeriodLabel() }}</p>
         <div class="border-b border-[#eee8f1] bg-[#fdfbfe] px-5 py-4 sm:px-6">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p class="text-sm font-semibold text-[#32124f]">{{ languageService.t('reports.canvasAverage') }}</p>
               <p class="mt-1 text-xs text-[#817589]">{{ languageService.t('reports.canvasAverageHint') }}</p>
+              <p class="mt-1 text-xs text-[#817589]">{{ languageService.t('reports.activityPeriod.courseScoreHint') }}</p>
             </div>
             <p class="text-2xl font-semibold text-[#6d3a91]">{{ formatPercent(averageCanvasScorePercentage()) }}</p>
           </div>
@@ -1010,6 +1028,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   readonly classDrilldownTotalCount = signal(0);
   readonly classDrilldownTotalPages = signal(0);
   selectedYear = '';
+  activityPeriod: ActivityPeriodSelection = { month: null, weekStart: null };
   selectedTerm = 'all';
   readonly studentSearch = signal('');
   private currentFilters: WorkspaceFilterSet = defaultFilterSet();
@@ -1022,12 +1041,12 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   private classDrilldownUnmountTimer: number | undefined;
   private readonly classDrilldownPageSize = 20;
 
-  readonly periodLabel = computed(() => {
-    const year = this.overview()?.periodYear || this.selectedYear;
-    const term = this.overview()?.periodTerm || this.selectedTerm;
+  periodLabel(): string {
+    const year = this.selectedYear;
+    const term = this.selectedTerm;
     if (!year) return this.languageService.t('reports.currentPeriod');
     return `${this.formatYear(year)} · ${this.termLabel(term)}`;
-  });
+  }
 
   readonly classRows = computed<SupportCohortRow[]>(() => {
     const overview = this.overview();
@@ -1109,6 +1128,15 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       this.terms.set(options.terms);
       this.selectedYear = options.academicYears.includes(filters.year) ? filters.year : options.academicYears[0] ?? '';
       this.selectedTerm = filters.semester === 'all' || options.terms.includes(filters.semester) ? filters.semester : 'all';
+      const params = this.route.snapshot.queryParamMap;
+      const legacyPrefix = this.activeReport() === 'learning-diligence' ? 'ld'
+        : params.get('lrReport') === this.activeReport() ? 'lr'
+        : params.get('scoreReport') === this.activeReport() ? 'score' : 'lead';
+      this.activityPeriod = normalizeActivityPeriod(this.selectedYear, {
+        month: params.has('activityMonth') ? Number(params.get('activityMonth'))
+          : params.has(legacyPrefix + 'Month') ? Number(params.get(legacyPrefix + 'Month')) : null,
+        weekStart: params.get('activityWeekStart') ?? params.get(legacyPrefix + 'WeekStart'),
+      });
       this.currentFilters = { ...filters, year: this.selectedYear, semester: this.selectedTerm };
       this.loadReportData();
     });
@@ -1410,9 +1438,33 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   }
 
   onPeriodChange(): void {
+    this.activityPeriod = normalizeActivityPeriod(this.selectedYear, this.activityPeriod);
     this.currentFilters = { ...this.currentFilters, year: this.selectedYear, semester: this.selectedTerm };
     this.workspaceFilters.save(this.currentFilters);
+    this.syncReportStateToQuery();
     this.loadReportData();
+  }
+
+  onActivityPeriodChange(selection: ActivityPeriodSelection): void {
+    this.activityPeriod = selection;
+    this.syncReportStateToQuery();
+    this.loadReportData();
+  }
+
+  supportsActivityPeriod(): boolean {
+    const report = this.activeReport();
+    return report !== 'support-classes' && report !== 'school-current-course-score'
+      && this.reportGroups.some(group => ['learning', 'school-leadership', 'subject-leadership'].includes(group.id)
+        && group.items.some(item => item.id === report));
+  }
+
+  diligenceWeekLabel(): string {
+    return activityWeeks(this.selectedYear).find(week => week.value === this.activityPeriod.weekStart)?.label
+      ?? this.languageService.t('reports.activityPeriod.allWeeks');
+  }
+
+  activityPeriodLabel(): string {
+    return `${this.languageService.t('reports.learningReview.month')}: ${this.activityPeriod.month ?? this.languageService.t('reports.learningReview.allMonths')} · ${this.languageService.t('reports.activityPeriod.week')}: ${this.diligenceWeekLabel()}`;
   }
 
   loadReportData(): void {
@@ -1446,6 +1498,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       ].join(','),
       ...(this.selectedYear ? { year: this.selectedYear } : {}),
       ...(this.selectedTerm && this.selectedTerm !== 'all' ? { term: this.selectedTerm } : {}),
+      ...(needsMetrics && this.activityPeriod.month !== null ? { month: String(this.activityPeriod.month) } : {}),
+      ...(needsMetrics && this.activityPeriod.weekStart ? { weekStart: this.activityPeriod.weekStart } : {}),
     };
 
     forkJoin({
@@ -1543,10 +1597,13 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         groups: expandedGroups.length ? expandedGroups.join(',') : 'none',
         cohort: this.cohortView(),
         library: this.reportMenuCollapsed() ? 'collapsed' : null,
+        activityMonth: this.activityPeriod.month,
+        activityWeekStart: this.activityPeriod.weekStart,
+        ldMonth: null, ldWeekStart: null,
         ...(clearLearningFilters ? {
           lrReport: null, lrCourse: null, lrGroup: null, lrAssignment: null,
           lrSubaccount: null, lrCategory: null,
-          lrMonth: null, lrMaxMissing: null, lrMinScore: null,
+          lrMonth: null, lrWeekStart: null, lrMaxMissing: null, lrMinScore: null,
           lrMinCompletion: null, lrPage: null,
         } : {}),
       },
@@ -1715,6 +1772,11 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
           fileName: `${title}-${this.selectedYear}-${this.selectedTerm}`,
           title,
           period: this.periodLabel(),
+          filters: [
+            [this.languageService.t('reports.learningReview.month'), this.activityPeriod.month ?? this.languageService.t('reports.learningReview.allMonths')],
+            [this.languageService.t('reports.activityPeriod.week'), this.diligenceWeekLabel()],
+            [this.languageService.t('reports.canvasAverage'), this.languageService.t('reports.activityPeriod.courseScoreHint')],
+          ],
           columns: [
             { header: this.languageService.t('reports.table.indicator'), value: row => this.languageService.t(row.indicatorKey) },
             { header: this.languageService.t('reports.table.result'), value: row => row.value },

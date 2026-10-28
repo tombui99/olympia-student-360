@@ -663,6 +663,8 @@ public class CanvasDashboardMetricAggregate : BaseEntity
     public DateTime? PeriodStart { get; set; }
     /// <summary>Event month adjusted to the row's reporting year, used by year-scoped reports.</summary>
     public DateTime? AcademicPeriodStart { get; set; }
+    /// <summary>Exact reporting day behind AcademicPeriodStart, retained for weekly activity filters.</summary>
+    public DateTime? AcademicActivityDate { get; set; }
     public double ValueSum { get; set; }
     /// <summary>Denominator for average metrics; zero for additive count metrics.</summary>
     public int SampleCount { get; set; }
@@ -684,6 +686,8 @@ public class CanvasLeadershipReportAggregate : BaseEntity
     public string AcademicYear { get; set; } = default!;
     public string Term { get; set; } = "";
     public DateTime? AcademicPeriodStart { get; set; }
+    /// <summary>Activity day for assignment results; semester course scores leave it null.</summary>
+    public DateTime? AcademicActivityDate { get; set; }
     public bool IsFinalCourseScore { get; set; }
     public string? AssignmentGroupName { get; set; }
     public string? AssessmentCategory { get; set; }

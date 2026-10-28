@@ -81,7 +81,7 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
 
         // No raw warehouse fallback: an empty ETL aggregate produces an explicit unavailable result.
         if (!await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
-                db, cancellationToken))
+                db, cancellationToken, requireActivityDates: request.WeekStart is not null))
             return Ok(new LearningReportResult([], 0, false, "aggregate_unavailable", request.Page, pageSize));
 
         var year = DashboardPeriodNormalizer.AcademicYear(request.AcademicYear!);
@@ -93,12 +93,7 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
             var term = DashboardPeriodNormalizer.Term(request.Term);
             facts = facts.Where(item => item.Term == term);
         }
-        if (request.Month is >= 1 and <= 12)
-        {
-            var month = request.Month.Value;
-            facts = facts.Where(item => item.AcademicPeriodStart != null &&
-                item.AcademicPeriodStart.Value.Month == month);
-        }
+        facts = CanvasActivityPeriodFilter.Apply(facts, request.Month, request.WeekStart);
         if (request.CourseIds.Count > 0)
             facts = facts.WhereMatchesAnyValue(item => item.CanvasCourseId, request.CourseIds);
         if (request.SubaccountIds.Count > 0)
@@ -234,7 +229,8 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
         if (!string.IsNullOrWhiteSpace(query.Term) && query.Term != "all" &&
             DashboardPeriodNormalizer.Term(query.Term) is not ("hk1" or "hk2"))
             return "Select a valid reporting term.";
-        if (query.Month is < 1 or > 12) return "Month must be between 1 and 12.";
+        var activityError = CanvasActivityPeriodFilter.Validate(query.AcademicYear, query.Month, query.WeekStart);
+        if (activityError is not null) return activityError;
         if (query.CourseIds is null || query.AssignmentIds is null ||
             query.AssignmentGroupNames is null || query.SubaccountIds is null)
             return "Invalid course or assignment selections.";
@@ -263,6 +259,7 @@ public sealed record LearningReportQuery
     public string? AcademicYear { get; init; }
     public string? Term { get; init; } = "all";
     public int? Month { get; init; }
+    public string? WeekStart { get; init; }
     public List<long> CourseIds { get; init; } = [];
     public List<long> SubaccountIds { get; init; } = [];
     public string AssessmentCategory { get; init; } = "all";

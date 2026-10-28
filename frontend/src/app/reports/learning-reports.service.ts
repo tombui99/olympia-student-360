@@ -12,6 +12,7 @@ export interface LearningReportQuery {
   academicYear: string;
   term: string;
   month: number | null;
+  weekStart: string | null;
   courseIds: number[];
   subaccountIds: number[];
   assignmentIds: number[];

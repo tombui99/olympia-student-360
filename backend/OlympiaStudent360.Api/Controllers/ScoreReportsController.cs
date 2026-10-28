@@ -136,7 +136,7 @@ public sealed class ScoreReportsController(
         var source = isCurrent ? CurrentSource : TestSource;
         var unit = request.ViewKey == "current-course-score" ? "percent" : "score10";
         if (!await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
-                db, cancellationToken))
+                db, cancellationToken, requireLeadershipActivityDates: !isCurrent && request.WeekStart is not null))
             return Ok(EmptyResult(request.ViewKey, source, unit, "aggregate_unavailable", false));
 
         if (request.ViewKey == "grade-letter-distribution" && request.SubaccountIds.Count != 1)
@@ -284,6 +284,7 @@ public sealed class ScoreReportsController(
             item.PossiblePoints > 0 &&
             item.AcademicYear == DashboardPeriodNormalizer.AcademicYear(request.AcademicYear!));
         facts = ApplyShared(facts, request, subjectCourseIds, subaccountIds);
+        facts = CanvasActivityPeriodFilter.Apply(facts, request.Month, request.WeekStart);
         var category = CanvasReportFilters.CanonicalCategory(request.AssessmentCategory)!;
         if (category != "all") facts = facts.Where(item => item.AssessmentCategory == category);
 
@@ -641,6 +642,10 @@ public sealed class ScoreReportsController(
 
     private static string? Validate(ScoreReportQuery request)
     {
+        var activityError = CanvasActivityPeriodFilter.Validate(request.AcademicYear, request.Month, request.WeekStart);
+        if (activityError is not null) return activityError;
+        if (request.ViewKey == "current-course-score" && (request.Month is not null || request.WeekStart is not null))
+            return "Canvas current course scores are semester-level measures; activity filters apply to assignment reports.";
         if (!ViewKeys.Contains(request.ViewKey)) return "Unknown score report.";
         if (string.IsNullOrWhiteSpace(request.AcademicYear) ||
             !DashboardPeriodNormalizer.IsAcademicYear(request.AcademicYear))
@@ -701,6 +706,8 @@ public sealed class ScoreReportsController(
 
 public sealed record ScoreReportQuery
 {
+    public int? Month { get; init; }
+    public string? WeekStart { get; init; }
     public string ViewKey { get; init; } = "subject-grade-average";
     public string? AcademicYear { get; init; }
     public string? Term { get; init; } = "all";

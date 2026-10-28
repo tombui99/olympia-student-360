@@ -38,6 +38,151 @@ public sealed class MySqlTheoryAttribute : TheoryAttribute
 public sealed class MySqlResilienceTests
 {
     [MySqlTheory]
+    [InlineData("missing-frequency")]
+    [InlineData("homework-achievement")]
+    [InlineData("reading-completion")]
+    [InlineData("grading-coverage")]
+    public async Task LearningReportsFilterPersistedActivityDatesAndUpgradeMonthlySnapshots(string reportKey)
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        await using var db = test.Open();
+        var student = new StudentProfile { SISUserId = "weekly-report", FullName = "Weekly report student", GradeLevel = "5", Homeroom = "5H1" };
+        var course = new CanvasCourse { CanvasCourseId = 100, Name = "Test course", EnrollmentTermName = "2026-27", CanvasAccountId = 20, CanvasGradeLevel = "5" };
+        db.CanvasAccounts.Add(new CanvasAccount { CanvasAccountId = 20, Name = "G5_Math" });
+        db.StudentProfiles.Add(student);
+        db.CanvasCourses.Add(course);
+        await db.SaveChangesAsync();
+        db.CanvasEnrollments.Add(new CanvasEnrollment
+        {
+            CanvasEnrollmentId = 100, Course = course, CanvasUserId = 10, Student = student,
+            Section = new CanvasCourseSection { CanvasSectionId = 100, Course = course, Name = "5H1" },
+            Type = "StudentEnrollment", EnrollmentState = "active"
+        });
+        db.CanvasCourseScores.Add(new CanvasCourseScore
+        {
+            WarehouseScoreFactId = 100, CanvasEnrollmentId = 100, StudentProfileId = student.Id,
+            FinalScore = 75, GradingPeriodTitle = "HK1", GradingPeriodEndDate = new DateTime(2027, 1, 18)
+        });
+        var dates = new[] { new DateTime(2026, 10, 19), new DateTime(2026, 10, 26),
+            new DateTime(2026, 11, 1), new DateTime(2026, 11, 2), new DateTime(2026, 10, 30) };
+        for (var index = 0; index < dates.Length; index++)
+        {
+            var missing = index == 4;
+            db.CanvasAssignments.Add(new CanvasAssignment
+            {
+                CanvasAssignmentId = 5000 + index, CanvasCourseId = 100, Name = $"Task {index}",
+                PointsPossible = 100, Published = true, AssignmentGroupName = "HS1",
+                DueAt = missing ? dates[0] : dates[index]
+            });
+            db.CanvasSubmissions.Add(new CanvasSubmission
+            {
+                CanvasSubmissionId = 6000 + index, CanvasAssignmentId = 5000 + index, CanvasCourseId = 100,
+                StudentProfileId = student.Id, CanvasUserId = 10, WorkflowState = missing ? "unsubmitted" : "graded",
+                SubmittedAt = missing ? null : dates[index], GradedAt = missing ? null : dates[index],
+                Score = missing ? null : 80, Missing = missing, CachedDueDate = missing ? dates[index] : null
+            });
+        }
+        db.CanvasSyncRuns.Add(CompletedRun(new DateTime(2026, 11, 3)));
+        await db.SaveChangesAsync();
+        await new CanvasDashboardAggregateService(db).RebuildAsync(default);
+        var controller = new LearningReportsController(db, new UserAccessService(db, new HttpContextAccessor()));
+        async Task<LearningReportResult> Run(int? month, string? week = "2026-10-26", string term = "hk1")
+        {
+            var response = await controller.Run(new LearningReportQuery
+            {
+                ReportKey = reportKey, AcademicYear = "2026-2027", Term = term, Month = month, WeekStart = week,
+                CourseIds = [100], AssignmentIds = [5000, 5001, 5002, 5003, 5004],
+                MaxMissing = 100, MinScore = 0, MinCompletion = 0
+            }, default);
+            return Assert.IsType<LearningReportResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+        }
+        var week = await Run(null);
+        Assert.True(week.AggregateAvailable);
+        var row = Assert.Single(week.Rows);
+        if (reportKey == "homework-achievement") Assert.Equal(80, row.Score);
+        else Assert.Equal(2, row.Submitted);
+        if (reportKey is "missing-frequency" or "reading-completion") Assert.Equal(1, row.Missing);
+        if (reportKey == "reading-completion") Assert.Equal(66.7, row.Rate);
+        if (reportKey == "grading-coverage") Assert.Equal(2, row.Graded);
+        var october = Assert.Single((await Run(10)).Rows);
+        var november = Assert.Single((await Run(11)).Rows);
+        if (reportKey != "homework-achievement")
+        {
+            Assert.Equal(1, october.Submitted);
+            Assert.Equal(1, november.Submitted);
+        }
+        if (reportKey == "reading-completion")
+        {
+            Assert.Equal(50, october.Rate);
+            Assert.Equal(100, november.Rate);
+        }
+        Assert.Empty((await Run(null, term: "hk2")).Rows);
+
+        // A v5 snapshot is still readable for months, but must never masquerade as weekly data.
+        await db.CanvasDashboardAggregateBuilds.ExecuteUpdateAsync(setters => setters.SetProperty(item => item.SchemaVersion, 5));
+        await db.CanvasDashboardMetricAggregates.ExecuteUpdateAsync(setters => setters.SetProperty(item => item.AcademicActivityDate, (DateTime?)null));
+        Assert.False((await Run(null)).AggregateAvailable);
+        Assert.True((await Run(10, week: null)).AggregateAvailable);
+        await new CanvasDashboardAggregateService(db).RefreshIfNeededAsync(default);
+        Assert.True((await Run(null)).AggregateAvailable);
+        Assert.True(await db.CanvasDashboardMetricAggregates.AnyAsync(item => item.AcademicActivityDate != null));
+
+        if (reportKey == "homework-achievement")
+        {
+            // Different scores outside the selected week make an accidentally unfiltered query observable.
+            await db.CanvasSubmissions.Where(item => item.CanvasAssignmentId == 5000)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.Score, 100.0));
+            await db.CanvasSubmissions.Where(item => item.CanvasAssignmentId == 5003)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.Score, 40.0));
+            await new CanvasDashboardAggregateService(db).RebuildAsync(default);
+            var access = new UserAccessService(db, new HttpContextAccessor());
+            var scores = new ScoreReportsController(db, access);
+            foreach (var view in new[] { "subject-grade-average", "subject-letter-distribution", "grade-letter-distribution",
+                "class-letter-distribution", "class-subject-distribution", "assessment-average", "score-histogram", "top-students", "bottom-students" })
+            {
+                async Task<ScoreReportResult> Score(string? start, int? month = null)
+                {
+                    var response = await scores.Run(new ScoreReportQuery
+                    {
+                        ViewKey = view, AcademicYear = "2026-2027", Term = "hk1", WeekStart = start, Month = month,
+                        Grade = "5", SubaccountIds = [20], CanvasSectionName = "5H1", AssessmentCategory = "HS1"
+                    }, default);
+                    return Assert.IsType<ScoreReportResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+                }
+                var selected = await Score("2026-10-26", 10);
+                Assert.True(selected.AggregateAvailable);
+                Assert.True(selected.Total.ScoreCount == 1, $"Expected a scored course result in {view}: {selected.Notice}");
+                Assert.Equal(8, selected.Total.AverageScore);
+                Assert.Equal(4, (await Score("2026-11-02")).Total.AverageScore);
+                Assert.Equal(7.5, (await Score(null)).Total.AverageScore);
+                Assert.Equal(8, (await Score("2026-10-26", 11)).Total.AverageScore);
+            }
+            var leadership = new LeadershipReportsController(db, access);
+            foreach (var view in new[] { "learning-engagement", "assessment-results" })
+            {
+                var response = await leadership.Run(new LeadershipReportQuery
+                {
+                    ReportKey = view, AcademicYear = "2026-2027", Term = "hk1", WeekStart = "2026-10-26", Month = 10
+                }, default);
+                var selected = Assert.IsType<LeadershipReportResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+                Assert.True(selected.AggregateAvailable);
+                Assert.Equal(1, selected.Summary.Submitted);
+                Assert.Equal(1, selected.Summary.Missing);
+                Assert.Equal(80, selected.Summary.AverageScorePercent);
+                if (view == "assessment-results") Assert.Equal(75, selected.FinalCourseScores!.Summary.AverageScorePercent);
+            }
+            var weekFacts = await CanvasActivityPeriodFilter.Apply(db.CanvasLeadershipReportAggregates
+                .Where(item => !item.IsFinalCourseScore), null, "2026-10-26").ToListAsync();
+            Assert.Equal(160, weekFacts.Sum(item => item.EarnedPoints));
+            Assert.Equal(200, weekFacts.Sum(item => item.PossiblePoints));
+            await db.CanvasDashboardAggregateBuilds.ExecuteUpdateAsync(setters => setters.SetProperty(item => item.SchemaVersion, 6));
+            var unavailable = await leadership.Run(new LeadershipReportQuery
+            { AcademicYear = "2026-2027", WeekStart = "2026-10-26" }, default);
+            Assert.False(Assert.IsType<LeadershipReportResult>(Assert.IsType<OkObjectResult>(unavailable.Result).Value).AggregateAvailable);
+        }
+    }
+
+    [MySqlTheory]
     [InlineData("subject-grade-average")]
     [InlineData("subject-letter-distribution")]
     [InlineData("grade-letter-distribution")]
@@ -409,6 +554,8 @@ public sealed class MySqlResilienceTests
     [InlineData("20261020200719_TrackCanvasReportCourseChanges", "20261019113745_ReclassifyGrade5AsLowerSecondary", 1)]
     [InlineData("20261020200719_TrackCanvasReportCourseChanges", "20261019113745_ReclassifyGrade5AsLowerSecondary", 3)]
     [InlineData("20261021093911_ClassifyGhkGroupsAsHs2", "20261020200719_TrackCanvasReportCourseChanges", 1)]
+    [InlineData("20261028025118_AddCanvasActivityReportingDate", "20261021093911_ClassifyGhkGroupsAsHs2", 1)]
+    [InlineData("20261028030256_AddLeadershipActivityReportingDate", "20261028025118_AddCanvasActivityReportingDate", 1)]
     public async Task InterruptedReportMigrationsResumeWithoutDroppingCommittedSchema(
         string interruptedMigration, string previousMigration, int completedOperations)
     {
@@ -466,25 +613,31 @@ public sealed class MySqlResilienceTests
         await using var db = test.Open();
         var student = new StudentProfile { SISUserId = "ghk-test", FullName = "Report student" };
         var course = new CanvasCourse { CanvasCourseId = 100, Name = "Report course" };
-        db.CanvasLeadershipReportAggregates.AddRange(new[] { "GHK1", "GHK2", " ghk1 ", "GHK10", "HS1" }
-            .Select(group => new CanvasLeadershipReportAggregate
-            {
-                Student = student, Course = course, AcademicYear = "2026-2027", Term = "HK1",
-                AssignmentGroupName = group, AssessmentCategory = group == "HS1" ? "HS1" : null,
-                ScoreSum = 75, ScoreCount = 1, EarnedPoints = 7.5, PossiblePoints = 10
-            }));
-        db.CanvasDashboardMetricAggregates.Add(new CanvasDashboardMetricAggregate
-        {
-            Student = student, Course = course, AcademicYear = "2026-2027", Term = "HK1",
-            MetricKey = CanvasDashboardAggregateService.SubmissionScoreAverage, ValueSum = 75, SampleCount = 1
-        });
+        db.StudentProfiles.Add(student);
+        db.CanvasCourses.Add(course);
         db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
         {
             SchemaVersion = 5, LastCompletedSyncRunId = 24,
             CompletedAtUtc = new DateTime(2026, 10, 20), PeriodConfigurationHash = "existing-snapshot"
         });
         await db.SaveChangesAsync();
-        var metricId = (await db.CanvasDashboardMetricAggregates.SingleAsync()).Id;
+        // Seed the pre-activity-date schema without using the current entity's new column.
+        foreach (var group in new[] { "GHK1", "GHK2", " ghk1 ", "GHK10", "HS1" })
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO `CanvasLeadershipReportAggregates`
+                    (`StudentProfileId`,`CanvasCourseId`,`AcademicYear`,`Term`,`IsFinalCourseScore`,
+                     `AssignmentGroupName`,`AssessmentCategory`,`Submitted`,`Missing`,`Late`,`Graded`,
+                     `ScoreSum`,`ScoreCount`,`EarnedPoints`,`PossiblePoints`,`CreatedAt`)
+                VALUES ({student.Id},{course.CanvasCourseId},'2026-2027','HK1',0,
+                    {group},{(group == "HS1" ? "HS1" : null)},0,0,0,0,75,1,7.5,10,UTC_TIMESTAMP(6))
+                """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO `CanvasDashboardMetricAggregates`
+                (`StudentProfileId`,`CanvasCourseId`,`AcademicYear`,`Term`,`MetricKey`,`ValueSum`,`SampleCount`,`CreatedAt`)
+            VALUES ({student.Id},{course.CanvasCourseId},'2026-2027','HK1',
+                {CanvasDashboardAggregateService.SubmissionScoreAverage},75,1,UTC_TIMESTAMP(6))
+            """);
+        var metricId = await db.CanvasDashboardMetricAggregates.Select(item => item.Id).SingleAsync();
         var reportIds = await db.CanvasLeadershipReportAggregates.OrderBy(row => row.Id).Select(row => row.Id).ToArrayAsync();
 
         await db.MigrateWithRecoveryAsync();

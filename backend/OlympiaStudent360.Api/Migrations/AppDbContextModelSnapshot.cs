@@ -642,6 +642,9 @@ namespace OlympiaStudent360.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("AcademicActivityDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<DateTime?>("AcademicPeriodStart")
                         .HasColumnType("datetime(6)");
 
@@ -693,6 +696,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("StudentProfileId");
 
                     b.HasIndex("MetricKey", "PeriodStart");
+
+                    b.HasIndex("AcademicYear", "Term", "AcademicActivityDate", "MetricKey")
+                        .HasDatabaseName("IX_CanvasDashboardMetrics_ActivityDate");
 
                     b.HasIndex("MetricKey", "AcademicYear", "Term", "AcademicPeriodStart");
 
@@ -805,6 +811,9 @@ namespace OlympiaStudent360.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("AcademicActivityDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<DateTime?>("AcademicPeriodStart")
                         .HasColumnType("datetime(6)");
 
@@ -872,6 +881,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("StudentProfileId");
 
                     b.HasIndex("AcademicYear", "AssessmentCategory");
+
+                    b.HasIndex("AcademicYear", "IsFinalCourseScore", "Term", "AcademicActivityDate")
+                        .HasDatabaseName("IX_CanvasLeadershipReports_ActivityDate");
 
                     b.HasIndex("AcademicYear", "IsFinalCourseScore", "Term", "AcademicPeriodStart");
 

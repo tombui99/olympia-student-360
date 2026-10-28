@@ -33,6 +33,8 @@ export interface LeadershipReportQuery {
   reportKey: LeadershipReportKey;
   academicYear: string;
   term: string;
+  month: number | null;
+  weekStart: string | null;
   grade: string;
   homeroom: string;
   subaccountIds: number[];

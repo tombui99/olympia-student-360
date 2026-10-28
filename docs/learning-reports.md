@@ -31,10 +31,50 @@ aggregation without reimporting Canvas or forcing a full historical rebuild.
 
 | Report | Stored facts used | Teacher configuration |
 | --- | --- | --- |
-| Missing assignment frequency | submitted and non-excused missing counts | year, term, month, courses, Canvas assignment groups, maximum missing count |
-| Homework achievement | sum of graded submission score percentages and sample count | year, term, courses, Canvas assignment groups, minimum average score |
-| Selected task completion | submitted and non-excused missing counts | year, term, month, courses, selected assignment IDs, minimum completion rate |
-| Grading coverage | submitted and submitted-with-graded-status counts | year, term, courses, minimum grading rate |
+| Missing assignment frequency | submitted and non-excused missing counts | year, term, month, week, courses, Canvas assignment groups, maximum missing count |
+| Homework achievement | sum of graded submission score percentages and sample count | year, term, month, week, courses, Canvas assignment groups, minimum average score |
+| Selected task completion | submitted and non-excused missing counts | year, term, month, week, courses, selected assignment IDs, minimum completion rate |
+| Grading coverage | submitted and submitted-with-graded-status counts | year, term, month, week, courses, minimum grading rate |
+
+The shared period bar exposes calendar months and Monday–Sunday weeks for 16 academic reports:
+the four configurable reports, learning diligence, both leadership reports, and nine assignment-score
+views (averages, distributions, histogram, class-subject results, and student rankings). The selectors
+stay in the same location as users switch reports and keep their selection across those reports.
+Month choices include the calendar year, and week choices show their inclusive date range.
+The week selector stays disabled until a month is selected and lists only weeks overlapping that
+month. Changing or clearing the month resets the week; a URL containing a week without a valid
+month is normalized to an unselected week.
+The school year runs September–August; weeks overlapping its edges are available, while the
+academic-year filter still restricts the included facts. Selecting both month and week intersects
+the ranges. A semester selection additionally restricts the stored reporting term. Undated facts
+remain available in an unfiltered report but cannot be attributed to a week or month.
+
+Schema version 6 retains `AcademicActivityDate` on metric facts, alongside the existing monthly
+buckets. It uses the same event-date rules as the monthly reports: submitted/late counts use
+submission dates, missing counts use due dates, and assignment scores use grading dates.
+Submitted-and-graded counts use submission dates so grading coverage has a consistent denominator.
+An event outside its reporting school year retains the existing in-year due-date fallback.
+These are the warehouse's UTC calendar dates, consistent with existing monthly buckets.
+Schema version 7 also retains activity days in `CanvasLeadershipReportAggregates`. Assignment points
+and activity counts are grouped and joined by day as well as student/course/group/month, so weekly
+score ratios use only eligible assignments within the selected dates, without duplicating monthly
+point totals. Semester final-course-score rows retain a null activity day.
+Weekly queries filter these persisted dates in SQL; they never scan raw submissions or approximate
+weeks from monthly totals. Shared URL parameters (`activityMonth`, `activityWeekStart`) and Excel
+exports retain the applied month/week. Existing report-specific period URLs remain readable.
+
+Deploy the `AddCanvasActivityReportingDate` and `AddLeadershipActivityReportingDate` migrations,
+then refresh the Canvas report aggregates with the normal ETL or `--refresh-dashboard-aggregates-only`.
+A pre-v7 snapshot requires one full rebuild from stored Canvas facts to recover the dates; it
+requires no Canvas download. Existing v5/v6 snapshots remain readable for semester/month reports
+during this rebuild. Weekly metric/learning reports require v6, while weekly score/leadership reports
+return the aggregate-unavailable state until v7 commits. Later refreshes remain course incremental.
+
+The class support overview uses semester-level course scores and risk snapshots, so it keeps its
+year/semester scope. Learning diligence's course-average card also keeps that scope; its week/month
+selection filters the dated assignment indicators. The dedicated Canvas current-course-score view
+and the final-course-score section inside assessment results also retain semester/year scope.
+These limitations are explained in the UI and relevant exports.
 
 The request groups narrow persisted facts in SQL, applies configurable thresholds, counts matching
 groups, and returns only the requested 15-row page. This small request-time arithmetic is needed because arbitrary combinations of
@@ -56,10 +96,10 @@ additive submitted/missing/late/graded counts, score sums/sample counts, and gra
 possible point totals. Canvas final-course
 scores occupy separate rows so assessment categories cannot change them. This pivot happens
 after a completed Canvas sync or during deployment backfill, not during a report HTTP request. A
-rebuild atomically replaces both aggregate tables. A v4 deployment backfill adds point totals
-from existing assignment-grain metric facts and their source submissions without rewriting the
-dashboard metric table. Older v2/v3 builds are fully rebuilt because their lineage may be
-incomplete. Both paths write version 5 readiness in their transaction; until that commit, the leadership reports show an
+rebuild atomically replaces both aggregate tables. A full deployment rebuild adds point totals
+from assignment-grain metric facts and their source submissions, and recovers activity dates from
+stored source timestamps. Older builds are fully rebuilt because their lineage may be
+incomplete. The rebuild writes version 7 readiness in its transaction; before a readable snapshot exists, leadership reports show an
 unavailable state rather than scanning raw Canvas data. If a later rebuild fails, the previous
 compatible aggregate remains readable while materialization is retried. The build cursor still records
 its actual freshness; a newer completed sync no longer makes an existing snapshot unavailable.

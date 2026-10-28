@@ -21,7 +21,9 @@ public static class DatabaseMigrationRecovery
         "20261017161256_PersistCanvasGroupScorePoints",
         "20261017162556_OptimizeCanvasScorePointBackfill",
         "20261020200719_TrackCanvasReportCourseChanges",
-        "20261021093911_ClassifyGhkGroupsAsHs2"
+        "20261021093911_ClassifyGhkGroupsAsHs2",
+        "20261028025118_AddCanvasActivityReportingDate",
+        "20261028030256_AddLeadershipActivityReportingDate"
     ];
 
     private static readonly string[] LearningReportTables =

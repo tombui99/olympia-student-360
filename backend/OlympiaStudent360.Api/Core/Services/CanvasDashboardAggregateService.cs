@@ -16,7 +16,7 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// </summary>
 public sealed class CanvasDashboardAggregateService
 {
-    public const int ReportSchemaVersion = 5;
+    public const int ReportSchemaVersion = 7;
     public const string FinalScoreAverage = "canvas-final-score-avg";
     public const string CurrentScoreAverage = "canvas-current-score-avg";
     public const string SubmissionScoreAverage = "canvas-submission-score-percent-avg";
@@ -58,7 +58,7 @@ public sealed class CanvasDashboardAggregateService
                 .OrderByDescending(item => item.Id).FirstOrDefaultAsync(cancellationToken);
             if (build is not null)
             {
-                // Adopt an existing v5 snapshot without rewriting its historical rows.
+                // Adopt an existing compatible snapshot without rewriting its historical rows.
                 // Later period edits are detected by a hash, including deleted periods.
                 var periodsChanged = build.PeriodConfigurationHash is null
                     ? await _db.AcademicPeriods.AnyAsync(item => item.CreatedAt > build.CompletedAtUtc ||
@@ -97,11 +97,7 @@ public sealed class CanvasDashboardAggregateService
                 return await RebuildCoreAsync(cancellationToken, latestRunId,
                     changedCourses.Distinct().Order().ToArray(), periods);
             }
-            if (await _db.CanvasDashboardAggregateBuilds.AsNoTracking()
-                    .AnyAsync(item => item.SchemaVersion >= 4 && item.SchemaVersion < ReportSchemaVersion &&
-                        item.LastCompletedSyncRunId >= latestRunId, cancellationToken) &&
-                await _db.CanvasDashboardMetricAggregates.AsNoTracking().AnyAsync(cancellationToken))
-                return await BackfillLeadershipFromDashboardAsync(latestRunId, cancellationToken);
+            // Monthly snapshots cannot be upgraded to daily facts without the source timestamps.
             return await RebuildCoreAsync(cancellationToken, latestRunId, periods: periods);
         }, cancellationToken);
 
@@ -114,10 +110,12 @@ public sealed class CanvasDashboardAggregateService
     /// read reports. The replacement facts and build marker are published in one transaction.
     /// </summary>
     public static async Task<bool> HasReadableSnapshotAsync(
-        AppDbContext db, CancellationToken cancellationToken = default)
+        AppDbContext db, CancellationToken cancellationToken = default, bool requireActivityDates = false,
+        bool requireLeadershipActivityDates = false)
     {
+        var minimumVersion = requireLeadershipActivityDates ? 7 : requireActivityDates ? 6 : 5;
         return await db.CanvasDashboardAggregateBuilds.AsNoTracking()
-            .AnyAsync(item => item.SchemaVersion >= ReportSchemaVersion, cancellationToken);
+            .AnyAsync(item => item.SchemaVersion >= minimumVersion, cancellationToken);
     }
 
     private async Task<T> WithWarehouseAndRebuildLockAsync<T>(
@@ -337,6 +335,7 @@ public sealed class CanvasDashboardAggregateService
                 Term = item.Key.Term,
                 PeriodStart = item.Key.PeriodStart,
                 AcademicPeriodStart = item.Key.AcademicPeriodStart,
+                AcademicActivityDate = item.Key.AcademicActivityDate,
                 ValueSum = item.Value.ValueSum,
                 SampleCount = item.Value.SampleCount,
                 CreatedAt = now
@@ -378,31 +377,9 @@ public sealed class CanvasDashboardAggregateService
         return rowCount;
     }
 
-    private async Task<int> BackfillLeadershipFromDashboardAsync(
-        int completedSyncRunId,
-        CancellationToken cancellationToken)
-    {
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        await _db.CanvasLeadershipReportAggregates.ExecuteDeleteAsync(cancellationToken);
-        var count = await PopulateLeadershipFromDashboardFactsAsync(cancellationToken);
-        await PopulateLeadershipScorePointsAsync(cancellationToken);
-        await _db.CanvasDashboardAggregateBuilds.ExecuteDeleteAsync(cancellationToken);
-        _db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
-        {
-            SchemaVersion = ReportSchemaVersion,
-            CompletedAtUtc = DateTime.UtcNow,
-            LastCompletedSyncRunId = completedSyncRunId,
-            PeriodConfigurationHash = PeriodHash(await LoadPeriodsAsync(cancellationToken))
-        });
-        await _db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return count;
-    }
-
     /// <summary>
     /// A single database-side pivot over the already materialized metric facts. This runs after
-    /// a normal ETL rebuild and upgrades v2 installations without transferring a million metric
-    /// rows to the API process or rewriting the dashboard aggregate table.
+    /// a normal ETL rebuild without transferring all metric rows to the API process.
     /// </summary>
     private async Task<int> PopulateLeadershipFromDashboardFactsAsync(
         CancellationToken cancellationToken, long[]? courseIds = null)
@@ -410,11 +387,13 @@ public sealed class CanvasDashboardAggregateService
         var pivotSql = $"""
             INSERT INTO `CanvasLeadershipReportAggregates`
                 (`StudentProfileId`, `CanvasCourseId`, `AcademicYear`, `Term`,
-                 `AcademicPeriodStart`, `IsFinalCourseScore`, `AssignmentGroupName`,
+                 `AcademicPeriodStart`, `AcademicActivityDate`, `IsFinalCourseScore`, `AssignmentGroupName`,
                  `AssessmentCategory`, `Submitted`, `Missing`, `Late`, `Graded`,
                  `ScoreSum`, `ScoreCount`, `EarnedPoints`, `PossiblePoints`, `CreatedAt`)
             SELECT source.`StudentProfileId`, source.`CanvasCourseId`,
                    source.`AcademicYear`, source.`Term`, source.`AcademicPeriodStart`,
+                   CASE WHEN source.`MetricKey` = '{FinalScoreAverage}'
+                        THEN NULL ELSE source.`AcademicActivityDate` END,
                    CASE WHEN source.`MetricKey` = '{FinalScoreAverage}' THEN 1 ELSE 0 END,
                    CASE WHEN source.`MetricKey` = '{FinalScoreAverage}'
                         THEN NULL ELSE assignment.`AssignmentGroupName` END,
@@ -441,6 +420,8 @@ public sealed class CanvasDashboardAggregateService
               {CourseFilter("source", courseIds)}
             GROUP BY source.`StudentProfileId`, source.`CanvasCourseId`,
                      source.`AcademicYear`, source.`Term`, source.`AcademicPeriodStart`,
+                     CASE WHEN source.`MetricKey` = '{FinalScoreAverage}'
+                          THEN NULL ELSE source.`AcademicActivityDate` END,
                      CASE WHEN source.`MetricKey` = '{FinalScoreAverage}' THEN 1 ELSE 0 END,
                      CASE WHEN source.`MetricKey` = '{FinalScoreAverage}'
                           THEN NULL ELSE assignment.`AssignmentGroupName` END
@@ -476,8 +457,7 @@ public sealed class CanvasDashboardAggregateService
 
     /// <summary>
     /// Reuses the persisted submission-score fact's reporting year, term and month, then attaches
-    /// the original earned/possible points to the narrower group aggregate. This also upgrades a
-    /// v4 snapshot without rerunning the entire dashboard build. Only scored, graded, published,
+    /// the original earned/possible points to the group and activity-day aggregate. Only scored, graded, published,
     /// included and non-excused assignments contribute to a Canvas group score estimate.
     /// </summary>
     private Task<int> PopulateLeadershipScorePointsAsync(
@@ -488,7 +468,7 @@ public sealed class CanvasDashboardAggregateService
                 FORCE INDEX (`IX_CanvasLeadershipReportAggregates_ScorePointJoin`)
             INNER JOIN (
                 SELECT metric.`StudentProfileId`, metric.`CanvasCourseId`, metric.`AcademicYear`,
-                       metric.`Term`, metric.`AcademicPeriodStart`, assignment.`AssignmentGroupName`,
+                       metric.`Term`, metric.`AcademicPeriodStart`, metric.`AcademicActivityDate`, assignment.`AssignmentGroupName`,
                        SUM(submission.`Score`) AS `Earned`,
                        SUM(assignment.`PointsPossible`) AS `Possible`
                 FROM `CanvasDashboardMetricAggregates` AS metric
@@ -507,13 +487,14 @@ public sealed class CanvasDashboardAggregateService
                   AND (submission.`Excused` IS NULL OR submission.`Excused` = 0)
                   {CourseFilter("metric", courseIds)}
                 GROUP BY metric.`StudentProfileId`, metric.`CanvasCourseId`, metric.`AcademicYear`,
-                         metric.`Term`, metric.`AcademicPeriodStart`, assignment.`AssignmentGroupName`
+                         metric.`Term`, metric.`AcademicPeriodStart`, metric.`AcademicActivityDate`, assignment.`AssignmentGroupName`
             ) AS points
                 ON points.`StudentProfileId` = leadership.`StudentProfileId`
                AND points.`CanvasCourseId` = leadership.`CanvasCourseId`
                AND points.`AcademicYear` = leadership.`AcademicYear`
                AND points.`Term` = leadership.`Term`
                AND points.`AcademicPeriodStart` <=> leadership.`AcademicPeriodStart`
+               AND points.`AcademicActivityDate` <=> leadership.`AcademicActivityDate`
                AND points.`AssignmentGroupName` <=> leadership.`AssignmentGroupName`
             SET leadership.`EarnedPoints` = points.`Earned`,
                 leadership.`PossiblePoints` = points.`Possible`
@@ -532,8 +513,8 @@ public sealed class CanvasDashboardAggregateService
         // across the RDS connection. Keep the existing transaction and command interceptors.
         var sql = new StringBuilder("INSERT INTO `CanvasDashboardMetricAggregates` " +
             "(`MetricKey`,`StudentProfileId`,`CanvasCourseId`,`CanvasAssignmentId`,`AcademicYear`," +
-            "`Term`,`PeriodStart`,`AcademicPeriodStart`,`ValueSum`,`SampleCount`,`CreatedAt`) VALUES ");
-        var parameters = new List<object>(rows.Length * 11);
+            "`Term`,`PeriodStart`,`AcademicPeriodStart`,`AcademicActivityDate`,`ValueSum`,`SampleCount`,`CreatedAt`) VALUES ");
+        var parameters = new List<object>(rows.Length * 12);
         foreach (var row in rows)
         {
             if (parameters.Count > 0) sql.Append(',');
@@ -546,6 +527,7 @@ public sealed class CanvasDashboardAggregateService
             AddParameter(row.Term, MySqlDbType.VarChar);
             AddParameter(row.PeriodStart, MySqlDbType.DateTime);
             AddParameter(row.AcademicPeriodStart, MySqlDbType.DateTime);
+            AddParameter(row.AcademicActivityDate, MySqlDbType.DateTime);
             AddParameter(row.ValueSum, MySqlDbType.Double);
             AddParameter(row.SampleCount, MySqlDbType.Int32);
             AddParameter(row.CreatedAt, MySqlDbType.DateTime);
@@ -575,9 +557,10 @@ public sealed class CanvasDashboardAggregateService
         int sampleCount)
     {
         var periodStart = Month(eventDate);
-        var academicPeriodStart = AcademicPeriod(eventDate, filterDate, academicYear);
+        var activityDate = AcademicActivityDate(eventDate, filterDate, academicYear);
+        var academicPeriodStart = Month(activityDate);
         var key = new AggregateKey(metricKey, studentProfileId, canvasCourseId, canvasAssignmentId,
-            academicYear, term, periodStart, academicPeriodStart);
+            academicYear, term, periodStart, academicPeriodStart, activityDate);
         if (!values.TryGetValue(key, out var aggregate))
         {
             aggregate = new AggregateValue();
@@ -624,7 +607,7 @@ public sealed class CanvasDashboardAggregateService
         return "";
     }
 
-    private static DateTime? AcademicPeriod(
+    internal static DateTime? AcademicActivityDate(
         DateTime? eventDate,
         DateTime? filterDate,
         string academicYear)
@@ -633,11 +616,11 @@ public sealed class CanvasDashboardAggregateService
         if (eventDate is not null &&
             DashboardPeriodNormalizer.AcademicYear(eventDate.Value) == academicYear)
         {
-            return Month(eventDate);
+            return eventDate.Value.Date;
         }
         return filterDate is not null &&
                DashboardPeriodNormalizer.AcademicYear(filterDate.Value) == academicYear
-            ? Month(filterDate)
+            ? filterDate.Value.Date
             : null;
     }
 
@@ -655,7 +638,8 @@ public sealed class CanvasDashboardAggregateService
         string AcademicYear,
         string Term,
         DateTime? PeriodStart,
-        DateTime? AcademicPeriodStart);
+        DateTime? AcademicPeriodStart,
+        DateTime? AcademicActivityDate);
 
     private sealed class AggregateValue
     {

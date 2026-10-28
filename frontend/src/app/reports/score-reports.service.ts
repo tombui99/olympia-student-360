@@ -35,6 +35,8 @@ export interface ScoreReportQuery {
   viewKey: ScoreReportViewKey;
   academicYear: string;
   term: string;
+  month: number | null;
+  weekStart: string | null;
   grade: string;
   homeroom: string;
   schoolLevel: string;

@@ -858,6 +858,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 item.AcademicPeriodStart
             });
             aggregate.HasIndex(item => new { item.MetricKey, item.PeriodStart });
+            aggregate.HasIndex(item => new { item.AcademicYear, item.Term, item.AcademicActivityDate, item.MetricKey })
+                .HasDatabaseName("IX_CanvasDashboardMetrics_ActivityDate");
             aggregate.HasIndex(item => item.StudentProfileId);
             aggregate.HasIndex(item => item.CanvasCourseId);
             aggregate.HasIndex(item => item.CanvasAssignmentId);
@@ -876,6 +878,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<CanvasLeadershipReportAggregate>(aggregate =>
         {
+            aggregate.HasIndex(item => new { item.AcademicYear, item.IsFinalCourseScore, item.Term, item.AcademicActivityDate })
+                .HasDatabaseName("IX_CanvasLeadershipReports_ActivityDate");
             aggregate.Property(item => item.AcademicYear).HasMaxLength(20);
             aggregate.Property(item => item.Term).HasMaxLength(20);
             aggregate.Property(item => item.AssignmentGroupName).HasMaxLength(255);

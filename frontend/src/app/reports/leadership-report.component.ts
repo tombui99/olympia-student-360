@@ -1,5 +1,6 @@
 import { Component, computed, inject, Input, OnChanges, OnDestroy, OnInit, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { activityWeeks, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
@@ -142,6 +143,7 @@ interface FinalScorePanel {
                   <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8a6811]">Canvas</p>
                   <h4 class="mt-1 text-lg font-semibold text-[#32124f]">{{ t('reports.leadership.finalScores.title') }}</h4>
                   <p class="mt-1 max-w-3xl text-sm leading-6 text-[#756b7c]">{{ t('reports.leadership.finalScores.description') }}</p>
+                  <p class="mt-1 max-w-3xl text-xs leading-5 text-[#756b7c]">{{ t('reports.activityPeriod.finalScoreHint') }}</p>
                 </div>
                 <app-report-export-button [exporting]="exporting()" [disabled]="loading() || !finalScores.summary.scoreCount" (exportRequested)="exportFinalScores(finalScores)" />
               </div>
@@ -279,6 +281,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
   @Input({ required: true }) academicYear = '';
   @Input({ required: true }) term = 'all';
   @Input({ required: true }) periodLabel = '';
+  @Input() activityPeriod: ActivityPeriodSelection | null = null;
 
   private readonly reports = inject(LeadershipReportsService);
   private readonly language = inject(LanguageService);
@@ -344,11 +347,12 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (!this.initialized) return;
-    if (!changes['reportKey'] && !changes['academicYear'] && !changes['term']) return;
+    if (!changes['reportKey'] && !changes['academicYear'] && !changes['term'] && !changes['activityPeriod']) return;
     if (this.query.reportKey !== this.apiReportKey()) this.query = this.queryFromUrl();
     this.query.reportKey = this.apiReportKey();
     this.query.academicYear = this.academicYear;
     this.query.term = this.term;
+    Object.assign(this.query, normalizeActivityPeriod(this.academicYear, this.activityPeriod ?? this.query));
     this.run();
   }
 
@@ -419,6 +423,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
     const request = {
       ...this.query,
       reportKey: this.apiReportKey(), academicYear: this.academicYear, term: this.term,
+      ...normalizeActivityPeriod(this.academicYear, this.activityPeriod ?? this.query),
       subaccountIds: [...new Set(this.query.subaccountIds)].sort((a, b) => a - b),
       page, pageSize: 20, includeSummary: page === 1 || !this.data(),
     };
@@ -525,6 +530,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
           [this.t('reports.leadership.grade'), applied?.grade || this.t('reports.leadership.allGrades')],
           [this.t('reports.leadership.homeroom'), applied?.homeroom || this.t('reports.leadership.allHomerooms')],
           [this.t('reports.leadership.finalScores.average'), scores.summary.averageScorePercent],
+          [this.t('reports.activityPeriod.week'), this.t('reports.activityPeriod.finalScoreHint')],
         ],
         columns: [
           { header: this.t('reports.leadership.breakdown'), value: item => this.t(item.panel) },
@@ -563,6 +569,8 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
         fileName: `${title}-${applied.academicYear}-${applied.term}-${applied.assessmentCategory}`,
         title, period: this.periodLabel,
         filters: [
+          [this.t('reports.learningReview.month'), applied.month ?? this.t('reports.learningReview.allMonths')],
+          [this.t('reports.activityPeriod.week'), activityWeeks(applied.academicYear).find(week => week.value === applied.weekStart)?.label ?? this.t('reports.activityPeriod.allWeeks')],
           [this.t('reports.leadership.subaccounts'), selectedAccounts.join(', ') || this.t('reports.leadership.allSubaccounts')],
           [this.t('reports.leadership.grade'), applied.grade || this.t('reports.leadership.allGrades')],
           [this.t('reports.leadership.homeroom'), applied.homeroom || this.t('reports.leadership.allHomerooms')],
@@ -600,6 +608,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
   }
   private defaultQuery(): LeadershipReportQuery {
     return { reportKey: this.apiReportKey(), academicYear: this.academicYear, term: this.term,
+      month: this.activityPeriod?.month ?? null, weekStart: this.activityPeriod?.weekStart ?? null,
       grade: '', homeroom: '', subaccountIds: [], assessmentCategory: 'all',
       page: 1, pageSize: 20 };
   }
@@ -608,6 +617,9 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
     const query = this.defaultQuery();
     const params = this.route.snapshot.queryParamMap;
     if (params.get('leadReport') !== this.reportKey) return query;
+    if (!this.activityPeriod) Object.assign(query, normalizeActivityPeriod(this.academicYear, {
+      month: params.has('leadMonth') ? Number(params.get('leadMonth')) : null, weekStart: params.get('leadWeekStart'),
+    }));
     query.grade = this.shortValue(params.get('leadGrade'), 50);
     query.homeroom = this.shortValue(params.get('leadHomeroom'), 100);
     query.subaccountIds = [...new Set(params.getAll('leadAccount').map(Number)
@@ -668,7 +680,10 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: {
+        report: this.reportKey,
+        ...(this.activityPeriod ? { activityMonth: this.activityPeriod.month, activityWeekStart: this.activityPeriod.weekStart } : {}),
         leadReport: this.reportKey,
+        leadMonth: this.query.month, leadWeekStart: this.query.weekStart,
         leadGrade: this.query.grade || null,
         leadHomeroom: this.query.homeroom || null,
         leadAccount: this.query.subaccountIds.length ? this.query.subaccountIds : null,

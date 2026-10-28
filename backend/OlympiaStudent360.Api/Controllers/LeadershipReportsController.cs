@@ -70,7 +70,7 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
             : Math.Min(request.PageSize, 100);
         const string scoreSource = "canvas-submission-score-percent";
         if (!await CanvasDashboardAggregateService.HasReadableSnapshotAsync(
-                db, cancellationToken))
+                db, cancellationToken, requireLeadershipActivityDates: request.WeekStart is not null))
             return Ok(EmptyResult(request, pageSize, scoreSource, "aggregate_unavailable", false));
 
         var year = DashboardPeriodNormalizer.AcademicYear(request.AcademicYear!);
@@ -106,6 +106,7 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
             : null;
 
         facts = facts.Where(item => !item.IsFinalCourseScore);
+        facts = CanvasActivityPeriodFilter.Apply(facts, request.Month, request.WeekStart);
 
         if (category != "all")
             facts = facts.Where(item => item.AssessmentCategory == category);
@@ -449,6 +450,8 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
 
     private static string? Validate(LeadershipReportQuery request)
     {
+        var activityError = CanvasActivityPeriodFilter.Validate(request.AcademicYear, request.Month, request.WeekStart);
+        if (activityError is not null) return activityError;
         if (request.ReportKey is not ("learning-engagement" or "assessment-results"))
             return "Unknown report type.";
         if (string.IsNullOrWhiteSpace(request.AcademicYear) ||
@@ -483,6 +486,8 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
 
 public sealed record LeadershipReportQuery
 {
+    public int? Month { get; init; }
+    public string? WeekStart { get; init; }
     public string ReportKey { get; init; } = "learning-engagement";
     public string? AcademicYear { get; init; }
     public string? Term { get; init; } = "all";

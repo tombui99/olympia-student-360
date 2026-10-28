@@ -1,5 +1,6 @@
 import { Component, computed, inject, Input, OnChanges, OnDestroy, OnInit, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { activityWeeks, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
@@ -264,6 +265,7 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   @Input({ required: true }) academicYear = '';
   @Input({ required: true }) term = 'all';
   @Input({ required: true }) periodLabel = '';
+  @Input() activityPeriod: ActivityPeriodSelection | null = null;
 
   private readonly reports = inject(ScoreReportsService);
   private readonly language = inject(LanguageService);
@@ -340,8 +342,9 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (!this.initialized || (!changes['academicYear'] && !changes['term'] && !changes['reportKey'])) return;
+    if (!this.initialized || (!changes['academicYear'] && !changes['term'] && !changes['reportKey'] && !changes['activityPeriod'])) return;
     if (changes['reportKey']) this.query = this.queryFromUrl();
+    Object.assign(this.query, normalizeActivityPeriod(this.academicYear, this.activityPeriod ?? this.query));
     this.run();
   }
 
@@ -532,6 +535,10 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
       const title = this.t(this.reportBase() + '.title');
       const filters: Array<[string, string]> = [
         [this.t('reports.score.englishScope'), this.englishProgrammeNotice(applied.englishProgrammes)],
+        ...(!this.isCourseScore() ? [
+          [this.t('reports.learningReview.month'), String(applied.month ?? this.t('reports.learningReview.allMonths'))] as [string, string],
+          [this.t('reports.activityPeriod.week'), activityWeeks(applied.academicYear).find(week => week.value === applied.weekStart)?.label ?? this.t('reports.activityPeriod.allWeeks')] as [string, string],
+        ] : []),
         [this.t('reports.score.schoolLevel'), applied.schoolLevel ? this.schoolLevelLabel(applied.schoolLevel) : this.t('reports.score.allSchoolLevels')],
         [this.t('reports.leadership.grade'), applied.grade || this.t('reports.leadership.allGrades')],
         [this.t('reports.leadership.homeroom'), applied.homeroom || this.t('reports.leadership.allHomerooms')],
@@ -587,12 +594,14 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
 
   private defaultQuery(): ScoreReportQuery {
     return { viewKey: this.viewKey(), academicYear: this.academicYear, term: this.term,
+      month: this.activityPeriod?.month ?? null, weekStart: this.activityPeriod?.weekStart ?? null,
       grade: '', homeroom: '', schoolLevel: '', canvasSectionId: null, canvasSectionName: '', subjectCode: '', canvasCourseId: null,
       subaccountIds: [], assessmentCategory: 'all', englishProgrammes: ['ESL', 'ELA'], rankingLimit: 10 };
   }
 
   private requestFromQuery(): ScoreReportQuery {
     const request = { ...this.query, viewKey: this.viewKey(), academicYear: this.academicYear, term: this.term,
+      ...(this.isCourseScore() ? { month: null, weekStart: null } : normalizeActivityPeriod(this.academicYear, this.activityPeriod ?? this.query)),
       subaccountIds: [...new Set(this.query.subaccountIds)].sort((a, b) => a - b),
       englishProgrammes: this.normalizedEnglishProgrammes(this.query.englishProgrammes),
       assessmentCategory: this.isCourseScore() ? 'all' : this.query.assessmentCategory };
@@ -611,6 +620,9 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
     const query = this.defaultQuery();
     const params = this.route.snapshot.queryParamMap;
     if (params.get('scoreReport') !== this.reportKey) return query;
+    if (!this.activityPeriod) Object.assign(query, normalizeActivityPeriod(this.academicYear, {
+      month: params.has('scoreMonth') ? Number(params.get('scoreMonth')) : null, weekStart: params.get('scoreWeekStart'),
+    }));
     query.englishProgrammes = this.normalizedEnglishProgrammes(params.getAll('scoreEnglish')
       .filter(value => value === 'ESL' || value === 'ELA'));
     query.grade = this.shortValue(params.get('scoreGrade'), 50);
@@ -691,7 +703,10 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   private syncQueryToUrl(): void {
     const request = this.requestFromQuery();
     void this.router.navigate([], { relativeTo: this.route, queryParams: {
+      report: this.reportKey,
+      ...(this.activityPeriod ? { activityMonth: this.activityPeriod.month, activityWeekStart: this.activityPeriod.weekStart } : {}),
       scoreReport: this.reportKey,
+      scoreMonth: request.month, scoreWeekStart: request.weekStart,
       scoreGrade: request.grade || null,
       scoreHomeroom: request.homeroom || null,
       scoreLevel: request.schoolLevel || null,
