@@ -107,11 +107,7 @@ public sealed class ErpMealReportAggregateService(AppDbContext db)
                 x.ClassCode, x.PurchaseDate, x.ProductCode, x.ProductName, x.Quantity })
             .AsAsyncEnumerable().WithCancellation(cancellationToken))
         {
-            // CFS_ and CF_ identify the Coffee Shop-coded items in this export.
-            // The ERP has no formal sales-location or transaction/receipt field.
-            if (item.ProductCode is null ||
-                !(item.ProductCode.StartsWith("CFS_", StringComparison.OrdinalIgnoreCase) ||
-                  item.ProductCode.StartsWith("CF_", StringComparison.OrdinalIgnoreCase))) continue;
+            // The school has one Coffee Shop: total all purchased items in this feed.
             var row = GetOrAdd(item.StudentProfileId, item.ErpStudentId, item.StudentName,
                 item.ClassCode, item.PurchaseDate, "");
             row.CoffeeLineCount++;

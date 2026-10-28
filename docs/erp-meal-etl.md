@@ -88,9 +88,9 @@ The `/reports` page contains a **Suất ăn học sinh** group. Its queries read
 `ErpMealDailyAggregates`, which stores one row per student, day, and meal and
 is indexed for date, student, week, and month lookup. Row drill-downs read
 `ErpMealReportDetails`, which is rebuilt in the same transaction and stores
-one row per counted meal event or Coffee Shop-coded item line. The detail view
-shows student, date, class, meal and ERP order/ticket status, or product code,
-name, and quantity for canteen lines. Each successful ERP meal ETL invocation
+one row per counted meal event or canteen item line. The detail view
+shows student, date, class, meal and ERP order/ticket status; Coffee Shop details
+sum all product quantities per student/day and do not split by product. Each successful ERP meal ETL invocation
 rebuilds both tables after all selected feeds have committed. The API background
 worker is a fallback: it detects a newer ERP sync run, imported report changes,
 missing detail rows, or a new UTC day and rebuilds when needed. The ETL and
@@ -108,22 +108,28 @@ The local export snapshot currently yields these distinct measures:
 | --- | --- | ---: |
 | Ordered but no ticket | `missing_ticket` rows with `Có đặt ăn` and `Không lấy phiếu ăn`; one per student/day/meal | 2,208 meals, 371 students |
 | No meal order | `missing_order` rows with `Không đặt ăn`; one per student/day/meal | 12,612 meals, 429 students |
-| Coffee Shop frequency | Canteen lines with product code prefix `CFS_` or `CF_` | 10,514 item lines, 11,033 units, 740 students |
+| Ordered but not eaten | Same ordered-without-ticket measure, per the school's definition | Same as ordered but no ticket |
+| Coffee Shop quantity | Sum of quantities from all canteen purchase rows, including other/blank product codes | Rebuilt from the full purchase feed |
 
 Both status exports contain overlapping student/day/meal records. The two
 status reports use their own feed and do not add both feeds together. The
-"ordered but did not eat" report is displayed as unavailable: order and
-ticket status cannot establish actual consumption. Ask the ERP vendor for a
-consumption or meal attendance event before enabling that report. Coffee Shop
-is inferred from product codes; confirm this rule with the ERP vendor. The
-export has no receipt/transaction ID, sales location, unit price, or amount,
-so frequency means item lines and units, never number of purchases or spend.
+"ordered but did not eat" report is enabled using the school's operational definition:
+an advance order without a printed/collected ticket on the meal date counts as not eaten.
+It uses the same deduplicated facts and drill-downs as ordered but no ticket.
+The school has one Coffee Shop and wants total item quantities, regardless of product.
+All rows in the canteen purchase feed therefore participate; `CFS_`/`CF_` prefix filtering
+is no longer applied. Student rankings sort by quantity, rather than line count.
+The refresh migration clears only the aggregate build marker so the background worker
+rebuilds old totals automatically after deployment; source data is preserved.
 Likewise, the no-order report covers the provided ERP export, not every student
 on dates missing from that export.
 
 The report supports day, month, selected school period, and custom date ranges;
 student name or ERP/SIS code search; grade and class filters; and student,
-week, month, grade, and class grouping. Student rows link to `StudentProfiles`
+week, month, grade, and class grouping for meal statuses. Coffee Shop supports student totals
+and student-by-day/week/month breakdowns, ordered by quantity within each period. Its details
+retain the student's identity and selected date range, and exports use the same grouping/quantity.
+Student rows link to `StudentProfiles`
 only when `SISStudentCode` matched the ERP ID. Unmatched rows remain visible to
 full academic users, with source class when available; restricted teacher
 accounts only see rows linked to students in their permitted scope.

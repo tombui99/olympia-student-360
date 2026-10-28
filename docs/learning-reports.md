@@ -59,8 +59,8 @@ The support list narrows existing at-risk semester snapshots to students with da
 support signals: assignment scores/missing work, concerning behaviour, and permitted mental-health
 or bus alerts. Health/bus signals participate only when the viewer has access to those domains.
 Risk levels, stored counts, and course averages remain the existing semester snapshot values;
-the UI and Excel export explain this scope. The unavailable ordered-but-not-eaten meal report
-retains its source-data-gap notice. Current-course-score and class-support overview reports keep
+the UI and Excel export explain this scope. The ordered-but-not-eaten meal report uses the school's
+definition of an order without a printed/collected ticket. Current-course-score and class-support overview reports keep
 their semester scope.
 The school year runs September–August; weeks overlapping its edges are available, while the
 academic-year filter still restricts the included facts. Selecting both month and week intersects

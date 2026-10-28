@@ -70,7 +70,7 @@ test('remaining report APIs preserve month/week across summaries, details, pagin
   } finally { injector.destroy(); }
 });
 
-for (const kind of ['behaviour', 'health', 'mental', 'projects', 'activities', 'bus', 'meal-ordered-no-ticket', 'meal-no-order', 'meal-coffee-frequency']) {
+for (const kind of ['behaviour', 'health', 'mental', 'projects', 'activities', 'bus', 'meal-ordered-no-ticket', 'meal-ordered-not-eaten', 'meal-no-order', 'meal-coffee-frequency']) {
   test(`${kind}: shared period changes reload the report and scope exports`, async () => {
     const calls = [];
     let exported;
@@ -127,6 +127,57 @@ for (const kind of ['behaviour', 'health', 'mental', 'projects', 'activities', '
     } finally { component.ngOnDestroy?.(); injector.destroy(); }
   });
 }
+
+test('Coffee Shop keeps student identity, period and item quantities in details and exports', async () => {
+  const calls = [];
+  let exported;
+  const row = { key: 'student-week:2026-10-26:profile:1', label: 'Test student', erpStudentId: '0001',
+    studentProfileId: 1, count: 2, units: 15, periodStart: '2026-10-26', latestDay: '2026-10-28' };
+  const injector = createEnvironmentInjector([
+    { provide: LanguageService, useValue: { t: key => key, language: () => 'en' } },
+    { provide: ToastService, useValue: { error: message => assert.fail(message) } },
+    { provide: ErpMealReportsService, useValue: {
+      options: () => of({ grades: [], classes: [] }),
+      summary: query => { calls.push(query); return of({ items: [row], totalCount: 1, totalPages: 1 }); },
+      details: (query, key) => { calls.push({ ...query, key }); return of({ items: [], totalCount: 0, totalPages: 0 }); },
+    } },
+    { provide: ReportExcelExportService, useValue: {
+      collectPages: async fetch => (await fetch(1, 1000)).items,
+      download: async definition => { exported = definition; },
+    } },
+  ]);
+  const component = runInInjectionContext(injector, () => new ErpMealReportComponent());
+  try {
+    component.report = 'coffee-frequency';
+    component.academicYear = '2026-2027';
+    component.activityPeriod = { month: 10, weekStart: '2026-10-26' };
+    assert.deepEqual(component.groupOptions(), ['student', 'student-day', 'student-week', 'student-month']);
+    for (const group of component.groupOptions()) {
+      component.groupBy = group;
+      component.load(1);
+      assert.equal(calls.at(-1).groupBy, group);
+      assert.equal(component.studentRows(), true);
+    }
+    component.groupBy = 'student-week';
+    component.openDetails(row);
+    assert.equal(calls.at(-1).key, row.key);
+    assert.equal(calls.at(-1).from, '2026-10-26');
+    assert.equal(calls.at(-1).to, '2026-10-31');
+    await component.exportExcel();
+    assert.equal(calls.at(-1).groupBy, 'student-week');
+    const quantity = exported.columns.find(column => column.header === 'reports.meals.coffee-frequency.countLabel');
+    assert.equal(quantity.value(row), 15);
+    assert.ok(exported.columns.some(column => column.header === 'reports.meals.group.student'));
+    assert.ok(exported.columns.some(column => column.header === 'reports.meals.group.week' && column.value(row) === '26/10/2026'));
+    assert.equal(exported.filters.some(([label]) => label === 'reports.meals.mealFilter'), false);
+    component.report = 'ordered-not-eaten';
+    component.ngOnChanges({ report: {} });
+    assert.equal(component.groupBy, 'student');
+    assert.equal(calls.at(-1).report, 'ordered-not-eaten');
+    await component.exportExcel();
+    assert.ok(exported.filters.some(([, value]) => value === 'reports.meals.notEatenDefinition'));
+  } finally { component.ngOnDestroy(); injector.destroy(); }
+});
 
 test('meal ranges intersect academic year, semester, month and week, including school-year boundaries', () => {
   assert.deepEqual(activityDateRange('2026-2027', 'all', { month: 9, weekStart: '2026-08-31' }), { from: '2026-09-01', to: '2026-09-06' });

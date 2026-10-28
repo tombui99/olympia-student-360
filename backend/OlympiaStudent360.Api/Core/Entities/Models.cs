@@ -947,7 +947,7 @@ public class ErpMealDailyAggregate : BaseEntity
     public int CoffeeUnitCount { get; set; }
 }
 
-/// <summary>One deduplicated meal event or one Coffee Shop-coded item line for report drill-down.</summary>
+/// <summary>One deduplicated meal event or one canteen item line; Coffee Shop details sum these by student/day.</summary>
 public class ErpMealReportDetail : BaseEntity
 {
     public string Report { get; set; } = default!;

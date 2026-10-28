@@ -3,7 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
 
 export type MealReportType = 'ordered-no-ticket' | 'ordered-not-eaten' | 'no-order' | 'coffee-frequency';
-export type MealGroupBy = 'student' | 'week' | 'month' | 'grade' | 'class';
+export type MealGroupBy = 'student' | 'week' | 'month' | 'grade' | 'class' | 'student-day' | 'student-week' | 'student-month';
 export type MealTypeFilter = 'breakfast' | 'lunch' | 'snack';
 
 export interface MealReportRow {
@@ -62,7 +62,7 @@ export interface MealReportDetailsPage {
 }
 
 export interface MealReportQuery {
-  report: Exclude<MealReportType, 'ordered-not-eaten'>;
+  report: MealReportType;
   groupBy: MealGroupBy;
   from: string;
   to: string;
