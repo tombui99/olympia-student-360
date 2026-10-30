@@ -1,9 +1,11 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { catchError, debounceTime, distinctUntilChanged, of, Subject, switchMap } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, of, Subject, Subscription, switchMap } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
 import { SchoolTranscript, SchoolTranscriptGrade, TranscriptStudent, TranscriptSubject, TranscriptsService } from './transcripts.service';
+import { TranscriptPreferencesService } from './transcript-preferences.service';
 
 type TranscriptType = 'bilingual' | 'international' | 'ib';
 type TranscriptSemester = 'semester1' | 'semester2';
@@ -117,8 +119,8 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
           <details class="export-menu relative">
             <summary
               class="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg bg-[#32124f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#51236f]"
-              [class.pointer-events-none]="!transcript() || !transcript()?.years?.length"
-              [class.opacity-50]="!transcript() || !transcript()?.years?.length">
+              [class.pointer-events-none]="loading() || error() || !transcript() || !transcript()?.years?.length"
+              [class.opacity-50]="loading() || error() || !transcript() || !transcript()?.years?.length">
               <span aria-hidden="true">↧</span> {{ t('transcript.exportPdf') }} <span aria-hidden="true">⌄</span>
             </summary>
             <div class="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-lg border border-[#d8cede] bg-white p-1.5 shadow-[0_14px_35px_rgba(50,18,79,0.16)]">
@@ -434,6 +436,8 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
 })
 export class StudentTranscriptComponent {
   private readonly service = inject(TranscriptsService);
+  private readonly preferences = inject(TranscriptPreferencesService);
+  private transcriptRequest?: Subscription;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly searchTerms = new Subject<string>();
@@ -493,6 +497,7 @@ export class StudentTranscriptComponent {
       switchMap((term) => term.trim().length >= 2
         ? this.service.getStudents(term.trim()).pipe(catchError(() => of([])))
         : of([])),
+      takeUntilDestroyed(),
     ).subscribe({
       next: (students) => {
         this.students.set(students);
@@ -502,29 +507,40 @@ export class StudentTranscriptComponent {
       },
     });
 
-    this.route.paramMap.subscribe((params) => {
+    this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((params) => {
       const studentId = Number(params.get('studentId'));
       if (Number.isInteger(studentId) && studentId > 0) {
         this.selectedStudentId.set(studentId);
-        this.loadTranscript(studentId);
       } else {
         this.selectedStudentId.set(null);
         this.transcript.set(null);
         this.searchTerm.set('');
         this.error.set(false);
+        this.loading.set(false);
         this.loadDirectory(1);
       }
+    });
+
+    effect((onCleanup) => {
+      const studentId = this.selectedStudentId();
+      this.preferences.excludedSubjectCodes();
+      if (studentId) untracked(() => this.loadTranscript(studentId));
+      onCleanup(() => this.transcriptRequest?.unsubscribe());
     });
   }
 
   private loadTranscript(studentId: number): void {
+    this.transcriptRequest?.unsubscribe();
+    const sameStudent = this.transcript()?.studentProfileId === studentId;
     this.loading.set(true);
     this.error.set(false);
-    this.service.getOverall(studentId).subscribe({
+    this.transcriptRequest = this.service.getOverall(studentId).subscribe({
       next: (record) => {
         this.transcript.set(record);
         this.searchTerm.set(`${record.studentName || ''} · ${record.sisUserId || ''}`);
-        this.selectedYears.set(record.years.slice(-1).map((year) => year.academicYear));
+        const selectedYears = sameStudent ? this.selectedYears().filter((selected) =>
+          record.years.some((year) => year.academicYear === selected)) : [];
+        this.selectedYears.set(selectedYears.length ? selectedYears : record.years.slice(-1).map((year) => year.academicYear));
         this.loading.set(false);
       },
       error: () => {
@@ -631,7 +647,9 @@ export class StudentTranscriptComponent {
   }
 
   subjectsForSemester(grade: SchoolTranscriptGrade, semester: TranscriptSemester): TranscriptSubject[] {
-    return grade.subjects.filter((subject) => this.semesterScore(subject, semester) != null);
+    const excluded = this.preferences.excludedSubjectCodes();
+    return grade.subjects.filter((subject) => !excluded.includes(subject.subjectCode) &&
+      this.semesterScore(subject, semester) != null);
   }
 
   displayedYears(record: SchoolTranscript) {
@@ -651,7 +669,7 @@ export class StudentTranscriptComponent {
   }
 
   exportPdf(type: TranscriptType = this.activeTranscriptType()): void {
-    if (!this.selectedStudentId() || !this.transcript()) return;
+    if (this.loading() || this.error() || !this.selectedStudentId() || !this.transcript()) return;
     this.selectTranscriptType(type);
     this.openPrintDialog(type);
   }

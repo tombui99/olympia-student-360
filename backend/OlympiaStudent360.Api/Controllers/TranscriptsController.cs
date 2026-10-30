@@ -138,8 +138,10 @@ public class TranscriptsController(
     public async Task<ActionResult<SchoolTranscriptDto>> GetOverallTranscript(
         [FromQuery] int? studentId = null,
         [FromQuery] int? subjectPage = null,
-        [FromQuery] int? subjectPageSize = null)
+        [FromQuery] int? subjectPageSize = null,
+        [FromQuery] string[]? excludedSubjects = null)
     {
+        var excludedSubjectCodes = ExcludedSubjectCodes(excludedSubjects);
         var paginateSubjects = subjectPage.HasValue || subjectPageSize.HasValue;
         var resolvedSubjectPage = Math.Max(subjectPage ?? 1, 1);
         var resolvedSubjectPageSize = Math.Clamp(subjectPageSize ?? 10, 5, 50);
@@ -317,6 +319,8 @@ public class TranscriptsController(
                                     Credit = CreditForSubject(semester1Final, semester2Final, explicitYearFinal)
                                 };
                             }).ToList();
+                        var gpa = WeightedGpa(subjects);
+                        subjects = subjects.Where(subject => !excludedSubjectCodes.Contains(subject.SubjectCode)).ToList();
                         var totalSubjects = subjects.Count;
                         var totalSubjectPages = totalSubjects == 0
                             ? 0
@@ -325,7 +329,7 @@ public class TranscriptsController(
                         {
                             GradeLevel = gradeGroup.Key,
                             AverageScore = WeightedAverage(gradeGroup.Select(row => (row.Average, row.RecordCount))),
-                            Gpa = WeightedGpa(subjects),
+                            Gpa = gpa,
                             ClassOptions = studentId == null
                                 ? gradeGroup.Select(row => row.ClassName)
                                     .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -369,8 +373,17 @@ public class TranscriptsController(
             OverallGpa = AcademicGpa(years),
             TotalAcademicYears = years.Count,
             TotalStudents = totalStudents,
-            TotalSubjects = derivedRows.Select(row => row.SubjectCode)
+            TotalSubjects = derivedRows.Where(row => !excludedSubjectCodes.Contains(row.SubjectCode))
+                .Select(row => row.SubjectCode)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            SubjectOptions = derivedRows.GroupBy(row => row.SubjectCode, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(group => subjectResolver.SortOrder(group.Key))
+                .ThenBy(group => group.First().Subject, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new TranscriptSubjectOptionDto
+                {
+                    SubjectCode = group.Key,
+                    Subject = group.First().Subject
+                }).ToList(),
             Years = years
         });
     }
@@ -385,8 +398,10 @@ public class TranscriptsController(
         [FromQuery] int subjectPageSize = 10,
         [FromQuery] string? subject = null,
         [FromQuery] string? term = null,
-        [FromQuery] string? className = null)
+        [FromQuery] string? className = null,
+        [FromQuery] string[]? excludedSubjects = null)
     {
+        var excludedSubjectCodes = ExcludedSubjectCodes(excludedSubjects);
         academicYear = academicYear.Trim();
         gradeLevel = gradeLevel.Trim();
         page = Math.Max(page, 1);
@@ -557,6 +572,13 @@ public class TranscriptsController(
 
         var recordsQuery = classFilteredQuery
             .Where(score => score.StudentProfileId != null && score.Student != null);
+        var excludedCourseIds = classFilteredRows
+            .Where(row => excludedSubjectCodes.Contains(row.SubjectCode))
+            .Select(row => row.CanvasCourseId)
+            .Distinct()
+            .ToArray();
+        if (excludedCourseIds.Length > 0)
+            recordsQuery = recordsQuery.Where(score => !excludedCourseIds.Contains(score.Enrollment!.CanvasCourseId));
         if (!string.IsNullOrWhiteSpace(subject))
         {
             var requestedSubject = subject.Trim();
@@ -644,13 +666,15 @@ public class TranscriptsController(
             .Select(score => score.Enrollment!.CanvasUserId)
             .Distinct().CountAsync();
         var allRecordCount = classFilteredRows.Sum(row => row.RecordCount);
+        var gpa = WeightedGpa(subjects);
+        subjects = subjects.Where(subject => !excludedSubjectCodes.Contains(subject.SubjectCode)).ToList();
         var totalSubjects = subjects.Count;
         return Ok(new SchoolTranscriptGradeDetailDto
         {
             AcademicYear = academicYear,
             GradeLevel = gradeLevel,
             AverageScore = WeightedAverage(classFilteredRows.Select(row => (row.Average, row.RecordCount))),
-            Gpa = WeightedGpa(subjects),
+            Gpa = gpa,
             TotalStudents = totalStudents,
             TotalSubjects = totalSubjects,
             TotalRecords = allRecordCount,
@@ -673,6 +697,10 @@ public class TranscriptsController(
             TotalPages = totalRecords == 0 ? 0 : (int)Math.Ceiling(totalRecords / (double)pageSize)
         });
     }
+
+    private static HashSet<string> ExcludedSubjectCodes(string[]? subjects) =>
+        (subjects ?? []).Where(subject => !string.IsNullOrWhiteSpace(subject))
+            .Select(subject => subject.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private IQueryable<StudentProfile> VisibleStudents()
         => userAccess.ApplyStudentScope(context.StudentProfiles.AsNoTracking());

@@ -1,8 +1,10 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
 import { SchoolTranscript, SchoolTranscriptGrade, SchoolTranscriptYear, TranscriptClassScore, TranscriptSubject, TranscriptsService } from './transcripts.service';
+import { TranscriptPreferencesService } from './transcript-preferences.service';
 
 type TranscriptSemester = 'semester1' | 'semester2';
 type TranscriptSemesterFilter = 'all' | TranscriptSemester;
@@ -211,6 +213,9 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
 })
 export class TranscriptsComponent {
   private readonly service = inject(TranscriptsService);
+  private readonly preferences = inject(TranscriptPreferencesService);
+  private overallRequest?: Subscription;
+  private subjectPageRequest?: Subscription;
   readonly languageService = inject(LanguageService);
   readonly transcript = signal<SchoolTranscript | null>(null);
   readonly selectedYear = signal('');
@@ -223,14 +228,27 @@ export class TranscriptsComponent {
   readonly scoreScale = signal<TranscriptScoreScale>('letter');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
-  constructor() { this.load(); }
+  constructor() {
+    effect((onCleanup) => {
+      this.preferences.excludedSubjectCodes();
+      untracked(() => this.load());
+      onCleanup(() => {
+        this.overallRequest?.unsubscribe();
+        this.subjectPageRequest?.unsubscribe();
+      });
+    });
+  }
   load(): void {
+    this.overallRequest?.unsubscribe();
+    this.subjectPageRequest?.unsubscribe();
+    this.loadingSubjectPage.set('');
     this.loading.set(true);
     this.error.set(false);
-    this.service.getOverall(undefined, 1).subscribe({
+    this.overallRequest = this.service.getOverall(undefined, 1).subscribe({
       next: (record) => {
         this.transcript.set(record);
-        this.selectedYear.set(this.latestYear(record)?.academicYear ?? '');
+        if (!record.years.some((year) => year.academicYear === this.selectedYear()))
+          this.selectedYear.set(this.latestYear(record)?.academicYear ?? '');
         this.loading.set(false);
       },
       error: () => { this.loading.set(false); this.error.set(true); },
@@ -335,9 +353,10 @@ export class TranscriptsComponent {
     return (grade.subjectPage - 1) * grade.subjectPageSize + index + 1;
   }
   loadSubjectPage(academicYear: string, gradeLevel: string, page: number): void {
+    this.subjectPageRequest?.unsubscribe();
     const key = this.subjectPageKey(academicYear, gradeLevel);
     this.loadingSubjectPage.set(key);
-    this.service.getOverall(undefined, page).subscribe({
+    this.subjectPageRequest = this.service.getOverall(undefined, page).subscribe({
       next: (response) => {
         const updatedGrade = response.years
           .find((year) => year.academicYear === academicYear)?.grades

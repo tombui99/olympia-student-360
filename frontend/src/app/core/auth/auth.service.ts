@@ -26,6 +26,7 @@ export class AuthenticationService {
   private readonly accessSignal = signal<UserAccessCapabilitiesDto>(this.getAccess());
   readonly access = this.accessSignal.asReadonly();
   private readonly usernameSignal = signal<string | null>(this.getUsername());
+  readonly username = this.usernameSignal.asReadonly();
   private readonly authenticatedSignal = signal(!!this.getToken());
   private currentUserLoaded = false;
 

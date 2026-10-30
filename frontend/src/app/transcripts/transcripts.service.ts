@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
+import { TranscriptPreferencesService } from './transcript-preferences.service';
 
 export interface TranscriptStudent {
   id: number;
@@ -76,6 +77,7 @@ export interface SchoolTranscript {
   totalAcademicYears: number;
   totalStudents: number;
   totalSubjects: number;
+  subjectOptions: TranscriptSubjectOption[];
   years: SchoolTranscriptYear[];
 }
 
@@ -123,12 +125,14 @@ export interface SchoolTranscriptGradeDetail {
 export class TranscriptsService {
   private readonly http = inject(HttpClient);
   private readonly basePath = inject(BASE_PATH);
+  private readonly preferences = inject(TranscriptPreferencesService);
 
   getOverall(studentId?: number, subjectPage?: number, subjectPageSize = 10) {
     return this.http.get<SchoolTranscript>(`${this.basePath}/api/transcripts/overall`, {
       params: {
         ...(studentId ? { studentId } : {}),
         ...(subjectPage ? { subjectPage, subjectPageSize } : {}),
+        ...this.subjectExclusionParams(),
       },
     });
   }
@@ -161,7 +165,13 @@ export class TranscriptsService {
         ...(subject ? { subject } : {}),
         ...(term ? { term } : {}),
         ...(className ? { className } : {}),
+        ...this.subjectExclusionParams(),
       } },
     );
+  }
+
+  private subjectExclusionParams(): { excludedSubjects?: string[] } {
+    const excludedSubjects = this.preferences.excludedSubjectCodes();
+    return excludedSubjects.length ? { excludedSubjects } : {};
   }
 }

@@ -1,8 +1,10 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
 import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.service';
+import { TranscriptPreferencesService } from './transcript-preferences.service';
 
 @Component({
   selector: 'app-transcript-grade-detail',
@@ -241,6 +243,8 @@ import { SchoolTranscriptGradeDetail, TranscriptsService } from './transcripts.s
 })
 export class TranscriptGradeDetailComponent {
   private readonly service = inject(TranscriptsService);
+  private readonly preferences = inject(TranscriptPreferencesService);
+  private request?: Subscription;
   private readonly route = inject(ActivatedRoute);
   readonly languageService = inject(LanguageService);
   readonly academicYear = this.route.snapshot.paramMap.get('academicYear') ?? '';
@@ -253,12 +257,22 @@ export class TranscriptGradeDetailComponent {
   readonly scoreScale = signal<TranscriptScoreScale>('letter');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
-  constructor() { this.load(1); }
+  constructor() {
+    effect((onCleanup) => {
+      const excluded = this.preferences.excludedSubjectCodes();
+      untracked(() => {
+        if (excluded.includes(this.selectedSubject())) this.selectedSubject.set('');
+        this.load(1, 1);
+      });
+      onCleanup(() => this.request?.unsubscribe());
+    });
+  }
 
   load(page: number, subjectPage = this.detail()?.subjectPage ?? 1): void {
+    this.request?.unsubscribe();
     this.loading.set(true);
     this.error.set(false);
-    this.service.getGradeDetails(this.academicYear, this.gradeLevel, page, 25,
+    this.request = this.service.getGradeDetails(this.academicYear, this.gradeLevel, page, 25,
       this.selectedSubject(), '', subjectPage, 10, this.selectedClass()).subscribe({
       next: (record) => {
         this.detail.set(record);

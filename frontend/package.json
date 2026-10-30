@@ -9,6 +9,7 @@
     "test": "ng test",
     "test:resilience": "node --test tests/auth-resilience.test.cjs",
     "test:reports": "node --test tests/report-excel-export.test.cjs tests/learning-period-filters.test.cjs",
+    "test:transcripts": "node --test tests/transcript-settings.test.cjs",
     "generate:api": "openapi-generator-cli generate -i http://localhost:5279/openapi/v1.json -g typescript-angular -o src/app/api --skip-validate-spec"
   },
   "prettier": {

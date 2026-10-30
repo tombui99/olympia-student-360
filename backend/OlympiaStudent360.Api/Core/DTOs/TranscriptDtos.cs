@@ -32,6 +32,7 @@ public class SchoolTranscriptDto
     public int TotalAcademicYears { get; set; }
     public int TotalStudents { get; set; }
     public int TotalSubjects { get; set; }
+    public List<TranscriptSubjectOptionDto> SubjectOptions { get; set; } = [];
     public List<SchoolTranscriptYearDto> Years { get; set; } = [];
 }
 
