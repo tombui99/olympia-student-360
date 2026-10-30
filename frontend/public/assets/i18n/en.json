@@ -1136,6 +1136,7 @@
   "transcript.semesterScore": "Semester result",
   "transcript.yearResult": "Year result",
   "transcript.noSemesterResults": "No results are available for this semester on the current page.",
+  "transcript.noSemesterScores": "No results are available for this semester.",
   "transcript.gradesAvailable": "grades with Canvas results",
   "transcript.noGrades": "No grade-level results are available for this year.",
   "transcript.overallCanvasNote": "Every value aggregates visible Canvas course scores under canonical subjects while preserving the underlying course names. Student 360 does not inject or manually convert grades.",

@@ -1136,6 +1136,7 @@
   "transcript.semesterScore": "Điểm học kỳ",
   "transcript.yearResult": "Điểm cả năm",
   "transcript.noSemesterResults": "Không có kết quả cho học kỳ này ở trang hiện tại.",
+  "transcript.noSemesterScores": "Không có kết quả cho học kỳ này.",
   "transcript.gradesAvailable": "khối có kết quả Canvas",
   "transcript.noGrades": "Năm học này chưa có kết quả theo khối.",
   "transcript.overallCanvasNote": "Mọi giá trị đều tổng hợp điểm từ các khóa học Canvas được phép xem theo môn học chuẩn hóa, đồng thời giữ lại tên khóa học nguồn. Student 360 không tự thêm hoặc quy đổi điểm.",

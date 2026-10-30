@@ -246,7 +246,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                             <tbody>
                               @for (subject of subjectsForSemester(grade, semester); track subject.subjectCode; let index = $index) {
                                 <tr class="border-t border-[#e7e0ea] even:bg-[#fbfafc]">
-                                  <td class="px-2 py-2 text-center">{{ subjectNumber(grade, index) }}</td>
+                                  <td class="px-2 py-2 text-center">{{ index + 1 }}</td>
                                   <td class="px-3 py-2 text-[#35293b]">
                                     <span class="block font-medium">{{ subject.subject }}</span>
                                     @if (subject.courseNames.length) {
@@ -258,25 +258,12 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                                   <td class="px-2 py-2 text-center">{{ trailingValue(subject.credit, subject.yearAverage, subject.subjectCode, grade.gradeLevel) }}</td>
                                 </tr>
                               } @empty {
-                                <tr><td colspan="5" class="px-5 py-8 text-center text-[#766d7d]">{{ t('transcript.noSemesterResults') }}</td></tr>
+                                <tr><td colspan="5" class="px-5 py-8 text-center text-[#766d7d]">{{ t('transcript.noSemesterScores') }}</td></tr>
                               }
                             </tbody>
                           </table>
                         </div>
                       </section>
-                    }
-                    @if (grade.totalSubjectPages > 1) {
-                      <footer class="no-print flex flex-wrap items-center justify-between gap-3 border-t border-[#e8e1eb] px-4 py-3 text-xs text-[#746a7b]">
-                        <span>{{ subjectPageLabel(grade) }}</span>
-                        <div class="flex gap-2">
-                          <button type="button" class="rounded-md border border-[#d8cede] px-3 py-1.5 font-semibold text-[#32124f] disabled:opacity-40"
-                            [disabled]="grade.subjectPage <= 1 || subjectPageLoading(year.academicYear, grade.gradeLevel)"
-                            (click)="loadSubjectPage(year.academicYear, grade.gradeLevel, grade.subjectPage - 1)">{{ t('pagination.previous') }}</button>
-                          <button type="button" class="rounded-md border border-[#d8cede] px-3 py-1.5 font-semibold text-[#32124f] disabled:opacity-40"
-                            [disabled]="grade.subjectPage >= grade.totalSubjectPages || subjectPageLoading(year.academicYear, grade.gradeLevel)"
-                            (click)="loadSubjectPage(year.academicYear, grade.gradeLevel, grade.subjectPage + 1)">{{ t('pagination.next') }}</button>
-                        </div>
-                      </footer>
                     }
                   }
                 </section>
@@ -470,7 +457,6 @@ export class StudentTranscriptComponent {
   readonly activeResult = signal(-1);
   readonly loading = signal(false);
   readonly error = signal(false);
-  readonly loadingSubjectPage = signal('');
   readonly directoryStudents = signal<TranscriptStudent[]>([]);
   readonly directoryLoading = signal(false);
   readonly directoryPage = signal(1);
@@ -534,7 +520,7 @@ export class StudentTranscriptComponent {
   private loadTranscript(studentId: number): void {
     this.loading.set(true);
     this.error.set(false);
-    this.service.getOverall(studentId, 1, 10).subscribe({
+    this.service.getOverall(studentId).subscribe({
       next: (record) => {
         this.transcript.set(record);
         this.searchTerm.set(`${record.studentName || ''} · ${record.sisUserId || ''}`);
@@ -648,50 +634,6 @@ export class StudentTranscriptComponent {
     return grade.subjects.filter((subject) => this.semesterScore(subject, semester) != null);
   }
 
-  subjectNumber(grade: SchoolTranscriptGrade, index: number): number {
-    return (grade.subjectPage - 1) * grade.subjectPageSize + index + 1;
-  }
-
-  loadSubjectPage(academicYear: string, gradeLevel: string, page: number): void {
-    const studentId = this.selectedStudentId();
-    if (!studentId) return;
-    const key = this.subjectPageKey(academicYear, gradeLevel);
-    this.loadingSubjectPage.set(key);
-    this.service.getOverall(studentId, page, 10).subscribe({
-      next: (response) => {
-        const updatedGrade = response.years
-          .find((year) => year.academicYear === academicYear)?.grades
-          .find((grade) => grade.gradeLevel === gradeLevel);
-        if (updatedGrade) {
-          this.transcript.update((record) => record ? {
-            ...record,
-            years: record.years.map((year) => year.academicYear !== academicYear ? year : {
-              ...year,
-              grades: year.grades.map((grade) => grade.gradeLevel === gradeLevel ? updatedGrade : grade),
-            }),
-          } : record);
-        }
-        this.loadingSubjectPage.set('');
-      },
-      error: () => this.loadingSubjectPage.set(''),
-    });
-  }
-
-  subjectPageLoading(academicYear: string, gradeLevel: string): boolean {
-    return this.loadingSubjectPage() === this.subjectPageKey(academicYear, gradeLevel);
-  }
-
-  subjectPageLabel(grade: SchoolTranscriptGrade): string {
-    return this.t('pagination.pageOf')
-      .replace('{page}', String(grade.subjectPage))
-      .replace('{pages}', String(grade.totalSubjectPages))
-      .replace('{total}', String(grade.totalSubjects));
-  }
-
-  private subjectPageKey(academicYear: string, gradeLevel: string): string {
-    return `${academicYear}\u0000${gradeLevel}`;
-  }
-
   displayedYears(record: SchoolTranscript) {
     const selected = new Set(this.selectedYears());
     return record.years.filter((year) => selected.has(year.academicYear));
@@ -709,25 +651,12 @@ export class StudentTranscriptComponent {
   }
 
   exportPdf(type: TranscriptType = this.activeTranscriptType()): void {
+    if (!this.selectedStudentId() || !this.transcript()) return;
     this.selectTranscriptType(type);
-    const studentId = this.selectedStudentId();
-    const paginatedRecord = this.transcript();
-    if (!studentId || !paginatedRecord) return;
-    this.loading.set(true);
-    this.service.getOverall(studentId).subscribe({
-      next: (completeRecord) => {
-        this.loading.set(false);
-        this.transcript.set(completeRecord);
-        this.openPrintDialog(type, paginatedRecord);
-      },
-      error: () => {
-        this.loading.set(false);
-        this.openPrintDialog(type);
-      },
-    });
+    this.openPrintDialog(type);
   }
 
-  private openPrintDialog(type: TranscriptType, restoreRecord?: SchoolTranscript): void {
+  private openPrintDialog(type: TranscriptType): void {
     const currentTitle = document.title;
     const record = this.transcript();
     document.title = `${record?.sisUserId || 'student'}-${type}-transcript`;
@@ -736,7 +665,6 @@ export class StudentTranscriptComponent {
       window.print();
       setTimeout(() => {
         document.title = currentTitle;
-        if (restoreRecord) this.transcript.set(restoreRecord);
       }, 250);
     }));
   }
