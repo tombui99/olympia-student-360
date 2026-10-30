@@ -122,7 +122,7 @@ test('settings list every subject beyond the first page and only save draft chan
   } finally { injector.destroy(); fixture.injector.destroy(); }
 });
 
-test('all three student transcript formats exclude subjects on screen and when exporting', () => {
+test('all four student PDF formats receive the same exclusions and selected periods', async () => {
   const fixture = preferencesFixture();
   fixture.preferences.saveExcludedSubjects(['music']);
   const grade = { subjects: [
@@ -135,19 +135,21 @@ test('all three student transcript formats exclude subjects on screen and when e
     selectedStudentId: signal(7541),
     transcript: signal({ years: [{ academicYear: '2026-2027', grades: [grade] }] }),
     loading: signal(false), error: signal(false),
+    exporting: signal(false), selectedYears: signal(['2026-2027']), selectedSemester: signal('all'),
     activeTranscriptType: signal('international'), scoreScale: signal('letter'),
   });
   const printed = [];
-  component.openPrintDialog = type => printed.push({
-    type, subjects: ['semester1', 'semester2'].map(semester =>
-      component.subjectsForSemester(grade, semester).map(subject => subject.subjectCode)),
-  });
+  component.pdfService = { download: async (record, options) => printed.push(options) };
+  component.toast = { error: message => assert.fail(message) };
   try {
-    for (const type of ['bilingual', 'international', 'ib']) component.exportPdf(type);
-    assert.deepEqual(printed, ['bilingual', 'international', 'ib'].map(type => ({ type, subjects: [['math'], ['math']] })));
+    const formats = ['bilingual', 'bilingual-gpa', 'international', 'ib'];
+    for (const format of formats) await component.exportPdf(format);
+    assert.deepEqual(printed, formats.map(format => ({ format, academicYears: ['2026-2027'],
+      semester: 'all', excludedSubjectCodes: ['music'] })));
+    assert.deepEqual(component.subjectsForSemester(grade, 'semester1').map(subject => subject.subjectCode), ['math']);
     component.loading.set(true);
-    component.exportPdf();
-    assert.equal(printed.length, 3);
+    await component.exportPdf();
+    assert.equal(printed.length, 4);
     fixture.preferences.saveExcludedSubjects([]);
     assert.deepEqual(component.subjectsForSemester(grade, 'semester1').map(subject => subject.subjectCode), ['math', 'music']);
   } finally { fixture.injector.destroy(); }

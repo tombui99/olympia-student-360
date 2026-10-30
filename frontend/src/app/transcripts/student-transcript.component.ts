@@ -6,6 +6,9 @@ import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
 import { SchoolTranscript, SchoolTranscriptGrade, TranscriptStudent, TranscriptSubject, TranscriptsService } from './transcripts.service';
 import { TranscriptPreferencesService } from './transcript-preferences.service';
+import { StudentTranscriptPdfService } from './student-transcript-pdf.service';
+import { ToastService } from '../core/toast/toast.service';
+import type { TranscriptPdfFormat } from './transcript-pdf';
 
 type TranscriptType = 'bilingual' | 'international' | 'ib';
 type TranscriptSemester = 'semester1' | 'semester2';
@@ -119,15 +122,16 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
           <details class="export-menu relative">
             <summary
               class="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg bg-[#32124f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#51236f]"
-              [class.pointer-events-none]="loading() || error() || !transcript() || !transcript()?.years?.length"
-              [class.opacity-50]="loading() || error() || !transcript() || !transcript()?.years?.length">
-              <span aria-hidden="true">↧</span> {{ t('transcript.exportPdf') }} <span aria-hidden="true">⌄</span>
+              [class.pointer-events-none]="exporting() || loading() || error() || !transcript() || !transcript()?.years?.length"
+              [class.opacity-50]="exporting() || loading() || error() || !transcript() || !transcript()?.years?.length"
+              [attr.aria-busy]="exporting()">
+              <span aria-hidden="true">↧</span> {{ t(exporting() ? 'transcript.generatingPdf' : 'transcript.exportPdf') }} <span aria-hidden="true">⌄</span>
             </summary>
             <div class="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-lg border border-[#d8cede] bg-white p-1.5 shadow-[0_14px_35px_rgba(50,18,79,0.16)]">
-              @for (type of transcriptTypes; track type.id) {
-                <button type="button" class="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[#f4eef7]" (click)="exportPdf(type.id)">
-                  <span class="block text-sm font-semibold text-[#32124f]">{{ t('transcript.types.' + type.id + '.name') }}</span>
-                  <span class="mt-0.5 block text-xs text-[#817589]">{{ t('transcript.types.' + type.id + '.exportHint') }}</span>
+              @for (format of pdfFormats; track format.id) {
+                <button type="button" class="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[#f4eef7] disabled:opacity-40" [disabled]="exporting() || loading() || error()" (click)="exportPdf(format.id)">
+                  <span class="block text-sm font-semibold text-[#32124f]">{{ t('transcript.pdfFormats.' + format.id + '.name') }}</span>
+                  <span class="mt-0.5 block text-xs text-[#817589]">{{ t('transcript.pdfFormats.' + format.id + '.hint') }}</span>
                 </button>
               }
             </div>
@@ -437,6 +441,8 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
 export class StudentTranscriptComponent {
   private readonly service = inject(TranscriptsService);
   private readonly preferences = inject(TranscriptPreferencesService);
+  private readonly pdfService = inject(StudentTranscriptPdfService);
+  private readonly toast = inject(ToastService);
   private transcriptRequest?: Subscription;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -448,6 +454,10 @@ export class StudentTranscriptComponent {
   readonly selectedYears = signal<string[]>([]);
   readonly selectedSemester = signal<TranscriptSemesterFilter>('all');
   readonly activeTranscriptType = signal<TranscriptType>('international');
+  readonly exporting = signal(false);
+  readonly pdfFormats: { id: TranscriptPdfFormat }[] = [
+    { id: 'bilingual' }, { id: 'bilingual-gpa' }, { id: 'ib' }, { id: 'international' },
+  ];
   readonly transcriptTypes: { id: TranscriptType }[] = [
     { id: 'bilingual' },
     { id: 'international' },
@@ -668,23 +678,18 @@ export class StudentTranscriptComponent {
     if (type === 'international' && this.scoreScale() === 'percentage') this.scoreScale.set('letter');
   }
 
-  exportPdf(type: TranscriptType = this.activeTranscriptType()): void {
-    if (this.loading() || this.error() || !this.selectedStudentId() || !this.transcript()) return;
-    this.selectTranscriptType(type);
-    this.openPrintDialog(type);
-  }
-
-  private openPrintDialog(type: TranscriptType): void {
-    const currentTitle = document.title;
+  async exportPdf(format: TranscriptPdfFormat = this.activeTranscriptType()): Promise<void> {
     const record = this.transcript();
-    document.title = `${record?.sisUserId || 'student'}-${type}-transcript`;
-    // Give Angular one frame to render the requested template before opening the print dialog.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      window.print();
-      setTimeout(() => {
-        document.title = currentTitle;
-      }, 250);
-    }));
+    if (this.exporting() || this.loading() || this.error() || !this.selectedStudentId() || !record?.years.length) return;
+    this.exporting.set(true);
+    try {
+      await this.pdfService.download(record, {
+        format, academicYears: [...this.selectedYears()], semester: this.selectedSemester(),
+        excludedSubjectCodes: [...this.preferences.excludedSubjectCodes()],
+      });
+    } catch {
+      this.toast.error(this.t('transcript.pdfExportError'));
+    } finally { this.exporting.set(false); }
   }
 
   score(value?: number | null): string {

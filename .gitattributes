@@ -1,0 +1,2 @@
+# Preserve school letterhead PDFs as binary assets across platforms.
+frontend/public/assets/letterhead/*.pdf binary
