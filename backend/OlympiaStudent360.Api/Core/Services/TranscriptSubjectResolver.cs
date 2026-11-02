@@ -67,6 +67,8 @@ public sealed partial class TranscriptSubjectResolver
             "geography", "địa lý", "địa lí", "dia ly", "dia li"),
         new("english", "Tiếng Anh/English", 100,
             "english", "english language", "tiếng anh", "tieng anh"),
+        new("academic-english", "Tiếng Anh học thuật/Academic English", 101,
+            "academic english", "tiếng anh học thuật", "tieng anh hoc thuat"),
         new("chinese", "Tiếng Trung/Chinese", 110,
             "chinese", "mandarin", "tiếng trung", "tieng trung", "trung văn", "trung van"),
         new("french", "Tiếng Pháp/French", 120,
@@ -142,6 +144,10 @@ public sealed partial class TranscriptSubjectResolver
             "traditional musical instruments", "nhạc cụ dân tộc", "nhac cu dan toc"),
         new("vocal", "Thanh nhạc/Vocal", 304,
             "vocal", "thanh nhạc", "thanh nhac"),
+        new("choir", "Hợp xướng/Choir", 306,
+            "choir", "chorus", "hợp xướng", "hop xuong"),
+        new("graphic-design", "Thiết kế đồ họa/Graphic Design", 307,
+            "graphic design", "thiết kế đồ họa", "thiet ke do hoa"),
         new("performing-arts", "Nghệ thuật tổng hợp/Performing Arts", 305,
             "performing arts", "nghệ thuật tổng hợp", "nghe thuat tong hop"),
         new("psat", "PSAT", 310,
@@ -211,7 +217,29 @@ public sealed partial class TranscriptSubjectResolver
             ?? $"Canvas course {canvasCourseId}";
         return new TranscriptSubjectResolution(
             $"canvas-course-{canvasCourseId}",
-            fallbackName);
+            CleanDisplayName(fallbackName));
+    }
+
+    public static string CleanDisplayName(string value)
+    {
+        value = value.Trim();
+        for (var index = 0; index < 2; index++)
+        {
+            value = LeadingAcademicYearPattern().Replace(value, "");
+            value = LeadingOrganizationPattern().Replace(value, "");
+        }
+        return string.Join("/", value.Split('/').Select(part =>
+            Regex.Replace(part.Trim(), @"\s+(?:(?:grade|class)\s+)?(?:1[0-2]|[1-9])[a-z]{1,3}\d{1,2}(?:\.\d+)?\s*$", "",
+                RegexOptions.IgnoreCase).Trim()));
+    }
+
+    public static (string English, string Vietnamese) DisplayNames(string value)
+    {
+        var parts = CleanDisplayName(value).Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return (parts.FirstOrDefault() ?? "", parts.FirstOrDefault() ?? "");
+        static bool Vietnamese(string text) => text.Any(c => c is 'đ' or 'Đ' ||
+            c.ToString().Normalize(NormalizationForm.FormD).Any(part => CharUnicodeInfo.GetUnicodeCategory(part) == UnicodeCategory.NonSpacingMark));
+        return Vietnamese(parts[^1]) && !Vietnamese(parts[0]) ? (parts[0], parts[^1]) : (parts[^1], parts[0]);
     }
 
     public int SortOrder(string? subjectCode)
@@ -256,12 +284,15 @@ public sealed partial class TranscriptSubjectResolver
         // Olympia's bilingual course convention puts the Vietnamese and English subject names on
         // either side of '/'. Matching the complete first segment avoids classifying unrelated
         // titles such as "English Literature" or "Art History" by their first word.
+        withoutPrefix = CleanDisplayName(withoutPrefix);
         var separatorIndex = withoutPrefix.IndexOf('/');
         if (separatorIndex >= 0 &&
             TryResolveKnownExact(withoutPrefix[..separatorIndex], out subject))
         {
             return true;
         }
+        if (separatorIndex >= 0 && TryResolveKnownExact(withoutPrefix[(separatorIndex + 1)..], out subject))
+            return true;
 
         var normalized = NormalizeForMatching(withoutPrefix);
         if (normalized.Length == 0) return false;

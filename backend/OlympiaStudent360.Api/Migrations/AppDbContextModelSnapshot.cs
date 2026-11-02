@@ -998,6 +998,9 @@ namespace OlympiaStudent360.Api.Migrations
 
                     b.HasIndex("StudentProfileId");
 
+                    b.HasIndex("StudentProfileId", "CanvasCourseId")
+                        .HasDatabaseName("IX_CanvasSubmissions_TranscriptEvidence");
+
                     b.HasIndex("CanvasAssignmentId", "StudentProfileId", "CanvasCourseId")
                         .HasDatabaseName("IX_CanvasSubmissions_ScorePointJoin");
 
@@ -3305,6 +3308,42 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("StudentSupportActions");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentTranscriptRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("RecordJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentProfileId")
+                        .IsUnique();
+
+                    b.ToTable("StudentTranscriptRecords");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherAccessGrant", b =>
                 {
                     b.Property<int>("Id")
@@ -3896,6 +3935,17 @@ namespace OlympiaStudent360.Api.Migrations
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
                         .WithMany("SupportActions")
+                        .HasForeignKey("StudentProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.StudentTranscriptRecord", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.StudentProfile", "Student")
+                        .WithMany()
                         .HasForeignKey("StudentProfileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

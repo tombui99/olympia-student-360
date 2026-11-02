@@ -2,6 +2,7 @@ import { PDFDict, PDFDocument, PDFFont, PDFName, PDFNumber, PDFPage, rgb } from 
 import fontkit from '@pdf-lib/fontkit';
 import { formatTranscriptScore } from './grading-scale';
 import type { SchoolTranscript, SchoolTranscriptGrade, TranscriptSubject } from './transcripts.service';
+import { academicGpa, bilingualSubjects, ibPredictedTotal, ibPredictionYear, ibSubjects, internationalStudentName, isPassFail, showAverage, subjectName } from './transcript-display';
 
 export type TranscriptPdfFormat = 'bilingual' | 'bilingual-gpa' | 'international' | 'ib';
 
@@ -26,8 +27,8 @@ export const TRANSCRIPT_LETTERHEADS: Record<TranscriptPdfFormat, string> = {
   international: 'international-gpa.pdf',
 };
 
-interface GradeRecord extends SchoolTranscriptGrade { academicYear: string; }
-interface SubjectRow { subject: TranscriptSubject; lines: string[]; height: number; }
+interface GradeRecord extends SchoolTranscriptGrade { academicYear: string; showAverage?: boolean; }
+interface SubjectRow { subject: TranscriptSubject; lines: string[]; height: number; continued?: boolean; }
 interface GradeBlock { grade: GradeRecord; rows: SubjectRow[]; continued: boolean; height: number; }
 interface ColumnLayout { x: number; subjectWidth: number; centers: readonly number[]; }
 interface GpaLayout { left: ColumnLayout; right: ColumnLayout; divider: number; ruleRight: number; }
@@ -53,7 +54,6 @@ const GPA_LAYOUTS: Record<'bilingual-gpa' | 'international' | 'ib', GpaLayout> =
 
 const BLACK = rgb(.12, .12, .12);
 const RULE = rgb(.35, .35, .35);
-const PASS_FAIL = new Set(['music', 'physical-education', 'fine-arts', 'service-learning', 'cas']);
 const GPA_ORDER = ['math', 'literature', 'physics', 'chemistry', 'biology', 'history', 'geography',
   'english', 'economics-and-law', 'ict', 'technology'];
 const TEN_POINT_ORDER = ['math', 'physics', 'chemistry', 'biology', 'ict', 'literature', 'history',
@@ -80,6 +80,7 @@ export async function buildStudentTranscriptPdf(
   for (const page of await document.copyPages(template, template.getPageIndices().slice(1))) {
     softenWatermark(page, options.format);
     document.addPage(page);
+    if (options.format === 'international') renderer.repairAppendixScale(page);
   }
   return document.save();
 }
@@ -113,8 +114,10 @@ class TranscriptPdfRenderer {
     const selectedYears = options.academicYears?.length ? new Set(options.academicYears) : null;
     this.grades = record.years.filter((year) => !selectedYears || selectedYears.has(year.academicYear))
       .flatMap((year) => year.grades.map((grade) => ({
-        ...grade, academicYear: year.academicYear,
-        subjects: grade.subjects.filter((subject) => !excluded.has(subject.subjectCode.toLowerCase())),
+        ...grade, academicYear: year.academicYear, showAverage: year.showAverage,
+        subjects: options.format === 'bilingual'
+          ? bilingualSubjects(grade.subjects.filter(subject => !excluded.has(subject.subjectCode.toLowerCase())))
+          : grade.subjects.filter(subject => !excluded.has(subject.subjectCode.toLowerCase())),
       })))
       .sort((a, b) => Number(a.academicYear.slice(0, 4)) - Number(b.academicYear.slice(0, 4)) ||
         Number(a.gradeLevel) - Number(b.gradeLevel));
@@ -125,6 +128,7 @@ class TranscriptPdfRenderer {
     if (this.options.format === 'bilingual') await this.renderTenPoint();
     else if (this.options.format === 'ib') await this.renderIb();
     else await this.renderGpa(this.grades);
+    if (this.options.format !== 'bilingual' && this.record.record?.notes && (this.options.format === 'ib' || this.noteLines(8.3).length > 3)) await this.renderNotes();
   }
 
   private async page(): Promise<PDFPage> {
@@ -180,10 +184,14 @@ class TranscriptPdfRenderer {
   private metadata(page: PDFPage): void {
     const bilingual = this.options.format === 'bilingual-gpa';
     const genderX = this.options.format === 'ib' ? 482 : bilingual ? 445 : 460;
-    this.text(page, `Student name: ${this.record.studentName || ''}`, bilingual ? 31 : 34, 108, 8.8, true, 225);
+    this.text(page, `Student name: ${internationalStudentName(this.record)}`, bilingual ? 31 : 34, 108, 8.8, true, 225);
     this.text(page, `Birth Date: ${this.birthDate()}`, bilingual ? 276 : 262, 108, 8.8, true, bilingual ? 163 : 180);
     this.text(page, `${this.options.format === 'international' ? 'Sex' : 'Gender'}: ${this.gender(false)}`,
       genderX, 108, 8.8, true, 582 - genderX);
+    if (this.options.format !== 'ib') {
+      this.text(page, `Enrolled since: ${this.record.record?.enrollmentDate || ''}`, 34, 121, 7.8, false, 250);
+      this.text(page, `Graduation date: ${this.record.record?.graduationDate || ''}`, 324, 121, 7.8, false, 250);
+    }
   }
 
   private birthDate(): string {
@@ -202,7 +210,7 @@ class TranscriptPdfRenderer {
   }
 
   private subjectName(subject: TranscriptSubject, bilingual = false): string {
-    return bilingual ? subject.subject : subject.subject.split('/').slice(1).join('/').trim() || subject.subject;
+    return subjectName(subject, bilingual);
   }
 
   private orderedSubjects(grade: GradeRecord, bilingual = false): TranscriptSubject[] {
@@ -219,7 +227,7 @@ class TranscriptPdfRenderer {
 
   private score(value: number | null | undefined, subject?: TranscriptSubject, tenPoint = false): string {
     if (value == null || !Number.isFinite(value)) return '';
-    if (subject && PASS_FAIL.has(subject.subjectCode)) return value >= 50
+    if (subject && isPassFail(subject.subjectCode)) return value >= 50
       ? tenPoint ? 'Đạt/Passed' : 'Pass' : tenPoint ? 'Chưa đạt/Not passed' : 'Fail';
     return tenPoint ? (value / 10).toFixed(1) : formatTranscriptScore(value, 'letter');
   }
@@ -231,19 +239,24 @@ class TranscriptPdfRenderer {
     return `${grade.gradeLevel}${suffix} Grade ${grade.academicYear}`;
   }
 
-  private blocks(grades: GradeRecord[], maxHeight = 221, size = 9.2, gpaAtBottom = false): GradeBlock[] {
+  private blocks(grades: GradeRecord[], maxHeight = 212, size = 9.2, gpaAtBottom = false): GradeBlock[] {
     const blocks: GradeBlock[] = [];
     for (const grade of grades) {
       const headingHeight = gpaAtBottom ? 37 : 25;
       let block: GradeBlock = { grade, rows: [], continued: false, height: headingHeight };
       for (const subject of this.orderedSubjects(grade)) {
-        const subjectWidth = Math.min(this.gpaLayout.left.subjectWidth, this.gpaLayout.right.subjectWidth);
+        const subjectWidth = Math.min(this.gpaLayout.left.subjectWidth, this.gpaLayout.right.subjectWidth, this.gpaLayout.left.centers[0] - 22, this.gpaLayout.right.centers[0] - 22);
         const lines = this.wrap(this.subjectName(subject), subjectWidth, size);
-        const row = { subject, lines, height: Math.max(gpaAtBottom ? 10.8 : 12.2, lines.length * (size + 1.7)) };
-        if (block.rows.length && block.height + row.height > maxHeight) {
-          blocks.push(block); block = { grade, rows: [], continued: true, height: headingHeight };
+        const maxLines = Math.max(1, Math.floor((maxHeight - headingHeight) / (size + 1.7)));
+        for (let offset = 0; offset < lines.length; offset += maxLines) {
+          const part = lines.slice(offset, offset + maxLines);
+          const row = { subject, lines: part, continued: offset > 0,
+            height: Math.max(gpaAtBottom ? 10.8 : 12.2, part.length * (size + 1.7)) };
+          if (block.rows.length && block.height + row.height > maxHeight) {
+            blocks.push(block); block = { grade, rows: [], continued: true, height: headingHeight };
+          }
+          block.rows.push(row); block.height += row.height;
         }
-        block.rows.push(row); block.height += row.height;
       }
       blocks.push(block);
     }
@@ -262,14 +275,14 @@ class TranscriptPdfRenderer {
     }
     this.text(page, 'Subject', x, top + 12, size, true);
     ['S1F', 'S2F', 'YR', 'Credit'].forEach((label, index) =>
-      this.text(page, label, centers[index] - 16, top + 12, size, true, 32, 'center'));
+      this.text(page, label, centers[index] - 16, top + 12, size, true, 32, 'left'));
     let y = top + 25;
     for (const row of block.rows) {
       row.lines.forEach((line, index) => this.text(page, line, x, y + index * (size + 1.7), size));
       const values = [this.score(this.semesterValue(row.subject, 'semester1'), row.subject),
         this.score(this.semesterValue(row.subject, 'semester2'), row.subject), this.score(row.subject.yearAverage, row.subject),
         Number.isFinite(row.subject.credit) ? String(row.subject.credit) : ''];
-      values.forEach((value, index) => this.text(page, value, centers[index] - 16, y, size, false, 32, 'center'));
+      if (!row.continued) values.forEach((value, index) => this.text(page, value, centers[index] - 16, y, size, false, 32, 'left'));
       y += row.height;
     }
     if (gpaAtBottom) {
@@ -294,16 +307,13 @@ class TranscriptPdfRenderer {
       this.line(page, 32, 591, layout.ruleRight);
       if (offset + 4 >= blocks.length) {
         this.text(page, 'Academic Standing', 34, 603, 9.5, true);
-        const gradesWithGpa = this.record.years.flatMap((year) => year.grades)
+        const gradesWithGpa = this.grades
           .map((grade) => Number(grade.gradeLevel)).filter((grade) => grade >= 9 && grade <= 12);
         const range = gradesWithGpa.length ? `G${Math.min(...gradesWithGpa)}-${Math.max(...gradesWithGpa)}` : 'G9-12';
         this.text(page, `Academic GPA (${range})`, 34, 617, 9.2);
-        this.text(page, this.record.overallGpa?.toFixed(2) || '', 164, 617, 9.2, true);
-        if (this.options.format === 'bilingual-gpa') {
-          this.text(page, 'Graduation Date:', 34, 644, 9, true);
-          this.line(page, 112, 655, 230);
-          this.gradingScale(page, 677);
-        }
+        this.text(page, academicGpa(this.grades)?.toFixed(2) || '', 164, 617, 9.2, true);
+        if (this.options.format === 'bilingual-gpa') this.gradingScale(page, 677);
+        this.shortNotes(page, 638);
         this.signatures(page);
       }
     }
@@ -321,22 +331,48 @@ class TranscriptPdfRenderer {
     }
   }
 
-  private gradingScale(page: PDFPage, top: number, ib = false): void {
-    this.text(page, ib ? 'Grade 9&10 Grading Scale' : 'Grading Scale', 34, top, 8.5, true);
+  private gradingScale(page: PDFPage, top: number, ib = false, appendix = false): void {
+    if (!appendix) this.text(page, ib ? 'Grade 9&10 Grading Scale' : 'Grading Scale', 34, top, 8.5, true);
     const rows = [
-      ['10.0 GPA Scale', '9.5-10.0', '9.0-9.4', '8.0-8.9', '7.5-7.9', '7.0-7.4', '6.5-6.9', '6.0-6.4', '5.5-5.9', '5.0-5.4', '4.5-4.9', '4.0-4.4', ''],
+      ['10.0 GPA Scale', '9.5-10.0', '9.0-9.4', '8.0-8.9', '7.5-7.9', '7.0-7.4', '6.5-6.9', '6.0-6.4', '5.5-5.9', '5.0-5.4', '4.5-4.9', '4.0-4.4', '<4.0'],
       ['Letter Grade', 'A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-'],
-      ['4.0 GPA Scale', '4.2', '4.0', '3.7', '3.3', '3.0', '2.7', '2.3', '2.0', '1.7', '1.3', '1.0', '0.7'],
+      ['4.2 GPA Scale', '4.2', '4.0', '3.7', '3.3', '3.0', '2.7', '2.3', '2.0', '1.7', '1.3', '1.0', '0.7'],
     ];
-    const y = top + 12, labelWidth = 105, cellWidth = (527 - labelWidth) / 12, rowHeight = 10.5;
+    const y = top + (appendix ? 0 : 12), labelWidth = 105, cellWidth = (527 - labelWidth) / 12, rowHeight = appendix ? 18 : 10.5;
     rows.forEach((row, index) => {
-      this.text(page, row[0], 36, y + index * rowHeight + 1, 8);
+      this.text(page, row[0], 36, y + index * rowHeight + (appendix ? 4 : 1), 8, false, labelWidth - 4);
       row.slice(1).forEach((value, col) => this.text(page, value, 34 + labelWidth + col * cellWidth,
-        y + index * rowHeight + 1, 7.8, false, cellWidth, 'center'));
+        y + index * rowHeight + (appendix ? 4 : 1), 7.3, false, cellWidth, 'center'));
     });
     for (let index = 0; index <= 3; index++) this.line(page, 34, y + index * rowHeight, 561, undefined, .25);
     for (const x of [34, ...Array.from({ length: 13 }, (_, index) => 34 + labelWidth + index * cellWidth)])
       this.line(page, x, y, x, y + 3 * rowHeight, .25);
+  }
+
+  repairAppendixScale(page: PDFPage): void {
+    page.drawRectangle({ x: 34, y: page.getHeight() - 162, width: 527, height: 60, color: rgb(1, 1, 1) });
+    this.gradingScale(page, 105, false, true);
+  }
+
+  private shortNotes(page: PDFPage, top: number): void {
+    const notes = this.record.record?.notes;
+    if (!notes) return;
+    const lines = this.noteLines(8.3);
+    if (lines.length <= 3) lines.forEach((line, index) => this.text(page, line, 34, top + index * 11, 8.3));
+  }
+
+  private noteLines(size: number): string[] {
+    return (this.record.record?.notes || '').split(/\r?\n/).flatMap(line => line ? this.wrap(line, 527, size) : ['']);
+  }
+
+  private async renderNotes(): Promise<void> {
+    const lines = this.noteLines(9.2);
+    for (let offset = 0; offset < lines.length; offset += 42) {
+      const page = await this.page(); this.metadata(page);
+      this.text(page, 'Transcript notes' + (offset ? ' (continued)' : ''), 34, 140, 11, true);
+      lines.slice(offset, offset + 42).forEach((line, index) => this.text(page, line, 34, 164 + index * 12.5, 9.2));
+      this.signatures(page);
+    }
   }
 
   private async renderTenPoint(): Promise<void> {
@@ -380,9 +416,11 @@ class TranscriptPdfRenderer {
       y += row.height; this.line(page, x, y, edges[4]);
     }
     if (last) {
-      this.text(page, 'ĐTB các môn/ Average Education', x + 3, y + 4, 11, true, 195);
-      this.text(page, this.score(grade.averageScore, undefined, true), edges[3], y + 4, 11, true, 85, 'center');
-      y += 20; this.line(page, x, y, edges[4]);
+      if (showAverage({ academicYear: grade.academicYear, showAverage: grade.showAverage, grades: [grade] }, this.record)) {
+        this.text(page, 'ĐTB các môn/ Average Education', x + 3, y + 4, 11, true, 195);
+        this.text(page, this.score(grade.averageScore, undefined, true), edges[3], y + 4, 11, true, 85, 'center');
+        y += 20; this.line(page, x, y, edges[4]);
+      }
       const evaluationTop = y;
       this.text(page, 'XẾP LOẠI/ EVALUATION', x + 3, y + 4, 11, true);
       y += 20; this.line(page, x, y, edges[4]);
@@ -412,15 +450,21 @@ class TranscriptPdfRenderer {
     for (let offset = 0; offset < Math.max(upper.length, 1); offset += 2) {
       const grades = upper.slice(offset, offset + 2);
       const unique = new Map<string, TranscriptSubject>();
-      grades.forEach((grade) => this.orderedSubjects(grade).forEach((subject) => unique.set(subject.subjectCode, subject)));
+      grades.forEach(grade => ibSubjects(this.record, grade.academicYear)
+        .filter(row => !this.options.excludedSubjectCodes?.includes(row.subjectCode))
+        .forEach(row => unique.set(row.subjectCode, { subjectCode: row.subjectCode, subject: row.subjectName,
+          englishName: row.subjectName, courseNames: [], classScores: [], credit: 1 })));
       let assessment = { grades, rows: [] as SubjectRow[] }, height = 0;
       for (const subject of unique.values()) {
         const lines = this.wrap(this.subjectName(subject), 149, 8.6);
-        const row = { subject, lines, height: Math.max(11, lines.length * 10.5) };
-        if (height + row.height > 105 && assessment.rows.length) {
-          assessments.push(assessment); assessment = { grades, rows: [] }; height = 0;
+        for (let offset = 0; offset < lines.length; offset += 10) {
+          const part = lines.slice(offset, offset + 10);
+          const row = { subject, lines: part, height: Math.max(11, part.length * 10.5), continued: offset > 0 };
+          if (height + row.height > 105 && assessment.rows.length) {
+            assessments.push(assessment); assessment = { grades, rows: [] }; height = 0;
+          }
+          assessment.rows.push(row); height += row.height;
         }
-        assessment.rows.push(row); height += row.height;
       }
       assessments.push(assessment);
     }
@@ -428,8 +472,11 @@ class TranscriptPdfRenderer {
     for (let index = 0; index < pages; index++) {
       const page = await this.page(); this.metadata(page);
       this.text(page, 'International Baccalaureate Diploma Programme', 35, 129, 9.2, true);
-      this.text(page, 'Enrolled at The Olympia Schools since: ____________________', 35, 144, 8.6);
-      this.text(page, 'Final official IB grades release date: ____________________', 35, 155, 8.6);
+      this.text(page, `Enrolled at The Olympia Schools since: ${this.record.record?.enrollmentDate || ''}`, 35, 144, 8.6);
+      this.text(page, `Final official IB grades release date: ${this.record.record?.ibReleaseDate || ''}`, 35, 155, 8.6);
+      this.text(page, `Graduation date: ${this.record.record?.graduationDate || ''}`, 345, 144, 8.6, false, 225);
+      if (this.record.record?.graduationExamDate)
+        this.text(page, `Graduation exam date: ${this.record.record.graduationExamDate}`, 345, 155, 8.6, false, 225);
       this.paragraph(page, 'The IB grades are assigned by the International Baccalaureate Organisation on a 7-point scale as follows:', 35, 168, 535, 8.6);
       this.text(page, '7 Exceptional    6 Excellent    5 Very Good    4 Good    3 Mediocre    2 Poor    1 Very Poor', 35, 181, 8.6, false, 535, 'center');
       this.paragraph(page, 'Additional points may be awarded for successful completion of the Theory of Knowledge (TOK) and the Extended Essay (EE), with a maximum of 3 points. A total of 24 points is needed to pass the IB Diploma.', 35, 194, 535, 8.6);
@@ -463,11 +510,20 @@ class TranscriptPdfRenderer {
     let top = 306;
     rows.forEach((row) => {
       row.lines.forEach((line, index) => this.text(page, line, 35, top + index * 10.5, 8.6));
-      // HL/SL, predicted grades and four assessment terms are intentionally blank:
-      // Canvas semester totals are not equivalent to any of these school fields.
+      const records = grades.map(grade => row.continued ? undefined : this.record.record?.years.find(year => year.academicYear === grade.academicYear)
+        ?.ibSubjects.find(subject => subject.subjectCode === row.subject.subjectCode));
+      const predictionYear = ibPredictionYear(this.record, grades.map(grade => grade.academicYear));
+      const prediction = predictionYear ? this.record.record?.years.find(year => year.academicYear === predictionYear)?.ibSubjects.find(subject => subject.subjectCode === row.subject.subjectCode) : [...records].reverse().find(record => record?.level);
+      this.text(page, prediction?.level || '', 188, top, 8.6, false, 29);
+      this.text(page, prediction?.predictedGrade || '', 220, top, 8.6, false, 45);
+      records.forEach((record, index) => [record?.term1, record?.term2, record?.term3, record?.term4]
+        .forEach((mark, term) => this.text(page, mark || '', 298 + index * 155 + term * 33, top, 8.3, false, 29)));
       top += row.height;
     });
     this.text(page, 'Total points', 165, 412, 8.8, true);
+    const total = ibPredictedTotal(this.record, grades.map(grade => grade.academicYear));
+    this.text(page, total == null ? '' : String(total), 235, 412, 8.8, true);
+    this.text(page, 'Blank cells: official result not recorded.', 298, 414, 7.1, false, 270);
     this.line(page, 290, 257, 290, 429);
   }
 }

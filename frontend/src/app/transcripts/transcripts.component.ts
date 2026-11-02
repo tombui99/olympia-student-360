@@ -1,9 +1,10 @@
-import { Component, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, effect, inject, signal, untracked } from '@angular/core';
 import { Subscription } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
-import { SchoolTranscript, SchoolTranscriptGrade, SchoolTranscriptYear, TranscriptClassScore, TranscriptSubject, TranscriptsService } from './transcripts.service';
+import { TranscriptCatalog, SchoolTranscript, SchoolTranscriptGrade, SchoolTranscriptYear, TranscriptClassScore, TranscriptSubject, TranscriptsService } from './transcripts.service';
 import { TranscriptPreferencesService } from './transcript-preferences.service';
 
 type TranscriptSemester = 'semester1' | 'semester2';
@@ -31,6 +32,29 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
         </div>
       </div>
 
+      <section class="mt-6 rounded-xl border border-[#ded6e3] bg-white p-5">
+        <p class="text-sm text-[#6f6877]">{{ t('transcript.summaryScopeHelp') }}</p>
+        @if (catalogError()) {
+          <p role="alert" class="mt-3 text-sm text-[#8b2727]">{{ t('transcript.settings.error') }}</p>
+          <button type="button" class="mt-2 text-sm font-semibold text-[#6d3a91]" (click)="loadCatalog()">{{ t('transcript.retry') }}</button>
+        }
+        <div class="mt-4 flex flex-wrap items-end gap-4">
+          <label class="block min-w-48 text-xs font-bold text-[#766a7e]">{{ t('transcript.chooseYear') }}
+            <select class="mt-2 block w-full rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold text-[#32124f]" [disabled]="catalogLoading()" [value]="selectedYear()" (change)="changeYear($event)">
+              <option value="">{{ t('transcript.chooseYear') }}</option>
+              @for (year of catalog()?.years || []; track year.academicYear) { <option [value]="year.academicYear">{{ year.academicYear }}</option> }
+            </select>
+          </label>
+          <label class="block min-w-48 text-xs font-bold text-[#766a7e]">{{ t('transcript.gradeFilter') }}
+            <select class="mt-2 block w-full rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold text-[#32124f]" [disabled]="catalogLoading() || !selectedYear()" [value]="selectedGrade()" (change)="changeGrade($event)">
+              <option value="">{{ t('transcript.chooseGrade') }}</option>
+              @for (grade of availableGrades(); track grade) { <option [value]="grade">{{ grade }}</option> }
+            </select>
+          </label>
+          <button type="button" class="rounded-lg bg-[#32124f] px-5 py-3 text-sm font-semibold text-white disabled:opacity-40" [disabled]="loading() || !selectedYear() || !selectedGrade()" (click)="load()">{{ t('transcript.loadSummary') }}</button>
+          <a routerLink="/transcripts/student" class="py-3 text-sm font-semibold text-[#6d3a91]">{{ t('transcript.chooseStudent') }}</a>
+        </div>
+      </section>
       @if (loading()) {
         <div class="mt-8 rounded-xl border border-[#e4dde8] bg-white py-24 text-center text-[#766d7d]">{{ t('transcript.loadingSummary') }}</div>
       } @else if (error()) {
@@ -57,13 +81,6 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
 
           @if (record.years.length) {
             <div class="flex flex-wrap gap-4 border-b border-[#e8e1eb] bg-[#faf8fb] px-5 py-4">
-              <label class="block min-w-64 text-xs font-bold uppercase tracking-[0.12em] text-[#766a7e]">
-                {{ t('transcript.chooseYear') }}
-                <select class="mt-2 block w-full rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[#32124f]"
-                  [value]="selectedYear()" (change)="changeYear($event)">
-                  @for (year of orderedYears(record); track year.academicYear) { <option [value]="year.academicYear">{{ year.academicYear }}</option> }
-                </select>
-              </label>
               <label class="block min-w-56 text-xs font-bold uppercase tracking-[0.12em] text-[#766a7e]">
                 {{ t('transcript.semesterFilter') }}
                 <select class="mt-2 block w-full rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[#32124f]"
@@ -71,18 +88,6 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                   <option value="all">{{ t('transcript.allSemesters') }}</option>
                   <option value="semester1">{{ t('transcript.semester1') }}</option>
                   <option value="semester2">{{ t('transcript.semester2') }}</option>
-                </select>
-              </label>
-              <label class="block min-w-48 text-xs font-bold uppercase tracking-[0.12em] text-[#766a7e]">
-                {{ t('transcript.gradeFilter') }}
-                <select class="mt-2 block w-full rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[#32124f]"
-                  [value]="selectedGrade()" (change)="changeGrade($event)">
-                  <option value="">{{ t('transcript.allGrades') }}</option>
-                  @if (activeYear(record); as selectedYear) {
-                    @for (grade of selectedYear.grades; track grade.gradeLevel) {
-                      <option [value]="grade.gradeLevel">{{ t('transcript.grade') }} {{ grade.gradeLevel }}</option>
-                    }
-                  }
                 </select>
               </label>
               <label class="block min-w-48 text-xs font-bold uppercase tracking-[0.12em] text-[#766a7e]">
@@ -213,6 +218,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
 })
 export class TranscriptsComponent {
   private readonly service = inject(TranscriptsService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly preferences = inject(TranscriptPreferencesService);
   private overallRequest?: Subscription;
   private subjectPageRequest?: Subscription;
@@ -222,33 +228,44 @@ export class TranscriptsComponent {
   readonly selectedSemester = signal<TranscriptSemesterFilter>('all');
   readonly selectedGrade = signal('');
   readonly selectedClass = signal('');
-  readonly loading = signal(true);
+  readonly catalog = signal<TranscriptCatalog | null>(null);
+  readonly catalogLoading = signal(true);
+  readonly catalogError = signal(false);
+  readonly loading = signal(false);
   readonly error = signal(false);
   readonly loadingSubjectPage = signal('');
-  readonly scoreScale = signal<TranscriptScoreScale>('letter');
+  readonly scoreScale = signal<TranscriptScoreScale>('percentage');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
   constructor() {
+    this.loadCatalog();
     effect((onCleanup) => {
       this.preferences.excludedSubjectCodes();
-      untracked(() => this.load());
+      untracked(() => { if (this.transcript()) this.load(); });
       onCleanup(() => {
         this.overallRequest?.unsubscribe();
         this.subjectPageRequest?.unsubscribe();
       });
     });
   }
+  loadCatalog(): void {
+    this.catalogLoading.set(true); this.catalogError.set(false);
+    this.service.getCatalog().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: catalog => { this.catalog.set(catalog); this.selectedYear.set(catalog.years[0]?.academicYear || ''); this.catalogLoading.set(false); },
+      error: () => { this.catalogLoading.set(false); this.catalogError.set(true); },
+    });
+  }
+  availableGrades(): string[] { return this.catalog()?.years.find(year => year.academicYear === this.selectedYear())?.gradeLevels || []; }
   load(): void {
+    if (!this.selectedYear() || !this.selectedGrade()) return;
     this.overallRequest?.unsubscribe();
     this.subjectPageRequest?.unsubscribe();
     this.loadingSubjectPage.set('');
     this.loading.set(true);
     this.error.set(false);
-    this.overallRequest = this.service.getOverall(undefined, 1).subscribe({
+    this.overallRequest = this.service.getOverall(undefined, 1, 10, this.selectedYear(), this.selectedGrade()).subscribe({
       next: (record) => {
         this.transcript.set(record);
-        if (!record.years.some((year) => year.academicYear === this.selectedYear()))
-          this.selectedYear.set(this.latestYear(record)?.academicYear ?? '');
         this.loading.set(false);
       },
       error: () => { this.loading.set(false); this.error.set(true); },
@@ -269,6 +286,7 @@ export class TranscriptsComponent {
   changeYear(event: Event): void {
     this.selectedYear.set((event.target as HTMLSelectElement).value);
     this.selectedGrade.set('');
+    this.clearResult();
     this.selectedClass.set('');
   }
   changeSemester(event: Event): void {
@@ -276,7 +294,12 @@ export class TranscriptsComponent {
   }
   changeGrade(event: Event): void {
     this.selectedGrade.set((event.target as HTMLSelectElement).value);
+    this.clearResult();
     this.selectedClass.set('');
+  }
+  private clearResult(): void {
+    this.overallRequest?.unsubscribe(); this.subjectPageRequest?.unsubscribe();
+    this.transcript.set(null); this.loading.set(false); this.error.set(false);
   }
   changeClass(event: Event): void {
     this.selectedClass.set((event.target as HTMLSelectElement).value);
@@ -356,7 +379,7 @@ export class TranscriptsComponent {
     this.subjectPageRequest?.unsubscribe();
     const key = this.subjectPageKey(academicYear, gradeLevel);
     this.loadingSubjectPage.set(key);
-    this.subjectPageRequest = this.service.getOverall(undefined, page).subscribe({
+    this.subjectPageRequest = this.service.getOverall(undefined, page, 10, academicYear, gradeLevel).subscribe({
       next: (response) => {
         const updatedGrade = response.years
           .find((year) => year.academicYear === academicYear)?.grades

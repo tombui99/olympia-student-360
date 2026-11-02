@@ -1,7 +1,13 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { BASE_PATH } from '../api/variables';
 import { TranscriptPreferencesService } from './transcript-preferences.service';
+import { SKIP_GLOBAL_API_LOADING } from '../core/loading/api-loading.interceptor';
+
+export interface TranscriptCatalog {
+  years: { academicYear: string; gradeLevels: string[] }[];
+  subjectOptions: TranscriptSubjectOption[];
+}
 
 export interface TranscriptStudent {
   id: number;
@@ -20,6 +26,8 @@ export interface TranscriptStudentsPage {
 }
 
 export interface TranscriptSubject {
+  englishName?: string | null;
+  vietnameseName?: string | null;
   subject: string;
   subjectCode: string;
   courseNames: string[];
@@ -44,6 +52,7 @@ export interface TranscriptClassScore {
 export interface TranscriptSubjectOption {
   subjectCode: string;
   subject: string;
+  gradeLevels?: string[];
 }
 
 export interface SchoolTranscriptGrade {
@@ -60,11 +69,16 @@ export interface SchoolTranscriptGrade {
 
 export interface SchoolTranscriptYear {
   academicYear: string;
+  showAverage?: boolean;
   averageScore?: number | null;
   grades: SchoolTranscriptGrade[];
 }
 
 export interface SchoolTranscript {
+  record?: TranscriptRecord;
+  canEditRecord?: boolean;
+  transcriptName?: string | null;
+  academicYearOptions?: string[];
   studentProfileId?: number | null;
   sisUserId?: string | null;
   studentName?: string | null;
@@ -79,6 +93,37 @@ export interface SchoolTranscript {
   totalSubjects: number;
   subjectOptions: TranscriptSubjectOption[];
   years: SchoolTranscriptYear[];
+}
+
+export interface TranscriptRecord {
+  revision: number;
+  transcriptName?: string | null;
+  enrollmentDate?: string | null;
+  graduationDate?: string | null;
+  graduationExamDate?: string | null;
+  ibReleaseDate?: string | null;
+  notes?: string | null;
+  ibCorePoints?: number | null;
+  years: TranscriptYearRecord[];
+}
+
+export interface TranscriptYearRecord {
+  academicYear: string;
+  gradeLevel?: string | null;
+  showAverage?: boolean | null;
+  credits: { subjectCode: string; credit: number; englishName?: string | null; vietnameseName?: string | null }[];
+  ibSubjects: TranscriptIbSubject[];
+}
+
+export interface TranscriptIbSubject {
+  subjectCode: string;
+  subjectName: string;
+  level?: string | null;
+  predictedGrade?: string | null;
+  term1?: string | null;
+  term2?: string | null;
+  term3?: string | null;
+  term4?: string | null;
 }
 
 export interface TranscriptScoreRecord {
@@ -127,10 +172,25 @@ export class TranscriptsService {
   private readonly basePath = inject(BASE_PATH);
   private readonly preferences = inject(TranscriptPreferencesService);
 
-  getOverall(studentId?: number, subjectPage?: number, subjectPageSize = 10) {
+  saveRecord(studentId: number, record: TranscriptRecord) {
+    return this.http.put<TranscriptRecord>(`${this.basePath}/api/transcripts/students/${studentId}/record`, record, {
+      context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true),
+    });
+  }
+
+  getCatalog() {
+    return this.http.get<TranscriptCatalog>(`${this.basePath}/api/transcripts/catalog`, {
+      context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true),
+    });
+  }
+
+  getOverall(studentId?: number, subjectPage?: number, subjectPageSize = 10, academicYear?: string, gradeLevel?: string) {
     return this.http.get<SchoolTranscript>(`${this.basePath}/api/transcripts/overall`, {
+      context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true),
       params: {
         ...(studentId ? { studentId } : {}),
+        ...(academicYear ? { academicYear } : {}),
+        ...(gradeLevel ? { gradeLevel } : {}),
         ...(subjectPage ? { subjectPage, subjectPageSize } : {}),
         ...this.subjectExclusionParams(),
       },
@@ -139,12 +199,14 @@ export class TranscriptsService {
 
   getStudents(search: string, limit = 10) {
     return this.http.get<TranscriptStudent[]>(`${this.basePath}/api/transcripts/students`, {
+      context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true),
       params: { search, limit },
     });
   }
 
   getStudentDirectory(page = 1, pageSize = 20, search = '') {
     return this.http.get<TranscriptStudentsPage>(`${this.basePath}/api/transcripts/student-directory`, {
+      context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true),
       params: {
         page,
         pageSize,
@@ -157,7 +219,7 @@ export class TranscriptsService {
     subject = '', term = '', subjectPage = 1, subjectPageSize = 10, className = '') {
     return this.http.get<SchoolTranscriptGradeDetail>(
       `${this.basePath}/api/transcripts/${encodeURIComponent(academicYear)}/grades/${encodeURIComponent(gradeLevel)}`,
-      { params: {
+      { context: new HttpContext().set(SKIP_GLOBAL_API_LOADING, true), params: {
         page,
         pageSize,
         subjectPage,

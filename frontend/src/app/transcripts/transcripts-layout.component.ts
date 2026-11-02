@@ -11,13 +11,13 @@ import { TranscriptSettingsComponent } from './transcript-settings.component';
       <div class="no-print mb-6 flex flex-wrap items-center justify-between gap-3">
         <nav class="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-[#ded6e3] bg-white p-1 shadow-[0_6px_20px_rgba(50,18,79,0.04)]"
           [attr.aria-label]="t('transcript.workspace')">
-          <a routerLink="/transcripts" [routerLinkActiveOptions]="{ exact: true }" routerLinkActive="transcript-tab-active"
-            class="shrink-0 rounded-md px-5 py-2.5 text-sm font-semibold text-[#5f5268] transition hover:bg-[#f3edf6] hover:text-[#32124f]">
-            {{ t('transcript.summaryNav') }}
-          </a>
           <a routerLink="/transcripts/student" routerLinkActive="transcript-tab-active"
             class="shrink-0 rounded-md px-5 py-2.5 text-sm font-semibold text-[#5f5268] transition hover:bg-[#f3edf6] hover:text-[#32124f]">
             {{ t('transcript.studentNav') }}
+          </a>
+          <a routerLink="/transcripts/summary" [routerLinkActiveOptions]="{ exact: true }" routerLinkActive="transcript-tab-active"
+            class="shrink-0 rounded-md px-5 py-2.5 text-sm font-semibold text-[#5f5268] transition hover:bg-[#f3edf6] hover:text-[#32124f]">
+            {{ t('transcript.summaryNav') }}
           </a>
         </nav>
         <app-transcript-settings />

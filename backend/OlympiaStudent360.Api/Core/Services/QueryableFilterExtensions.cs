@@ -32,6 +32,18 @@ public static class QueryableFilterExtensions
         return query.Where(Expression.Lambda<Func<TEntity, bool>>(BalancedOr(branches), selector.Parameters));
     }
 
+    /// <summary>Excludes explicit string choices without captured collection parameters.</summary>
+    public static IQueryable<TEntity> WhereMatchesNone<TEntity>(
+        this IQueryable<TEntity> query,
+        Expression<Func<TEntity, string?>> selector,
+        IEnumerable<string> values)
+    {
+        var branches = values.Distinct(StringComparer.OrdinalIgnoreCase).Select(value => (Expression)Expression.Equal(
+            selector.Body, Expression.Constant(value, typeof(string)))).ToList();
+        return query.Where(Expression.Lambda<Func<TEntity, bool>>(
+            Expression.Not(BalancedOr(branches)), selector.Parameters));
+    }
+
     /// <summary>Numeric equivalent for bounded report selections.</summary>
     public static IQueryable<TEntity> WhereMatchesAnyValue<TEntity, TValue>(
         this IQueryable<TEntity> query,
@@ -45,6 +57,17 @@ public static class QueryableFilterExtensions
                 selector.Body, Expression.Constant(value, typeof(TValue))));
         }
         return query.Where(Expression.Lambda<Func<TEntity, bool>>(BalancedOr(branches), selector.Parameters));
+    }
+
+    public static IQueryable<TEntity> WhereMatchesNoneValue<TEntity, TValue>(
+        this IQueryable<TEntity> query,
+        Expression<Func<TEntity, TValue>> selector,
+        IEnumerable<TValue> values) where TValue : struct
+    {
+        var branches = values.Distinct().Select(value => (Expression)Expression.Equal(
+            selector.Body, Expression.Constant(value, typeof(TValue)))).ToList();
+        return query.Where(Expression.Lambda<Func<TEntity, bool>>(
+            Expression.Not(BalancedOr(branches)), selector.Parameters));
     }
 
     // A left-deep OR chain over a large Canvas selection can overflow EF's recursive SQL

@@ -3,6 +3,7 @@ import { authGuard } from './core/auth/auth.guard';
 import { adminGuard } from './core/auth/auth.guard';
 import { formManagerGuard } from './core/auth/auth.guard';
 import { accessManagerGuard, scopeGuard } from './core/auth/auth.guard';
+import { transcriptEditGuard } from './transcripts/transcript-edit';
 
 export const routes: Routes = [
   {
@@ -51,17 +52,22 @@ export const routes: Routes = [
         data: { access: 'academic' },
         children: [
           {
-            path: '',
+            path: '', pathMatch: 'full', redirectTo: 'student',
+          },
+          {
+            path: 'summary',
             loadComponent: () =>
               import('./transcripts/transcripts.component').then((m) => m.TranscriptsComponent),
           },
           {
             path: 'student',
+            canDeactivate: [transcriptEditGuard],
             loadComponent: () =>
               import('./transcripts/student-transcript.component').then((m) => m.StudentTranscriptComponent),
           },
           {
             path: 'student/:studentId',
+            canDeactivate: [transcriptEditGuard],
             loadComponent: () =>
               import('./transcripts/student-transcript.component').then((m) => m.StudentTranscriptComponent),
           },

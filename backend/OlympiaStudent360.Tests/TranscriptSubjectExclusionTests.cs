@@ -47,7 +47,8 @@ public sealed partial class MySqlResilienceTests
                     WarehouseScoreFactId = courseId * 10 + semester, Enrollment = enrollment,
                     Student = student, GradingPeriodId = semester, GradingPeriodTitle = $"HK{semester}",
                     GradingPeriodEndDate = new DateTime(2026, semester == 1 ? 1 : 6, 15),
-                    CurrentScore = 50 + index * 3 + semester
+                    CurrentScore = 50 + index * 3 + semester,
+                    EnrollmentOverrideScore = 50 + index * 3 + semester
                 });
         }
         await db.SaveChangesAsync();
@@ -56,7 +57,7 @@ public sealed partial class MySqlResilienceTests
         static T Value<T>(ActionResult<T> response) => Assert.IsType<T>(Assert.IsType<OkObjectResult>(response.Result).Value);
         static SchoolTranscriptGradeDto Grade(SchoolTranscriptDto record) => Assert.Single(Assert.Single(record.Years).Grades);
 
-        var original = Value(await controller.GetOverallTranscript(subjectPage: 1));
+        var original = Value(await controller.GetOverallTranscript(academicYear: "2025-2026", gradeLevel: "10", subjectPage: 1));
         Assert.Equal(13, original.TotalSubjects);
         Assert.Equal(10, Grade(original).Subjects.Count);
         Assert.Equal(2, Grade(original).TotalSubjectPages);
@@ -64,7 +65,7 @@ public sealed partial class MySqlResilienceTests
         Assert.Equal(13, Grade(completeStudent).Subjects.Count);
 
         string[] excluded = [" MATH ", "MUSIC", "physical-education"];
-        var filtered = Value(await controller.GetOverallTranscript(subjectPage: 1, excludedSubjects: excluded));
+        var filtered = Value(await controller.GetOverallTranscript(academicYear: "2025-2026", gradeLevel: "10", subjectPage: 1, excludedSubjects: excluded));
         Assert.Equal(10, filtered.TotalSubjects);
         Assert.Equal(10, Grade(filtered).Subjects.Count);
         Assert.Equal(1, Grade(filtered).TotalSubjectPages);
@@ -85,12 +86,12 @@ public sealed partial class MySqlResilienceTests
         Assert.DoesNotContain(details.Records, record => record.CanvasCourseId is 100 or 109 or 111);
         Assert.Equal(Grade(original).Gpa, details.Gpa);
 
-        var allHidden = Value(await controller.GetOverallTranscript(subjectPage: 1, excludedSubjects: codes));
+        var allHidden = Value(await controller.GetOverallTranscript(academicYear: "2025-2026", gradeLevel: "10", subjectPage: 1, excludedSubjects: codes));
         Assert.Empty(Grade(allHidden).Subjects);
         Assert.Equal(0, Grade(allHidden).TotalSubjectPages);
         Assert.Equal(13, allHidden.SubjectOptions.Count);
         Assert.Equal(original.OverallGpa, allHidden.OverallGpa);
-        var restored = Value(await controller.GetOverallTranscript(subjectPage: 1, excludedSubjects: []));
+        var restored = Value(await controller.GetOverallTranscript(academicYear: "2025-2026", gradeLevel: "10", subjectPage: 1, excludedSubjects: []));
         Assert.Equal(13, restored.TotalSubjects);
         Assert.Equal(2, Grade(restored).TotalSubjectPages);
     }

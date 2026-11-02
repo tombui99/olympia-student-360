@@ -11,7 +11,7 @@ import { TranscriptPreferencesService } from './transcript-preferences.service';
   imports: [RouterLink],
   template: `
     <section class="mx-auto max-w-[1500px]">
-      <a routerLink="/transcripts" class="inline-flex items-center gap-2 text-sm font-semibold text-[#6d3a91] hover:text-[#32124f]">
+      <a routerLink="/transcripts/summary" class="inline-flex items-center gap-2 text-sm font-semibold text-[#6d3a91] hover:text-[#32124f]">
         <span aria-hidden="true">←</span> {{ t('transcript.backToOverall') }}
       </a>
 
@@ -254,7 +254,7 @@ export class TranscriptGradeDetailComponent {
   readonly error = signal(false);
   readonly selectedSubject = signal('');
   readonly selectedClass = signal('');
-  readonly scoreScale = signal<TranscriptScoreScale>('letter');
+  readonly scoreScale = signal<TranscriptScoreScale>('percentage');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
 
   constructor() {

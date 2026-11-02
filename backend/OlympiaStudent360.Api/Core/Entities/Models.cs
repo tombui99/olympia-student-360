@@ -77,6 +77,16 @@ public class StudentProfile : BaseEntity
     public ICollection<StudentCareerGuidanceRecord> CareerGuidanceRecords { get; set; } = [];
 }
 
+/// <summary>School-authored transcript information, independent of Canvas/SIS synchronization.</summary>
+public class StudentTranscriptRecord : BaseEntity
+{
+    public int StudentProfileId { get; set; }
+    public StudentProfile Student { get; set; } = default!;
+    public string RecordJson { get; set; } = "{}";
+    public int Revision { get; set; }
+    public string UpdatedBy { get; set; } = "";
+}
+
 /// <summary>
 /// A staff-authored intervention or enrichment action in a student's support and development
 /// journey. The record captures what the school tried, why it was tried, and the observed result

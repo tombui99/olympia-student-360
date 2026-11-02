@@ -42,6 +42,12 @@ import { TranscriptSubjectOption, TranscriptsService } from './transcripts.servi
               <button type="button" class="mt-3 rounded-md border border-[#d8cede] px-4 py-2 font-semibold text-[#32124f]" (click)="loadSubjects()">{{ t('transcript.retry') }}</button>
             </div>
           } @else {
+            <label class="mt-5 block text-sm font-semibold text-[#32124f]">{{ t('transcript.gradeFilter') }}
+              <select class="mt-2 block w-full rounded-lg border border-[#d8cede] px-3 py-2.5" [value]="selectedGrade()" (change)="selectedGrade.set($any($event.target).value)">
+                <option value="">{{ t('transcript.allGrades') }}</option>
+                @for (grade of gradeOptions(); track grade) { <option [value]="grade">{{ grade }}</option> }
+              </select>
+            </label>
             <label class="mt-5 block text-sm font-semibold text-[#32124f]">
               {{ t('transcript.settings.search') }}
               <input type="search" class="mt-2 block w-full rounded-lg border border-[#d8cede] px-3 py-2.5 text-sm font-normal outline-none focus:border-[#6d3a91] focus:ring-2 focus:ring-[#6d3a91]/15"
@@ -49,6 +55,10 @@ import { TranscriptSubjectOption, TranscriptsService } from './transcripts.servi
             </label>
             <fieldset class="mt-5">
               <legend class="mb-2 text-sm font-semibold text-[#32124f]">{{ t('transcript.settings.excludeLabel') }}</legend>
+              <div class="mb-3 flex gap-4 text-sm font-semibold text-[#6d3a91]">
+                <button type="button" (click)="selectFiltered(true)">{{ t('transcript.settings.selectAll') }}</button>
+                <button type="button" (click)="selectFiltered(false)">{{ t('transcript.settings.deselectAll') }}</button>
+              </div>
               <div class="divide-y divide-[#ece6ef] rounded-lg border border-[#ded6e3]">
                 @for (subject of filteredOptions(); track subject.subjectCode) {
                   <label class="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm hover:bg-[#faf8fb]">
@@ -94,18 +104,22 @@ export class TranscriptSettingsComponent {
   readonly loading = signal(false);
   readonly error = signal(false);
   readonly search = signal('');
+  readonly selectedGrade = signal('');
+  readonly gradeOptions = computed(() => [...new Set(this.options().flatMap(subject => subject.gradeLevels || []))].sort((a, b) => Number(a) - Number(b)));
   readonly draftExclusions = signal<string[]>([]);
   readonly filteredOptions = computed(() => {
     const search = this.search().trim().toLocaleLowerCase();
     const excluded = new Set(this.draftExclusions());
     return this.options()
       .filter((subject) => subject.subject.toLocaleLowerCase().includes(search))
+      .filter(subject => !this.selectedGrade() || subject.gradeLevels?.includes(this.selectedGrade()))
       .sort((left, right) => Number(excluded.has(right.subjectCode)) - Number(excluded.has(left.subjectCode)));
   });
 
   open(): void {
     this.draftExclusions.set([...this.preferences.excludedSubjectCodes()]);
     this.search.set('');
+    this.selectedGrade.set('');
     this.dialog().nativeElement.showModal();
     this.loadSubjects();
   }
@@ -114,7 +128,7 @@ export class TranscriptSettingsComponent {
     this.request?.unsubscribe();
     this.loading.set(true);
     this.error.set(false);
-    this.request = this.service.getOverall(undefined, 1).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.request = this.service.getCatalog().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (record) => {
         const options = record.subjectOptions;
         const knownCodes = new Set(options.map((subject) => subject.subjectCode));
@@ -130,6 +144,12 @@ export class TranscriptSettingsComponent {
   toggleSubject(code: string): void {
     this.draftExclusions.update((codes) => codes.includes(code)
       ? codes.filter((item) => item !== code) : [...codes, code]);
+  }
+
+  selectFiltered(exclude: boolean): void {
+    const visible = new Set(this.filteredOptions().map(subject => subject.subjectCode));
+    this.draftExclusions.update(codes => exclude ? [...new Set([...codes, ...visible])]
+      : codes.filter(code => !visible.has(code)));
   }
 
   apply(): void {

@@ -1,22 +1,25 @@
-import { Component, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, HostListener, effect, inject, signal, untracked } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, debounceTime, distinctUntilChanged, of, Subject, Subscription, switchMap } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { formatTranscriptScore, TranscriptScoreScale } from './grading-scale';
-import { SchoolTranscript, SchoolTranscriptGrade, TranscriptStudent, TranscriptSubject, TranscriptsService } from './transcripts.service';
+import { SchoolTranscript, SchoolTranscriptGrade, SchoolTranscriptYear, TranscriptRecord, TranscriptStudent, TranscriptSubject, TranscriptYearRecord, TranscriptsService } from './transcripts.service';
 import { TranscriptPreferencesService } from './transcript-preferences.service';
 import { StudentTranscriptPdfService } from './student-transcript-pdf.service';
 import { ToastService } from '../core/toast/toast.service';
+import { createTranscriptDraft, prepareTranscriptRecord, transcriptRecordError } from './transcript-edit';
+import { academicGpa, bilingualSubjects, ibPredictedTotal, ibSubjects, internationalStudentName, isPassFail, showAverage, subjectName } from './transcript-display';
 import type { TranscriptPdfFormat } from './transcript-pdf';
 
-type TranscriptType = 'bilingual' | 'international' | 'ib';
+type TranscriptType = 'bilingual' | 'bilingual-gpa' | 'international' | 'ib';
 type TranscriptSemester = 'semester1' | 'semester2';
 type TranscriptSemesterFilter = 'all' | TranscriptSemester;
 
 @Component({
   selector: 'app-student-transcript',
-  imports: [RouterLink],
+  imports: [RouterLink, FormsModule],
   template: `
     <section class="mx-auto max-w-[1500px]">
       <div class="no-print flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
@@ -39,6 +42,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                 class="block w-full rounded-lg border border-[#d8cede] bg-white py-3 pl-11 pr-4 text-sm font-semibold text-[#32124f] outline-none transition focus:border-[#6d3a91] focus:ring-2 focus:ring-[#6d3a91]/15"
                 [placeholder]="t('transcript.searchStudentPlaceholder')"
                 [value]="searchTerm()"
+                [disabled]="!!editDraft()"
                 [attr.aria-expanded]="searchOpen()"
                 aria-controls="transcript-student-results"
                 (input)="searchStudents($event)"
@@ -75,24 +79,29 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
             }
           </div>
           @if (transcript(); as current) {
-            @if (current.years.length) {
-              <details class="relative">
-                <summary class="list-none cursor-pointer rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold text-[#32124f]">
-                  {{ t('transcript.academicYearFilter') }} · {{ selectedYears().length }}
-                  <span class="ml-2 text-[#8a6811]" aria-hidden="true">⌄</span>
-                </summary>
-                <div class="absolute right-0 z-20 mt-2 min-w-56 rounded-lg border border-[#d8cede] bg-white p-2 shadow-[0_14px_35px_rgba(50,18,79,0.16)]">
-                  <p class="px-2 pb-2 text-xs text-[#817589]">{{ t('transcript.academicYearFilterHelp') }}</p>
-                  @for (year of current.years; track year.academicYear) {
-                    <label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm font-semibold text-[#4e4056] hover:bg-[#f4eef7]">
-                      <input type="checkbox" class="h-4 w-4 accent-[#6d3a91]"
-                        [checked]="selectedYears().includes(year.academicYear)"
-                        (change)="toggleYear(year.academicYear)" />
-                      {{ year.academicYear }}
-                    </label>
-                  }
-                </div>
-              </details>
+            @if (current.years.length || editDraft()) {
+              <div class="min-w-56">
+                <span id="transcript-year-filter-label" class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">{{ t('transcript.academicYearFilter') }}</span>
+                <details class="relative mt-1">
+                  <summary class="flex list-none cursor-pointer items-center justify-between gap-3 rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold text-[#32124f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d3a91]/30"
+                    aria-labelledby="transcript-year-filter-label transcript-year-filter-value">
+                    <span id="transcript-year-filter-value">{{ academicYearSelectionLabel() }}</span>
+                    <span class="text-[#8a6811]" aria-hidden="true">⌄</span>
+                  </summary>
+                  <div class="absolute inset-x-0 z-20 mt-2 rounded-lg border border-[#d8cede] bg-white p-2 shadow-[0_14px_35px_rgba(50,18,79,0.16)]">
+                    <p class="px-2 pb-2 text-xs text-[#817589]">{{ t('transcript.academicYearFilterHelp') }}</p>
+                    @for (year of transcriptYears(current); track year.academicYear) {
+                      <label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm font-semibold text-[#4e4056] hover:bg-[#f4eef7]">
+                        <input type="checkbox" class="h-4 w-4 accent-[#6d3a91]"
+                          [checked]="selectedYears().includes(year.academicYear)"
+                          [disabled]="savingRecord() || (selectedYears().length === 1 && selectedYears().includes(year.academicYear))"
+                          (change)="toggleYear(year.academicYear)" />
+                        {{ year.academicYear }}
+                      </label>
+                    }
+                  </div>
+                </details>
+              </div>
               <label class="text-xs font-bold uppercase tracking-[0.1em] text-[#74677c]">
                 {{ t('transcript.semesterFilter') }}
                 <select class="mt-1 block min-w-44 rounded-lg border border-[#d8cede] bg-white px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[#32124f]"
@@ -103,7 +112,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                 </select>
               </label>
             }
-            @if (activeTranscriptType() === 'international') {
+            @if (isGpa()) {
               <div class="inline-flex rounded-lg border border-[#d8cede] bg-white p-1" role="group" [attr.aria-label]="t('transcript.scoreScale')">
                 @for (scale of scoreScales; track scale) {
                   <button type="button"
@@ -122,14 +131,15 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
           <details class="export-menu relative">
             <summary
               class="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg bg-[#32124f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#51236f]"
-              [class.pointer-events-none]="exporting() || loading() || error() || !transcript() || !transcript()?.years?.length"
-              [class.opacity-50]="exporting() || loading() || error() || !transcript() || !transcript()?.years?.length"
+              [class.pointer-events-none]="exporting() || loading() || error() || !!editDraft() || !transcript() || !transcript()?.years?.length"
+              [class.opacity-50]="exporting() || loading() || error() || !!editDraft() || !transcript() || !transcript()?.years?.length"
+              [attr.aria-disabled]="!!editDraft()"
               [attr.aria-busy]="exporting()">
               <span aria-hidden="true">↧</span> {{ t(exporting() ? 'transcript.generatingPdf' : 'transcript.exportPdf') }} <span aria-hidden="true">⌄</span>
             </summary>
             <div class="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-lg border border-[#d8cede] bg-white p-1.5 shadow-[0_14px_35px_rgba(50,18,79,0.16)]">
               @for (format of pdfFormats; track format.id) {
-                <button type="button" class="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[#f4eef7] disabled:opacity-40" [disabled]="exporting() || loading() || error()" (click)="exportPdf(format.id)">
+                <button type="button" class="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[#f4eef7] disabled:opacity-40" [disabled]="exporting() || loading() || error() || !!editDraft()" (click)="exportPdf(format.id)">
                   <span class="block text-sm font-semibold text-[#32124f]">{{ t('transcript.pdfFormats.' + format.id + '.name') }}</span>
                   <span class="mt-0.5 block text-xs text-[#817589]">{{ t('transcript.pdfFormats.' + format.id + '.hint') }}</span>
                 </button>
@@ -159,7 +169,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
             </div>
             <p class="max-w-xl text-sm text-[#756b7c]">{{ t('transcript.typeHelp') }}</p>
           </div>
-          <div class="mt-3 grid gap-3 lg:grid-cols-3">
+          <div class="mt-3 grid gap-3 lg:grid-cols-4">
             @for (type of transcriptTypes; track type.id) {
               <button type="button"
                 class="rounded-xl border p-4 text-left transition"
@@ -168,6 +178,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                 [class.shadow-[0_6px_18px_rgba(50,18,79,0.08)]]="activeTranscriptType() === type.id"
                 [class.border-[#ded6e3]]="activeTranscriptType() !== type.id"
                 [class.bg-white]="activeTranscriptType() !== type.id"
+                [disabled]="savingRecord()"
                 (click)="selectTranscriptType(type.id)">
                 <span class="flex items-center justify-between gap-3">
                   <span class="font-semibold text-[#32124f]">{{ t('transcript.types.' + type.id + '.name') }}</span>
@@ -180,6 +191,22 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
           </div>
         </section>
         <article class="print-region transcript-sheet mt-8 overflow-hidden rounded-xl border border-[#ded6e3] bg-white shadow-[0_12px_38px_rgba(50,18,79,0.07)]">
+          @if (record.canEditRecord) {
+            <div class="no-print border-b border-[#e8e1eb] bg-[#faf8fb] px-6 py-4 lg:px-9" data-transcript-editor>
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="max-w-2xl text-sm text-[#6f6877]">{{ t(editDraft() ? 'transcript.editor.inlineHelp' : 'transcript.editor.inlineHint') }}</p>
+                <div class="flex shrink-0 gap-2">
+                  @if (editDraft()) {
+                    <button type="button" class="rounded-lg border border-[#d8cede] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] disabled:opacity-50" [disabled]="savingRecord()" (click)="cancelEditing()">{{ t('workspace.cancel') }}</button>
+                    <button type="button" class="rounded-lg bg-[#32124f] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" [disabled]="savingRecord()" (click)="saveEditing()">{{ t(savingRecord() ? 'transcript.editor.saving' : 'transcript.editor.save') }}</button>
+                  } @else {
+                    <button type="button" class="rounded-lg border border-[#d8cede] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f]" (click)="beginEditing(record)">{{ t(activeTranscriptType() === 'ib' ? 'transcript.editor.editIb' : 'transcript.editor.editInline') }}</button>
+                  }
+                </div>
+              </div>
+              @if (editError()) { <p role="alert" class="mt-3 rounded-lg bg-red-50 p-3 text-sm text-[#8b2727]">{{ editError() }}</p> }
+            </div>
+          }
           <header class="transcript-header border-b border-[#d9cfdf] px-6 py-6 lg:px-9">
             <div class="letterhead-content flex items-center gap-5">
               <img src="/assets/olympia_logo.png" alt="The Olympia Schools" class="h-20 w-20 object-contain" />
@@ -194,7 +221,12 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
             </div>
 
             <div class="mt-5 grid gap-x-8 gap-y-3 border-t border-[#e8e1eb] pt-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-              <div><span class="meta-label">{{ t('transcript.student') }}</span><strong>{{ record.studentName || '—' }}</strong></div>
+              <div><span class="meta-label">{{ t('transcript.student') }}</span>
+                @if (editDraft(); as draft) {
+                  @if (activeTranscriptType() === 'bilingual') { <strong>{{ record.studentName || '—' }}</strong> }
+                  <label class="edit-label no-print">{{ t('transcript.editor.name') }}<input class="transcript-input" maxlength="255" [placeholder]="officialName(record)" [(ngModel)]="draft.transcriptName" [disabled]="savingRecord()" /></label>
+                } @else { <strong>{{ activeTranscriptType() === 'bilingual' ? (record.studentName || '—') : officialName(record) }}</strong> }
+              </div>
               <div><span class="meta-label">{{ t('transcript.sisUserId') }}</span><strong>{{ record.sisUserId || '—' }}</strong></div>
               <div><span class="meta-label">{{ t('transcript.dateOfBirth') }}</span><strong>{{ dateOfBirth(record.dateOfBirth) }}</strong></div>
               <div><span class="meta-label">{{ t('transcript.gender') }}</span><strong>{{ record.gender || '—' }}</strong></div>
@@ -209,6 +241,13 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
               <p class="mt-1">{{ t('transcript.ibProgrammeNote') }}</p>
               <p class="mt-2 font-semibold">{{ t('transcript.ibScaleNote') }}</p>
             </section>
+            @if (editDraft()) {
+              <div class="no-print mx-6 mt-5 flex flex-wrap items-end gap-3 rounded-lg border border-[#ded6e3] bg-[#faf8fb] p-4 lg:mx-9">
+                <label class="edit-label">{{ t('transcript.schoolYear') }}<input class="transcript-input" placeholder="2026-2027" maxlength="9" [(ngModel)]="newEditYear" [disabled]="savingRecord()" /></label>
+                <label class="edit-label">{{ t('transcript.editor.ibGrade') }}<select class="transcript-input" [attr.aria-label]="t('transcript.editor.ibGrade')" [(ngModel)]="newEditGrade" [disabled]="savingRecord()"><option value="11">{{ gradeLabel('11') }}</option><option value="12">{{ gradeLabel('12') }}</option></select></label>
+                <button type="button" class="rounded-lg border border-[#d8cede] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f]" [disabled]="savingRecord()" (click)="addEditYear()">{{ t('transcript.editor.addYear') }}</button>
+              </div>
+            }
           } @else if (activeTranscriptType() === 'bilingual') {
             <section class="transcript-note mx-6 mt-5 flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#32124f] pb-3 text-sm lg:mx-9">
               <strong>{{ t('transcript.bilingualAuthority') }}</strong>
@@ -216,18 +255,48 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
             </section>
           }
 
-          @if (record.years.length) {
+          @if (record.years.length || editDraft()) {
             <div class="transcript-years space-y-7 p-6 lg:p-9">
               @for (year of displayedYears(record); track year.academicYear) {
                 <section class="year-block overflow-hidden rounded-md border border-[#cfc4d5] break-inside-avoid">
                   <header class="flex items-center justify-between gap-3 bg-[#f1eaf4] px-4 py-3 text-[#32124f]">
                     <h2 class="text-base font-bold">{{ t('transcript.schoolYear') }}: {{ year.academicYear }}</h2>
-                    <span class="text-sm font-semibold">{{ t('transcript.yearAverage') }}: {{ typeScore(year.averageScore) }}</span>
+                    @if (activeTranscriptType() === 'bilingual' && showYearAverage(year, record)) {
+                      <span class="text-sm font-semibold">{{ t('transcript.yearAverage') }}: {{ typeScore(year.averageScore) }}</span>
+                    }
                   </header>
+                  @if (editDraft() && gradeCorrectionYear() === year.academicYear) {
+                    <div [id]="'grade-correction-' + year.academicYear" class="no-print space-y-2 border-t border-[#ded6e3] bg-[#faf8fb] px-4 py-3">
+                      <p class="max-w-2xl text-xs text-[#6f6877]">{{ t('transcript.editor.gradeCorrectionHelp') }}</p>
+                      <label class="edit-label inline-block">{{ t('transcript.editor.historicalGrade') }}
+                        <select class="transcript-input" [attr.aria-label]="t('transcript.editor.historicalGrade')" [(ngModel)]="editYear(year.academicYear).gradeLevel" [disabled]="savingRecord()">
+                          <option [ngValue]="null">{{ t('transcript.editor.sourceGrade') }}</option>
+                          @for (value of editableGrades; track value) { <option [ngValue]="value">{{ gradeLabel(value) }}</option> }
+                        </select>
+                      </label>
+                    </div>
+                  }
+                  @if (editDraft() && activeTranscriptType() === 'bilingual') {
+                    <div class="no-print border-t border-[#ded6e3] bg-[#faf8fb] px-4 py-3">
+                        <label class="edit-label">{{ t('transcript.editor.average') }}
+                          <select class="transcript-input" [(ngModel)]="editYear(year.academicYear).showAverage" [disabled]="savingRecord()">
+                            <option [ngValue]="null">{{ t('transcript.editor.defaultAverage') }}</option><option [ngValue]="true">{{ t('transcript.editor.show') }}</option><option [ngValue]="false">{{ t('transcript.editor.hide') }}</option>
+                          </select>
+                        </label>
+                    </div>
+                  }
                   @for (grade of year.grades; track grade.gradeLevel) {
                     <div class="flex items-center justify-between gap-3 border-t border-[#d8c4bd] bg-[#f6eef8] px-4 py-2.5">
-                      <h3 class="font-bold text-[#32124f]">{{ gradeLabel(grade.gradeLevel) }}</h3>
-                      @if (activeTranscriptType() === 'international') {
+                      <div class="flex flex-wrap items-center gap-3">
+                        <h3 class="font-bold text-[#32124f]">{{ gradeLabel(grade.gradeLevel) }}</h3>
+                        @if (editDraft()) {
+                          <button type="button" class="no-print text-xs font-semibold text-[#6d3a91] underline-offset-2 hover:underline"
+                            [disabled]="savingRecord()" [attr.aria-expanded]="gradeCorrectionYear() === year.academicYear"
+                            [attr.aria-controls]="'grade-correction-' + year.academicYear"
+                            (click)="gradeCorrectionYear.set(gradeCorrectionYear() === year.academicYear ? '' : year.academicYear)">{{ t(gradeCorrectionYear() === year.academicYear ? 'transcript.editor.hideGradeCorrection' : 'transcript.editor.correctGrade') }}</button>
+                        }
+                      </div>
+                      @if (isGpa()) {
                         <p class="text-sm font-bold text-[#32124f]">GPA <span class="ml-2">{{ formatGpa(grade.gpa) }}</span></p>
                       } @else if (activeTranscriptType() === 'ib') {
                         <p class="text-xs font-bold uppercase tracking-wide text-[#32124f]">{{ isIbGrade(grade.gradeLevel) ? t('transcript.ibSevenPoint') : t('transcript.letterGrade') }}</p>
@@ -235,6 +304,33 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                         <p class="text-xs font-bold uppercase tracking-wide text-[#32124f]">{{ t('transcript.tenPointScale') }}</p>
                       }
                     </div>
+                    @if (activeTranscriptType() === 'ib' && isIbGrade(grade.gradeLevel)) {
+                      <div class="overflow-x-auto p-4">
+                        <table class="w-full min-w-[860px] text-left text-sm" data-ib-table>
+                          <thead class="bg-[#f1eaf4]"><tr><th class="w-64 p-2">{{ t('transcript.subject') }}</th><th class="p-2">HL/SL</th><th class="p-2">{{ t('transcript.editor.predicted') }}</th><th class="p-2">Term 1</th><th class="p-2">Term 2</th><th class="p-2">Term 3</th><th class="p-2">Term 4</th>@if (editDraft()) { <th class="no-print p-2"><span class="sr-only">{{ t('transcript.editor.remove') }}</span></th> }</tr></thead>
+                          <tbody>
+                            @for (row of visibleIbRows(record, year.academicYear); track row.subjectCode) {
+                              <tr class="border-t border-[#e7e0ea]">
+                                @if (editDraft()) {
+                                  <td class="p-2"><input class="transcript-input" [attr.aria-label]="t('transcript.subject')" maxlength="255" [(ngModel)]="row.subjectName" [disabled]="savingRecord()" /></td>
+                                  <td class="p-2"><select class="transcript-input min-w-20" aria-label="HL/SL" [(ngModel)]="row.level" [disabled]="savingRecord()"><option [ngValue]="null">—</option><option>HL</option><option>SL</option></select></td>
+                                  <td class="p-2"><input class="transcript-input min-w-20" [attr.aria-label]="t('transcript.editor.predicted')" maxlength="4" [(ngModel)]="row.predictedGrade" [disabled]="savingRecord()" /></td>
+                                  <td class="p-2"><input class="transcript-input min-w-20" aria-label="Term 1" maxlength="4" [(ngModel)]="row.term1" [disabled]="savingRecord()" /></td>
+                                  <td class="p-2"><input class="transcript-input min-w-20" aria-label="Term 2" maxlength="4" [(ngModel)]="row.term2" [disabled]="savingRecord()" /></td>
+                                  <td class="p-2"><input class="transcript-input min-w-20" aria-label="Term 3" maxlength="4" [(ngModel)]="row.term3" [disabled]="savingRecord()" /></td>
+                                  <td class="p-2"><input class="transcript-input min-w-20" aria-label="Term 4" maxlength="4" [(ngModel)]="row.term4" [disabled]="savingRecord()" /></td>
+                                  <td class="no-print p-2"><button type="button" class="rounded px-2 py-2 text-xl text-[#8b2727]" [attr.aria-label]="t(row.subjectCode.startsWith('manual-') ? 'transcript.editor.remove' : 'transcript.editor.clearIb')" [disabled]="savingRecord()" (click)="removeIbEntry(year.academicYear, row.subjectCode)">×</button></td>
+                                } @else {
+                                  <td class="p-2">{{ row.subjectName }}</td><td class="p-2">{{ row.level || '—' }}</td><td class="p-2">{{ row.predictedGrade || '—' }}</td><td class="p-2">{{ row.term1 || '—' }}</td><td class="p-2">{{ row.term2 || '—' }}</td><td class="p-2">{{ row.term3 || '—' }}</td><td class="p-2">{{ row.term4 || '—' }}</td>
+                                }
+                              </tr>
+                            } @empty { <tr><td colspan="7" class="p-4">{{ t('transcript.ibDataMissing') }}</td></tr> }
+                          </tbody>
+                        </table>
+                        @if (editDraft()) { <button type="button" class="no-print mt-3 rounded-lg border border-[#d8cede] px-3 py-2 text-sm font-semibold text-[#6d3a91]" [disabled]="savingRecord() || editYear(year.academicYear).ibSubjects.length >= 30" (click)="addIbEntry(year.academicYear)">{{ t('transcript.editor.addSubject') }}</button> }
+                        <p class="mt-3 text-xs text-[#6f6877]">{{ t('transcript.editor.ibHelp') }}</p>
+                      </div>
+                    } @else {
                     @for (semester of visibleSemesters(); track semester) {
                       <section class="semester-block" [attr.aria-label]="semesterLabel(semester)">
                         <h4 class="border-b border-[#d8cede] bg-[#eee5f2] px-4 py-2 text-sm font-bold text-[#4a3158]">{{ t('transcript.term') }}: {{ semesterLabel(semester) }}</h4>
@@ -244,9 +340,9 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                               <tr>
                                 <th class="w-14 px-2 py-2 text-center">{{ t('transcript.subjectNumber') }}</th>
                                 <th class="px-3 py-2 text-left">{{ activeTranscriptType() === 'bilingual' ? t('transcript.bilingualSubject') : t('transcript.subject') }}</th>
-                                <th class="w-24 px-2 py-2 text-center">{{ t('transcript.semesterScore') }}</th>
-                                <th class="w-24 px-2 py-2 text-center">{{ t('transcript.yearResult') }}</th>
-                                <th class="w-24 px-2 py-2 text-center">{{ activeTranscriptType() === 'international' || (activeTranscriptType() === 'ib' && !isIbGrade(grade.gradeLevel)) ? t('transcript.credit') : (activeTranscriptType() === 'ib' ? t('transcript.ibLevel') : t('transcript.result')) }}</th>
+                                <th class="w-24 px-2 py-2 text-left">{{ t('transcript.semesterScore') }}</th>
+                                <th class="w-24 px-2 py-2 text-left">{{ t('transcript.yearResult') }}</th>
+                                <th class="w-24 px-2 py-2 text-center">{{ isGpa() || (activeTranscriptType() === 'ib' && !isIbGrade(grade.gradeLevel)) ? t('transcript.credit') : (activeTranscriptType() === 'ib' ? t('transcript.ibLevel') : t('transcript.result')) }}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -254,14 +350,22 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                                 <tr class="border-t border-[#e7e0ea] even:bg-[#fbfafc]">
                                   <td class="px-2 py-2 text-center">{{ index + 1 }}</td>
                                   <td class="px-3 py-2 text-[#35293b]">
-                                    <span class="block font-medium">{{ subject.subject }}</span>
-                                    @if (subject.courseNames.length) {
-                                      <span class="mt-0.5 block text-[0.62rem] leading-tight text-[#817589]">{{ subject.courseNames.join(' · ') }}</span>
-                                    }
+                                    @if (editDraft() && !(activeTranscriptType() === 'bilingual' && isActivity(subject.subjectCode))) {
+                                      <div class="no-print space-y-2">
+                                        <label class="edit-label">{{ t('transcript.editor.englishSubject') }}<input class="transcript-input" maxlength="255" [placeholder]="subject.englishName || englishSubject(subject)" [(ngModel)]="editCredit(year.academicYear, subject).englishName" [disabled]="savingRecord()" /></label>
+                                        <label class="edit-label">{{ t('transcript.editor.vietnameseSubject') }}<input class="transcript-input" maxlength="255" [placeholder]="subject.vietnameseName || ''" [(ngModel)]="editCredit(year.academicYear, subject).vietnameseName" [disabled]="savingRecord()" /></label>
+                                      </div>
+                                      <span class="hidden print:block">{{ displaySubject(subject) }}</span>
+                                    } @else { <span class="block font-medium">{{ displaySubject(subject) }}</span> }
                                   </td>
-                                  <td class="px-2 py-2 text-center">{{ typeScore(semesterScore(subject, semester), subject.subjectCode, grade.gradeLevel) }}</td>
-                                  <td class="bg-[#fbf8fc] px-2 py-2 text-center font-semibold">{{ typeScore(subject.yearAverage, subject.subjectCode, grade.gradeLevel) }}</td>
-                                  <td class="px-2 py-2 text-center">{{ trailingValue(subject.credit, subject.yearAverage, subject.subjectCode, grade.gradeLevel) }}</td>
+                                  <td class="px-2 py-2 text-left">{{ typeScore(semesterScore(subject, semester), subject.subjectCode, grade.gradeLevel) }}</td>
+                                  <td class="bg-[#fbf8fc] px-2 py-2 text-left font-semibold">{{ typeScore(subject.yearAverage, subject.subjectCode, grade.gradeLevel) }}</td>
+                                  <td class="px-2 py-2 text-center">
+                                    @if (editDraft() && (isGpa() || activeTranscriptType() === 'ib')) {
+                                      <input class="transcript-input no-print" type="number" min="0" max="2" step="0.5" [attr.aria-label]="t('transcript.credit')" [(ngModel)]="editCredit(year.academicYear, subject).credit" [disabled]="savingRecord()" />
+                                      <span class="hidden print:block">{{ formatCredit(subject.credit) }}</span>
+                                    } @else { {{ trailingValue(subject.credit, subject.yearAverage, subject.subjectCode, grade.gradeLevel) }} }
+                                  </td>
                                 </tr>
                               } @empty {
                                 <tr><td colspan="5" class="px-5 py-8 text-center text-[#766d7d]">{{ t('transcript.noSemesterScores') }}</td></tr>
@@ -271,6 +375,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                         </div>
                       </section>
                     }
+                    }
                   }
                 </section>
               }
@@ -279,15 +384,47 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
             <footer class="formal-footer mx-6 mb-6 border-t border-[#bfb2c7] pt-4 lg:mx-9 lg:mb-8">
               <div class="text-sm">
                 <p class="font-bold text-[#32124f]">{{ activeTranscriptType() === 'ib' ? t('transcript.ibSummary') : t('transcript.academicStanding') }}</p>
-                @if (activeTranscriptType() === 'international') {
-                  <p class="mt-2">{{ t('transcript.cumulativeGpa') }} <strong class="ml-3">{{ formatGpa(record.overallGpa) }}</strong></p>
+                @if (isGpa()) {
+                  <p class="mt-2">{{ t('transcript.cumulativeGpa') }} <strong class="ml-3">{{ formatGpa(selectedGpa(record)) }}</strong></p>
                 } @else if (activeTranscriptType() === 'bilingual') {
-                  <p class="mt-2">{{ t('transcript.overallResult') }} <strong class="ml-3">{{ tenPoint(record.overallAverage) }}</strong></p>
+                  @if (showOverallAverage(record)) {
+                    <p class="mt-2">{{ t('transcript.overallResult') }} <strong class="ml-3">{{ tenPoint(selectedAverage(record)) }}</strong></p>
+                  }
                 } @else {
                   <p class="mt-2 text-[#6f6877]">{{ t('transcript.ibSummaryNote') }}</p>
+                  @if (activeTranscriptType() === 'ib') { <p class="mt-2">{{ t('transcript.editor.totalPoints') }}: {{ predictedTotal(record) ?? '—' }}</p> }
                 }
               </div>
-              @if (activeTranscriptType() === 'international') {
+              @if (editDraft(); as draft) {
+                <div class="no-print mt-5 space-y-4 border-t border-[#e8e1eb] pt-4">
+                  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <label class="edit-label">{{ t('transcript.editor.enrollmentDate') }}<input class="transcript-input" type="date" [(ngModel)]="draft.enrollmentDate" [disabled]="savingRecord()" /></label>
+                    <label class="edit-label">{{ t('transcript.editor.graduationDate') }}<input class="transcript-input" type="date" [(ngModel)]="draft.graduationDate" [disabled]="savingRecord()" /></label>
+                    @if (activeTranscriptType() === 'ib') {
+                      <label class="edit-label">{{ t('transcript.editor.graduationExamDate') }}<input class="transcript-input" type="date" [(ngModel)]="draft.graduationExamDate" [disabled]="savingRecord()" /></label>
+                      <label class="edit-label">{{ t('transcript.editor.ibReleaseDate') }}<input class="transcript-input" type="date" [(ngModel)]="draft.ibReleaseDate" [disabled]="savingRecord()" /></label>
+                      <label class="edit-label">{{ t('transcript.editor.corePoints') }}<input class="transcript-input" type="number" min="0" max="3" step="1" [(ngModel)]="draft.ibCorePoints" [disabled]="savingRecord()" /></label>
+                    }
+                  </div>
+                  <label class="edit-label block">{{ t('transcript.editor.notes') }}<textarea class="transcript-input" rows="3" maxlength="2000" [(ngModel)]="draft.notes" [disabled]="savingRecord()"></textarea></label>
+                  @if (editError()) { <p class="rounded-lg bg-red-50 p-3 text-sm text-[#8b2727]">{{ editError() }}</p> }
+                  <div class="flex flex-wrap justify-end gap-2">
+                    <button type="button" class="rounded-lg border border-[#d8cede] px-4 py-2.5 text-sm font-semibold text-[#32124f]" [disabled]="savingRecord()" (click)="cancelEditing()">{{ t('workspace.cancel') }}</button>
+                    <button type="button" class="rounded-lg bg-[#32124f] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" [disabled]="savingRecord()" (click)="saveEditing()">{{ t(savingRecord() ? 'transcript.editor.saving' : 'transcript.editor.save') }}</button>
+                  </div>
+                </div>
+              } @else if (activeTranscriptType() !== 'bilingual') {
+              @if (record.record; as details) {
+                <div class="mt-4 space-y-2 text-sm">
+                  @if (details.enrollmentDate) { <p>{{ t('transcript.editor.enrollmentDate') }}: {{ details.enrollmentDate }}</p> }
+                  @if (details.graduationDate) { <p>{{ t('transcript.editor.graduationDate') }}: {{ details.graduationDate }}</p> }
+                  @if (activeTranscriptType() === 'ib' && details.graduationExamDate) { <p>{{ t('transcript.editor.graduationExamDate') }}: {{ details.graduationExamDate }}</p> }
+                  @if (activeTranscriptType() === 'ib' && details.ibReleaseDate) { <p>{{ t('transcript.editor.ibReleaseDate') }}: {{ details.ibReleaseDate }}</p> }
+                  @if (details.notes) { <p class="whitespace-pre-wrap">{{ details.notes }}</p> }
+                </div>
+              }
+              }
+              @if (isGpa()) {
                 <div class="grading-scale mt-5 break-inside-avoid">
                   <p class="mb-2 text-sm font-bold text-[#32124f]">{{ t('transcript.gradingScale') }}</p>
                   <div class="overflow-hidden rounded border border-[#bfb2c7]">
@@ -333,7 +470,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
             </div>
           }
         </article>
-        @if (activeTranscriptType() === 'international') {
+        @if (isGpa()) {
         <section class="no-print mt-6 rounded-xl border border-[#ddd3e2] bg-[#fbf8fc] p-5 lg:p-7" aria-labelledby="transcript-calculation-title">
           <div class="max-w-3xl">
             <p class="text-xs font-bold uppercase tracking-[0.14em] text-[#8a6811]">{{ t('transcript.calculationEyebrow') }}</p>
@@ -421,6 +558,10 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
     </section>
   `,
   styles: `
+    .edit-label { font-size: .75rem; font-weight: 600; color: #65596d; }
+    .transcript-input { display: block; width: 100%; margin-top: .35rem; border: 1px solid #d8cede; border-radius: .4rem; padding: .55rem; background: white; color: #35293b; font-size: .85rem; font-weight: 400; }
+    .transcript-input:focus { outline: 2px solid #6d3a9140; outline-offset: 1px; border-color: #6d3a91; }
+    .transcript-input:disabled { opacity: .6; }
     .meta-label { display: block; margin-bottom: .2rem; color: #817589; font-size: .65rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
     @media print {
       :host { display: block; }
@@ -439,6 +580,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
   `,
 })
 export class StudentTranscriptComponent {
+  private readonly destroyRef = inject(DestroyRef);
   private readonly service = inject(TranscriptsService);
   private readonly preferences = inject(TranscriptPreferencesService);
   private readonly pdfService = inject(StudentTranscriptPdfService);
@@ -453,6 +595,15 @@ export class StudentTranscriptComponent {
   readonly selectedStudentId = signal<number | null>(null);
   readonly selectedYears = signal<string[]>([]);
   readonly selectedSemester = signal<TranscriptSemesterFilter>('all');
+  readonly editDraft = signal<TranscriptRecord | null>(null);
+  readonly savingRecord = signal(false);
+  readonly editError = signal('');
+  readonly gradeCorrectionYear = signal('');
+  readonly editableGrades = Array.from({ length: 12 }, (_, index) => String(index + 1));
+  newEditYear = '';
+  newEditGrade = '11';
+  private yearsBeforeEditing: string[] = [];
+  private pendingTranscriptReload = false;
   readonly activeTranscriptType = signal<TranscriptType>('international');
   readonly exporting = signal(false);
   readonly pdfFormats: { id: TranscriptPdfFormat }[] = [
@@ -460,10 +611,11 @@ export class StudentTranscriptComponent {
   ];
   readonly transcriptTypes: { id: TranscriptType }[] = [
     { id: 'bilingual' },
+    { id: 'bilingual-gpa' },
     { id: 'international' },
     { id: 'ib' },
   ];
-  readonly scoreScale = signal<TranscriptScoreScale>('letter');
+  readonly scoreScale = signal<TranscriptScoreScale>('percentage');
   readonly scoreScales: TranscriptScoreScale[] = ['percentage', 'gpa', 'letter'];
   readonly searchTerm = signal('');
   readonly searchOpen = signal(false);
@@ -534,7 +686,10 @@ export class StudentTranscriptComponent {
     effect((onCleanup) => {
       const studentId = this.selectedStudentId();
       this.preferences.excludedSubjectCodes();
-      if (studentId) untracked(() => this.loadTranscript(studentId));
+      if (studentId) untracked(() => {
+        if (this.editDraft()) this.pendingTranscriptReload = true;
+        else this.loadTranscript(studentId);
+      });
       onCleanup(() => this.transcriptRequest?.unsubscribe());
     });
   }
@@ -630,6 +785,13 @@ export class StudentTranscriptComponent {
     return name.trim().split(/\s+/).slice(-2).map((part) => part[0]?.toUpperCase()).join('') || 'S';
   }
 
+  academicYearSelectionLabel(): string {
+    const years = this.selectedYears();
+    if (years.length === 1) return years[0];
+    return years.length ? this.t('transcript.academicYearsSelected').replace('{count}', String(years.length))
+      : this.t('transcript.chooseYear');
+  }
+
   toggleYear(academicYear: string): void {
     this.selectedYears.update((years) => {
       if (years.includes(academicYear) && years.length === 1) return years;
@@ -658,13 +820,124 @@ export class StudentTranscriptComponent {
 
   subjectsForSemester(grade: SchoolTranscriptGrade, semester: TranscriptSemester): TranscriptSubject[] {
     const excluded = this.preferences.excludedSubjectCodes();
-    return grade.subjects.filter((subject) => !excluded.includes(subject.subjectCode) &&
-      this.semesterScore(subject, semester) != null);
+    const subjects = grade.subjects.filter(subject => !excluded.includes(subject.subjectCode));
+    return (this.activeTranscriptType() === 'bilingual' ? bilingualSubjects(subjects) : subjects)
+      .filter(subject => this.semesterScore(subject, semester) != null);
+  }
+
+  transcriptYears(record: SchoolTranscript): SchoolTranscriptYear[] {
+    const draft = this.editDraft();
+    if (!draft) return record.years;
+    const years = record.years.map(year => {
+      const grade = draft.years.find(entry => entry.academicYear === year.academicYear)?.gradeLevel;
+      return grade ? { ...year, grades: year.grades.map(entry => ({ ...entry, gradeLevel: grade })) } : year;
+    });
+    for (const entry of draft.years) {
+      if (entry.gradeLevel && !years.some(year => year.academicYear === entry.academicYear))
+        years.push({ academicYear: entry.academicYear, showAverage: entry.showAverage ?? false,
+          averageScore: null, grades: [{ gradeLevel: entry.gradeLevel, averageScore: null, gpa: null,
+            subjects: [], classOptions: [], subjectPage: 1, subjectPageSize: 0, totalSubjects: 0, totalSubjectPages: 0 }] });
+    }
+    return years.sort((a, b) => a.academicYear.localeCompare(b.academicYear));
   }
 
   displayedYears(record: SchoolTranscript) {
     const selected = new Set(this.selectedYears());
-    return record.years.filter((year) => selected.has(year.academicYear));
+    return this.transcriptYears(record).filter((year) => selected.has(year.academicYear));
+  }
+
+  beginEditing(record: SchoolTranscript): void {
+    if (!record.canEditRecord || this.editDraft() || this.savingRecord() || this.exporting()) return;
+    this.yearsBeforeEditing = [...this.selectedYears()];
+    this.editDraft.set(createTranscriptDraft(record));
+    this.gradeCorrectionYear.set('');
+    this.editError.set(''); this.newEditYear = ''; this.newEditGrade = '11';
+  }
+
+  cancelEditing(): void {
+    if (this.savingRecord()) return;
+    this.editDraft.set(null); this.editError.set(''); this.newEditYear = '';
+    this.gradeCorrectionYear.set('');
+    this.selectedYears.set([...this.yearsBeforeEditing]);
+    if (this.pendingTranscriptReload) { this.pendingTranscriptReload = false; this.reload(); }
+  }
+
+  editYear(academicYear: string): TranscriptYearRecord {
+    return this.editDraft()!.years.find(year => year.academicYear === academicYear)!;
+  }
+
+  editCredit(academicYear: string, subject: TranscriptSubject) {
+    return this.editYear(academicYear).credits.find(row => row.subjectCode === subject.subjectCode)!;
+  }
+
+  visibleIbRows(record: SchoolTranscript, academicYear: string) {
+    const excluded = this.preferences.excludedSubjectCodes();
+    const rows = this.editDraft() ? this.editYear(academicYear).ibSubjects : ibSubjects(record, academicYear);
+    return rows.filter(row => !excluded.includes(row.subjectCode));
+  }
+
+  addIbEntry(academicYear: string): void {
+    if (this.savingRecord()) return;
+    const year = this.editYear(academicYear);
+    if (year.ibSubjects.length < 30)
+      year.ibSubjects.push({ subjectCode: `manual-${crypto.randomUUID()}`, subjectName: '', level: null });
+  }
+
+  removeIbEntry(academicYear: string, code: string): void {
+    if (this.savingRecord()) return;
+    const year = this.editYear(academicYear);
+    if (code.startsWith('manual-')) year.ibSubjects = year.ibSubjects.filter(row => row.subjectCode !== code);
+    else {
+      const row = year.ibSubjects.find(entry => entry.subjectCode === code)!;
+      row.level = row.predictedGrade = row.term1 = row.term2 = row.term3 = row.term4 = null;
+    }
+  }
+
+  addEditYear(): void {
+    if (!this.editDraft() || this.savingRecord()) return;
+    const academicYear = this.newEditYear.trim();
+    if (!/^20\d{2}-20\d{2}$/.test(academicYear) || Number(academicYear.slice(5)) !== Number(academicYear.slice(0, 4)) + 1 ||
+        this.transcriptYears(this.transcript()!).some(year => year.academicYear === academicYear) || this.editDraft()!.years.length >= 20) {
+      this.editError.set(this.t('transcript.editor.invalidYear')); return;
+    }
+    let year = this.editDraft()!.years.find(entry => entry.academicYear === academicYear);
+    if (!year) {
+      year = { academicYear, gradeLevel: this.newEditGrade, showAverage: null, credits: [], ibSubjects: [] };
+      this.editDraft()!.years.push(year);
+    } else year.gradeLevel = this.newEditGrade;
+    this.selectedYears.update(years => [...years, academicYear]);
+    this.newEditYear = ''; this.editError.set('');
+  }
+
+  saveEditing(): void {
+    const source = this.transcript(), draft = this.editDraft();
+    if (!source?.canEditRecord || !source.studentProfileId || !draft || this.savingRecord()) return;
+    const payload = prepareTranscriptRecord(draft, source);
+    const error = transcriptRecordError(payload);
+    if (error) { this.editError.set(this.t(error)); return; }
+    this.savingRecord.set(true); this.editError.set('');
+    this.service.saveRecord(source.studentProfileId, payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.savingRecord.set(false); this.editDraft.set(null); this.pendingTranscriptReload = false;
+        this.toast.success(this.t('transcript.editor.saved')); this.reload();
+      },
+      error: response => {
+        this.savingRecord.set(false);
+        if (response.status === 409) this.pendingTranscriptReload = true;
+        this.editError.set(this.t(response.status === 409 ? 'transcript.editor.conflict' : 'transcript.editor.error'));
+      },
+    });
+  }
+
+  canLeaveTranscript(): boolean {
+    if (!this.editDraft()) return true;
+    this.toast.error(this.t('transcript.editor.finishEditing'));
+    return false;
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  protectUnsavedChanges(event: BeforeUnloadEvent): void {
+    if (this.editDraft()) { event.preventDefault(); event.returnValue = ''; }
   }
 
   reload(): void {
@@ -673,14 +946,14 @@ export class StudentTranscriptComponent {
   }
 
   selectTranscriptType(type: TranscriptType): void {
+    if (this.savingRecord()) return;
     this.activeTranscriptType.set(type);
     if (type === 'bilingual') this.scoreScale.set('percentage');
-    if (type === 'international' && this.scoreScale() === 'percentage') this.scoreScale.set('letter');
   }
 
   async exportPdf(format: TranscriptPdfFormat = this.activeTranscriptType()): Promise<void> {
     const record = this.transcript();
-    if (this.exporting() || this.loading() || this.error() || !this.selectedStudentId() || !record?.years.length) return;
+    if (this.exporting() || this.loading() || this.error() || this.editDraft() || !this.selectedStudentId() || !record?.years.length) return;
     this.exporting.set(true);
     try {
       await this.pdfService.download(record, {
@@ -703,19 +976,18 @@ export class StudentTranscriptComponent {
       return this.tenPoint(value);
     }
     if (this.activeTranscriptType() === 'ib') {
-      return this.isIbGrade(gradeLevel) ? String(this.ibPoint(value)) : formatTranscriptScore(value, 'letter');
+      return this.isIbGrade(gradeLevel) ? '—' : formatTranscriptScore(value, 'letter');
     }
     return this.score(value);
   }
 
   tenPoint(value?: number | null): string {
     if (value == null || !Number.isFinite(value)) return '—';
-    const converted = value > 10 ? value / 10 : value;
-    return converted.toFixed(1);
+    return (value / 10).toFixed(1);
   }
 
   trailingValue(credit: number, score?: number | null, subjectCode = '', gradeLevel = ''): string {
-    if (this.activeTranscriptType() === 'international') return this.formatCredit(credit);
+    if (this.isGpa()) return this.formatCredit(credit);
     if (this.activeTranscriptType() === 'ib') return this.isIbGrade(gradeLevel) ? '—' : this.formatCredit(credit);
     if (score == null) return '—';
     return this.isPassFailSubject(subjectCode)
@@ -728,20 +1000,7 @@ export class StudentTranscriptComponent {
     return Number.isFinite(grade) && grade >= 11;
   }
 
-  private ibPoint(value: number): number {
-    if (value >= 80) return 7;
-    if (value >= 70) return 6;
-    if (value >= 60) return 5;
-    if (value >= 50) return 4;
-    if (value >= 40) return 3;
-    if (value >= 30) return 2;
-    return 1;
-  }
-
-  private isPassFailSubject(subjectCode: string): boolean {
-    const normalized = this.normalizeSubjectCode(subjectCode);
-    return ['music', 'physical education', 'fine arts', 'service learning', 'cas'].includes(normalized);
-  }
+  private isPassFailSubject(subjectCode: string): boolean { return isPassFail(subjectCode); }
 
   private normalizeSubjectCode(subjectCode: string): string {
     return subjectCode.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
@@ -755,16 +1014,25 @@ export class StudentTranscriptComponent {
     return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
   }
 
+  isGpa(): boolean { return ['international', 'bilingual-gpa'].includes(this.activeTranscriptType()); }
+  officialName = internationalStudentName;
+  showYearAverage = showAverage;
+  isActivity = isPassFail;
+  englishSubject = subjectName;
+  displaySubject(subject: TranscriptSubject): string { return subjectName(subject, this.activeTranscriptType() === 'bilingual'); }
+  selectedGpa(record: SchoolTranscript): number | null { return academicGpa(this.displayedYears(record).flatMap(year => year.grades)); }
+  selectedAverage(record: SchoolTranscript): number | null {
+    const years = this.displayedYears(record);
+    return years.length && years.every(year => year.averageScore != null)
+      ? years.reduce((sum, year) => sum + year.averageScore!, 0) / years.length : null;
+  }
+  predictedTotal(record: SchoolTranscript): number | null { return ibPredictedTotal(this.editDraft() ? { ...record, record: this.editDraft()! } : record, this.selectedYears()); }
+  showOverallAverage(record: SchoolTranscript): boolean { return this.displayedYears(record).every(year => showAverage(year, record)); }
   academicGpaBreakdown(record: SchoolTranscript): string {
-    const annualGpas = record.years
-      .flatMap((year) => year.grades)
-      .filter((grade) => {
-        const gradeLevel = Number(grade.gradeLevel);
-        return Number.isInteger(gradeLevel) && gradeLevel >= 9 && gradeLevel <= 12 && grade.gpa != null;
-      })
-      .map((grade) => grade.gpa!.toFixed(2));
-    if (!annualGpas.length) return this.t('transcript.notAvailable');
-    return `ROUND((${annualGpas.join(' + ')}) ÷ ${annualGpas.length}, 2) = ${this.formatGpa(record.overallGpa)}`;
+    const annualGpas = this.displayedYears(record).flatMap(year => year.grades)
+      .filter(grade => Number(grade.gradeLevel) >= 9 && Number(grade.gradeLevel) <= 12 && grade.gpa != null)
+      .map(grade => grade.gpa!.toFixed(2));
+    return annualGpas.length ? `ROUND((${annualGpas.join(' + ')}) ÷ ${annualGpas.length}, 2) = ${this.formatGpa(this.selectedGpa(record))}` : this.t('transcript.notAvailable');
   }
 
   ordinal(gradeLevel: string): string {

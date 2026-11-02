@@ -27,6 +27,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     }
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
+    public DbSet<StudentTranscriptRecord> StudentTranscriptRecords { get; set; }
     public DbSet<TeacherAccessGrant> TeacherAccessGrants { get; set; }
     public DbSet<TeacherClassAccess> TeacherClassAccesses { get; set; }
     public DbSet<TeacherSchoolLevelAccess> TeacherSchoolLevelAccesses { get; set; }
@@ -80,6 +81,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<StudentTranscriptRecord>(record =>
+        {
+            record.Property(x => x.RecordJson).HasColumnType("longtext");
+            record.Property(x => x.UpdatedBy).HasMaxLength(255);
+            record.Property(x => x.Revision).IsConcurrencyToken();
+            record.HasIndex(x => x.StudentProfileId).IsUnique();
+            record.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<ErpMealStatus>(row =>
         {
@@ -836,6 +847,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .HasDatabaseName("IX_CanvasSubmissions_ScorePointJoin");
             submission.HasIndex(s => s.CanvasUserId);
             submission.HasIndex(s => s.StudentProfileId);
+            submission.HasIndex(s => new { s.StudentProfileId, s.CanvasCourseId })
+                .HasDatabaseName("IX_CanvasSubmissions_TranscriptEvidence");
             submission.HasOne(s => s.Assignment).WithMany(a => a.Submissions)
                 .HasForeignKey(s => s.CanvasAssignmentId)
                 .HasPrincipalKey(a => a.CanvasAssignmentId)
