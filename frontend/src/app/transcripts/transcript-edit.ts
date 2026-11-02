@@ -2,6 +2,15 @@ import type { CanDeactivateFn } from '@angular/router';
 import { ibSubjects, subjectName } from './transcript-display';
 import type { SchoolTranscript, TranscriptRecord } from './transcripts.service';
 
+export function hasTranscriptCustomizations(record?: TranscriptRecord): boolean {
+  if (!record) return false;
+  return [record.transcriptName, record.enrollmentDate, record.graduationDate,
+    record.graduationExamDate, record.ibReleaseDate, record.notes].some(value => !!value?.trim()) ||
+    record.ibCorePoints != null || record.years.some(year => !!year.gradeLevel || year.showAverage != null ||
+      year.ibSubjects.length > 0 || year.credits.some(row => row.credit !== 1 ||
+        !!row.englishName?.trim() || !!row.vietnameseName?.trim()));
+}
+
 export function createTranscriptDraft(source: SchoolTranscript): TranscriptRecord {
   const draft = structuredClone(source.record || { revision: 0, years: [] });
   const years = new Set([...source.years.map(year => year.academicYear),

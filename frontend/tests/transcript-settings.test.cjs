@@ -20,7 +20,7 @@ const { SKIP_GLOBAL_API_LOADING } = require('../src/app/core/loading/api-loading
 const { TranscriptSettingsComponent } = require('../src/app/transcripts/transcript-settings.component.ts');
 const { StudentTranscriptComponent } = require('../src/app/transcripts/student-transcript.component.ts');
 const { TranscriptsComponent } = require('../src/app/transcripts/transcripts.component.ts');
-const { createTranscriptDraft, prepareTranscriptRecord, transcriptRecordError } = require('../src/app/transcripts/transcript-edit.ts');
+const { createTranscriptDraft, hasTranscriptCustomizations, prepareTranscriptRecord, transcriptRecordError } = require('../src/app/transcripts/transcript-edit.ts');
 
 beforeEach(() => {
   const storage = new Map();
@@ -143,7 +143,7 @@ test('all four student PDF formats receive the same exclusions and selected peri
     transcript: signal({ years: [{ academicYear: '2026-2027', grades: [grade] }] }),
     loading: signal(false), error: signal(false),
     exporting: signal(false), selectedYears: signal(['2026-2027']), selectedSemester: signal('all'),
-    activeTranscriptType: signal('international'), scoreScale: signal('letter'), editDraft: signal(null),
+    activeTranscriptType: signal('international'), scoreScale: signal('letter'), editDraft: signal(null), resetSaving: signal(false),
   });
   const printed = [];
   component.pdfService = { download: async (record, options) => printed.push(options) };
@@ -265,7 +265,7 @@ test('inline IB entries keep name-only corrections, official-only subjects and i
 test('inline editing blocks leaving with an active draft and cancel restores the original selection', () => {
   const messages = [];
   const component = Object.assign(Object.create(StudentTranscriptComponent.prototype), {
-    editDraft: signal({ revision: 7, years: [] }), savingRecord: signal(false), editError: signal(''), gradeCorrectionYear: signal(''),
+    editDraft: signal({ revision: 7, years: [] }), savingRecord: signal(false), resetSaving: signal(false), editError: signal(''), gradeCorrectionYear: signal(''),
     selectedYears: signal(['2027-2028']), yearsBeforeEditing: ['2026-2027'],
     pendingTranscriptReload: false, toast: { error: message => messages.push(message) }, t: key => key,
   });
@@ -275,4 +275,23 @@ test('inline editing blocks leaving with an active draft and cancel restores the
   assert.equal(component.canLeaveTranscript(), true);
   assert.deepEqual(component.selectedYears(), ['2026-2027']);
   assert.equal(component.editDraft(), null);
+  component.resetSaving.set(true);
+  assert.equal(component.canLeaveTranscript(), false);
+  assert.equal(messages.at(-1), 'transcript.reset.inProgress');
+});
+
+test('reset is only available for saved customizations, including IB entries and explicit zero values', () => {
+  assert.equal(hasTranscriptCustomizations(undefined), false);
+  assert.equal(hasTranscriptCustomizations({ revision: 5, years: [] }), false);
+  const defaults = { revision: 5, years: [{ academicYear: '2026-2027', gradeLevel: null, showAverage: null,
+    credits: [{ subjectCode: 'math', credit: 1 }], ibSubjects: [] }] };
+  assert.equal(hasTranscriptCustomizations(defaults), false);
+  for (const override of [{ notes: 'School note' }, { ibCorePoints: 0 }, { transcriptName: 'Official Name' },
+    { graduationExamDate: '2027-05-20' }])
+    assert.equal(hasTranscriptCustomizations({ ...defaults, ...override }), true);
+  defaults.years[0].showAverage = false;
+  assert.equal(hasTranscriptCustomizations(defaults), true);
+  defaults.years[0].showAverage = null; defaults.years[0].credits[0].credit = 0;
+  assert.equal(hasTranscriptCustomizations(defaults), true);
+  assert.equal(hasTranscriptCustomizations(editableTranscript().record), true);
 });

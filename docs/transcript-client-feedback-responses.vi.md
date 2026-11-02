@@ -29,6 +29,7 @@ Các cập nhật bổ sung hỗ trợ thao tác:
 | Cập nhật | Phản hồi |
 | --- | --- |
 | Chỉnh sửa trực tiếp trên bảng điểm | Chọn “Chỉnh sửa bảng điểm” hoặc “Chỉnh sửa bảng điểm IB” ngay trong bản xem. Tên môn và tín chỉ được sửa tại dòng môn; điểm IB sửa trực tiếp trong bảng IB; khối theo năm, ngày tháng và ghi chú sửa tại phần tương ứng. Bấm Lưu để áp dụng hoặc Hủy để bỏ thay đổi. Dữ liệu lưu riêng, được giữ khi đồng bộ Canvas và không ghi thay đổi về Canvas. Điểm Canvas chỉ được xem; tín chỉ có thể ảnh hưởng GPA của bảng điểm. |
+| Khôi phục mặc định | Bổ sung nút “Khôi phục mặc định” cạnh nút chỉnh sửa khi bảng điểm có tùy chỉnh đã lưu. Sau xác nhận, hệ thống xóa các tùy chỉnh của học sinh ở tất cả năm học và loại bảng điểm, bao gồm dữ liệu IB nhập thủ công, rồi tải lại dữ liệu Canvas/SIS mới nhất và các giá trị mặc định. Điểm Canvas và hồ sơ SIS không thay đổi. |
 | Truy cập bảng điểm cá nhân | Đưa tab “Individual student” lên trước và mở danh sách học sinh mặc định khi vào Học bạ. Chọn học sinh để xem/xuất bảng điểm cho các năm cần thiết. |
 | Tải tổng hợp nhanh hơn | Đã tối ưu tải dữ liệu. Khi xem tổng hợp, chọn năm học và khối rồi bấm “Xem tổng hợp”; hệ thống xử lý phạm vi được chọn thay vì tự tải toàn trường. |
 | Thang điểm mặc định | Mặc định chọn Percentage ở các trang có bộ chuyển thang điểm: bảng điểm cá nhân, tổng hợp và chi tiết khối. Vẫn có thể chuyển sang GPA 4.2 hoặc Letter grade. Các mẫu PDF giữ thang điểm theo loại bảng điểm. |

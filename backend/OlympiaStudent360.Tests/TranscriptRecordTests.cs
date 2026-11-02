@@ -105,6 +105,55 @@ public sealed partial class MySqlResilienceTests
     }
 
     [MySqlFact]
+    public async Task TranscriptResetRestoresSourceDefaultsWithoutChangingCanvasAndRejectsStaleEdits()
+    {
+        await using var test = await TestDatabase.CreateAsync();
+        await using var db = test.Open();
+        var student = new StudentProfile { SISUserId = "transcript-reset", FullName = "Phan Anh", GradeLevel = "12" };
+        var course = new CanvasCourse { CanvasCourseId = 501, Name = "2526 Math 11E1.1", CanvasGradeLevel = "12", EnrollmentTermName = "2025-2026" };
+        var enrollment = new CanvasEnrollment { CanvasEnrollmentId = 501, CanvasUserId = 1, Course = course, Student = student };
+        db.CanvasCourseScores.AddRange(
+            new() { WarehouseScoreFactId = 5011, Enrollment = enrollment, Student = student, GradingPeriodId = 1, GradingPeriodTitle = "S1F", GradesOverrideScore = 80 },
+            new() { WarehouseScoreFactId = 5012, Enrollment = enrollment, Student = student, GradingPeriodId = 2, GradingPeriodTitle = "S2F", GradesOverrideScore = 90 });
+        await db.SaveChangesAsync();
+        var controller = TranscriptController(db);
+        var authored = new TranscriptRecordDto { TranscriptName = "Custom Name", Notes = "Saved note", GraduationDate = new(2027, 6, 1), IbCorePoints = 0,
+            Years = [new() { AcademicYear = "2025-2026", GradeLevel = "12", ShowAverage = true,
+                Credits = [new() { SubjectCode = "math", Credit = .5, EnglishName = "Custom Mathematics" }],
+                IbSubjects = [new() { SubjectCode = "math", SubjectName = "Mathematics", Level = "HL", PredictedGrade = "7" }] }] };
+        Assert.Equal(1, TranscriptValue(await controller.SaveRecord(student.Id, authored)).Revision);
+        var overridden = TranscriptValue(await controller.GetOverallTranscript(student.Id));
+        Assert.Equal("12", Assert.Single(overridden.Years[0].Grades).GradeLevel);
+        Assert.Equal(.5, Assert.Single(overridden.Years[0].Grades[0].Subjects).Credit);
+
+        // Another save after the confirmation was opened must make that reset stale.
+        authored.Notes = "Newer staff edit";
+        Assert.Equal(2, TranscriptValue(await controller.SaveRecord(student.Id, authored)).Revision);
+        Assert.IsType<ConflictObjectResult>((await controller.SaveRecord(student.Id, new() { Revision = 1 })).Result);
+        Assert.Equal("Newer staff edit", TranscriptValue(await controller.GetOverallTranscript(student.Id)).Record.Notes);
+
+        Assert.Equal(3, TranscriptValue(await controller.SaveRecord(student.Id, new() { Revision = 2 })).Revision);
+        await using var readDb = test.Open();
+        var restored = TranscriptValue(await TranscriptController(readDb).GetOverallTranscript(student.Id));
+        Assert.Equal("Anh Phan", restored.TranscriptName);
+        Assert.Null(restored.Record.Notes);
+        Assert.Null(restored.Record.GraduationDate);
+        Assert.Null(restored.Record.IbCorePoints);
+        Assert.Empty(restored.Record.Years);
+        Assert.False(restored.Years[0].ShowAverage);
+        Assert.Equal("11", Assert.Single(restored.Years[0].Grades).GradeLevel);
+        var subject = Assert.Single(restored.Years[0].Grades[0].Subjects);
+        Assert.Equal(1, subject.Credit);
+        Assert.NotEqual("Custom Mathematics", subject.EnglishName);
+        Assert.Equal(80, subject.Semester1Final);
+        Assert.Equal(90, subject.Semester2Final);
+        Assert.Equal(new double?[] { 80, 90 }, await readDb.CanvasCourseScores.OrderBy(row => row.GradingPeriodId).Select(row => row.GradesOverrideScore).ToArrayAsync());
+        Assert.Equal(3, (await readDb.StudentTranscriptRecords.SingleAsync()).Revision);
+        Assert.Equal("Phan Anh", (await readDb.StudentProfiles.SingleAsync()).FullName);
+        Assert.IsType<ConflictObjectResult>((await controller.SaveRecord(student.Id, authored)).Result);
+    }
+
+    [MySqlFact]
     public async Task TranscriptMigrationAppliesAndMatchesTheCurrentModel()
     {
         await using var test = await TestDatabase.CreateAsync(migrate: true);

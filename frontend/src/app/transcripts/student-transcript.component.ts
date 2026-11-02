@@ -1,4 +1,4 @@
-import { Component, DestroyRef, HostListener, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -9,7 +9,7 @@ import { SchoolTranscript, SchoolTranscriptGrade, SchoolTranscriptYear, Transcri
 import { TranscriptPreferencesService } from './transcript-preferences.service';
 import { StudentTranscriptPdfService } from './student-transcript-pdf.service';
 import { ToastService } from '../core/toast/toast.service';
-import { createTranscriptDraft, prepareTranscriptRecord, transcriptRecordError } from './transcript-edit';
+import { createTranscriptDraft, hasTranscriptCustomizations, prepareTranscriptRecord, transcriptRecordError } from './transcript-edit';
 import { academicGpa, bilingualSubjects, ibPredictedTotal, ibSubjects, internationalStudentName, isPassFail, showAverage, subjectName } from './transcript-display';
 import type { TranscriptPdfFormat } from './transcript-pdf';
 
@@ -42,7 +42,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                 class="block w-full rounded-lg border border-[#d8cede] bg-white py-3 pl-11 pr-4 text-sm font-semibold text-[#32124f] outline-none transition focus:border-[#6d3a91] focus:ring-2 focus:ring-[#6d3a91]/15"
                 [placeholder]="t('transcript.searchStudentPlaceholder')"
                 [value]="searchTerm()"
-                [disabled]="!!editDraft()"
+                [disabled]="!!editDraft() || resetSaving()"
                 [attr.aria-expanded]="searchOpen()"
                 aria-controls="transcript-student-results"
                 (input)="searchStudents($event)"
@@ -131,15 +131,15 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
           <details class="export-menu relative">
             <summary
               class="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg bg-[#32124f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#51236f]"
-              [class.pointer-events-none]="exporting() || loading() || error() || !!editDraft() || !transcript() || !transcript()?.years?.length"
-              [class.opacity-50]="exporting() || loading() || error() || !!editDraft() || !transcript() || !transcript()?.years?.length"
-              [attr.aria-disabled]="!!editDraft()"
+              [class.pointer-events-none]="exporting() || loading() || error() || !!editDraft() || resetSaving() || !transcript() || !transcript()?.years?.length"
+              [class.opacity-50]="exporting() || loading() || error() || !!editDraft() || resetSaving() || !transcript() || !transcript()?.years?.length"
+              [attr.aria-disabled]="!!editDraft() || resetSaving()"
               [attr.aria-busy]="exporting()">
               <span aria-hidden="true">↧</span> {{ t(exporting() ? 'transcript.generatingPdf' : 'transcript.exportPdf') }} <span aria-hidden="true">⌄</span>
             </summary>
             <div class="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-lg border border-[#d8cede] bg-white p-1.5 shadow-[0_14px_35px_rgba(50,18,79,0.16)]">
               @for (format of pdfFormats; track format.id) {
-                <button type="button" class="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[#f4eef7] disabled:opacity-40" [disabled]="exporting() || loading() || error() || !!editDraft()" (click)="exportPdf(format.id)">
+                <button type="button" class="block w-full rounded-md px-3 py-2.5 text-left hover:bg-[#f4eef7] disabled:opacity-40" [disabled]="exporting() || loading() || error() || !!editDraft() || resetSaving()" (click)="exportPdf(format.id)">
                   <span class="block text-sm font-semibold text-[#32124f]">{{ t('transcript.pdfFormats.' + format.id + '.name') }}</span>
                   <span class="mt-0.5 block text-xs text-[#817589]">{{ t('transcript.pdfFormats.' + format.id + '.hint') }}</span>
                 </button>
@@ -195,12 +195,15 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
             <div class="no-print border-b border-[#e8e1eb] bg-[#faf8fb] px-6 py-4 lg:px-9" data-transcript-editor>
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <p class="max-w-2xl text-sm text-[#6f6877]">{{ t(editDraft() ? 'transcript.editor.inlineHelp' : 'transcript.editor.inlineHint') }}</p>
-                <div class="flex shrink-0 gap-2">
+                <div class="flex flex-wrap gap-2">
                   @if (editDraft()) {
                     <button type="button" class="rounded-lg border border-[#d8cede] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] disabled:opacity-50" [disabled]="savingRecord()" (click)="cancelEditing()">{{ t('workspace.cancel') }}</button>
                     <button type="button" class="rounded-lg bg-[#32124f] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" [disabled]="savingRecord()" (click)="saveEditing()">{{ t(savingRecord() ? 'transcript.editor.saving' : 'transcript.editor.save') }}</button>
                   } @else {
-                    <button type="button" class="rounded-lg border border-[#d8cede] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f]" (click)="beginEditing(record)">{{ t(activeTranscriptType() === 'ib' ? 'transcript.editor.editIb' : 'transcript.editor.editInline') }}</button>
+                    <button type="button" class="rounded-lg px-4 py-2.5 text-sm font-semibold text-[#8b2727] hover:bg-red-50 disabled:opacity-40"
+                      [disabled]="resetSaving() || exporting() || !hasSavedChanges(record.record)" [attr.title]="hasSavedChanges(record.record) ? null : t('transcript.reset.alreadyDefault')"
+                      (click)="openReset(record)">{{ t('transcript.reset.button') }}</button>
+                    <button type="button" class="rounded-lg border border-[#d8cede] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] disabled:opacity-50" [disabled]="resetSaving() || exporting()" (click)="beginEditing(record)">{{ t(activeTranscriptType() === 'ib' ? 'transcript.editor.editIb' : 'transcript.editor.editInline') }}</button>
                   }
                 </div>
               </div>
@@ -555,9 +558,28 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
           }
         </section>
       }
+      <dialog #resetDialog class="no-print m-auto max-h-[90vh] w-[calc(100%_-_2rem)] max-w-lg overflow-y-auto rounded-xl border-0 bg-white p-0 text-[#35293b] shadow-[0_28px_90px_rgba(36,24,47,0.3)]"
+        aria-labelledby="transcript-reset-title" aria-describedby="transcript-reset-description" (cancel)="cancelReset($event)">
+        <div class="p-6">
+          <h2 id="transcript-reset-title" class="text-xl font-semibold text-[#32124f]">{{ t('transcript.reset.title') }}</h2>
+          <p class="mt-2 font-semibold text-[#5f5268]">{{ resetTarget()?.name }}</p>
+          <p id="transcript-reset-description" class="mt-3 text-sm leading-6 text-[#6f6877]">{{ t('transcript.reset.description') }}</p>
+          <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-[#6f6877]">
+            <li>{{ t('transcript.reset.details') }}</li>
+            <li>{{ t('transcript.reset.ib') }}</li>
+          </ul>
+          <p class="mt-4 text-sm font-semibold text-[#8b2727]">{{ t('transcript.reset.warning') }}</p>
+          @if (resetError()) { <p role="alert" class="mt-4 rounded-lg bg-red-50 p-3 text-sm text-[#8b2727]">{{ resetError() }}</p> }
+        </div>
+        <footer class="flex flex-wrap justify-end gap-2 border-t border-[#e8e1eb] px-6 py-4">
+          <button type="button" autofocus class="rounded-lg border border-[#d8cede] px-4 py-2.5 text-sm font-semibold text-[#32124f] disabled:opacity-50" [disabled]="resetSaving()" (click)="closeReset()">{{ t('workspace.cancel') }}</button>
+          <button type="button" class="rounded-lg bg-[#8b2727] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" [disabled]="resetSaving() || resetNeedsReload()" (click)="confirmReset()">{{ t(resetSaving() ? 'transcript.reset.resetting' : 'transcript.reset.confirm') }}</button>
+        </footer>
+      </dialog>
     </section>
   `,
   styles: `
+    dialog::backdrop { background: rgba(36,24,47,.45); }
     .edit-label { font-size: .75rem; font-weight: 600; color: #65596d; }
     .transcript-input { display: block; width: 100%; margin-top: .35rem; border: 1px solid #d8cede; border-radius: .4rem; padding: .55rem; background: white; color: #35293b; font-size: .85rem; font-weight: 400; }
     .transcript-input:focus { outline: 2px solid #6d3a9140; outline-offset: 1px; border-color: #6d3a91; }
@@ -580,6 +602,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
   `,
 })
 export class StudentTranscriptComponent {
+  private readonly resetDialog = viewChild.required<ElementRef<HTMLDialogElement>>('resetDialog');
   private readonly destroyRef = inject(DestroyRef);
   private readonly service = inject(TranscriptsService);
   private readonly preferences = inject(TranscriptPreferencesService);
@@ -599,6 +622,11 @@ export class StudentTranscriptComponent {
   readonly savingRecord = signal(false);
   readonly editError = signal('');
   readonly gradeCorrectionYear = signal('');
+  readonly resetSaving = signal(false);
+  readonly resetError = signal('');
+  readonly resetNeedsReload = signal(false);
+  readonly resetTarget = signal<{ studentId: number; revision: number; name: string } | null>(null);
+  readonly hasSavedChanges = hasTranscriptCustomizations;
   readonly editableGrades = Array.from({ length: 12 }, (_, index) => String(index + 1));
   newEditYear = '';
   newEditGrade = '11';
@@ -847,7 +875,7 @@ export class StudentTranscriptComponent {
   }
 
   beginEditing(record: SchoolTranscript): void {
-    if (!record.canEditRecord || this.editDraft() || this.savingRecord() || this.exporting()) return;
+    if (!record.canEditRecord || this.editDraft() || this.savingRecord() || this.resetSaving() || this.exporting()) return;
     this.yearsBeforeEditing = [...this.selectedYears()];
     this.editDraft.set(createTranscriptDraft(record));
     this.gradeCorrectionYear.set('');
@@ -930,6 +958,7 @@ export class StudentTranscriptComponent {
   }
 
   canLeaveTranscript(): boolean {
+    if (this.resetSaving()) { this.toast.error(this.t('transcript.reset.inProgress')); return false; }
     if (!this.editDraft()) return true;
     this.toast.error(this.t('transcript.editor.finishEditing'));
     return false;
@@ -937,7 +966,49 @@ export class StudentTranscriptComponent {
 
   @HostListener('window:beforeunload', ['$event'])
   protectUnsavedChanges(event: BeforeUnloadEvent): void {
-    if (this.editDraft()) { event.preventDefault(); event.returnValue = ''; }
+    if (this.editDraft() || this.resetSaving()) { event.preventDefault(); event.returnValue = ''; }
+  }
+
+  openReset(record: SchoolTranscript): void {
+    if (!record.canEditRecord || !record.studentProfileId || !record.record || !hasTranscriptCustomizations(record.record) ||
+        this.editDraft() || this.resetSaving() || this.savingRecord() || this.exporting() || this.loading()) return;
+    this.resetTarget.set({ studentId: record.studentProfileId, revision: record.record.revision,
+      name: `${record.studentName || record.sisUserId || ''}${record.studentName && record.sisUserId ? ` · ${record.sisUserId}` : ''}` });
+    this.resetError.set(''); this.resetNeedsReload.set(false);
+    this.resetDialog().nativeElement.showModal();
+  }
+
+  cancelReset(event: Event): void {
+    event.preventDefault();
+    this.closeReset();
+  }
+
+  closeReset(): void {
+    if (this.resetSaving()) return;
+    const refresh = this.resetNeedsReload();
+    this.resetDialog().nativeElement.close();
+    this.resetTarget.set(null); this.resetError.set(''); this.resetNeedsReload.set(false);
+    if (refresh) this.reload();
+  }
+
+  confirmReset(): void {
+    const target = this.resetTarget(), current = this.transcript();
+    if (!target || !this.resetDialog().nativeElement.open || this.resetSaving() || this.resetNeedsReload() ||
+        this.editDraft() || !current?.canEditRecord || current.studentProfileId !== target.studentId) return;
+    this.resetSaving.set(true); this.resetError.set('');
+    // Replacing only the school-authored record preserves source data and the monotonically
+    // increasing revision, so a stale edit cannot recreate pre-reset overrides.
+    this.service.saveRecord(target.studentId, { revision: target.revision, years: [] })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => {
+          this.resetSaving.set(false); this.closeReset(); this.editError.set('');
+          this.toast.success(this.t('transcript.reset.saved')); this.reload();
+        },
+        error: response => {
+          this.resetSaving.set(false); this.resetNeedsReload.set(true);
+          this.resetError.set(this.t(response.status === 409 ? 'transcript.reset.conflict' : 'transcript.reset.error'));
+        },
+      });
   }
 
   reload(): void {
@@ -946,14 +1017,14 @@ export class StudentTranscriptComponent {
   }
 
   selectTranscriptType(type: TranscriptType): void {
-    if (this.savingRecord()) return;
+    if (this.savingRecord() || this.resetSaving()) return;
     this.activeTranscriptType.set(type);
     if (type === 'bilingual') this.scoreScale.set('percentage');
   }
 
   async exportPdf(format: TranscriptPdfFormat = this.activeTranscriptType()): Promise<void> {
     const record = this.transcript();
-    if (this.exporting() || this.loading() || this.error() || this.editDraft() || !this.selectedStudentId() || !record?.years.length) return;
+    if (this.exporting() || this.loading() || this.error() || this.editDraft() || this.resetSaving() || !this.selectedStudentId() || !record?.years.length) return;
     this.exporting.set(true);
     try {
       await this.pdfService.download(record, {
