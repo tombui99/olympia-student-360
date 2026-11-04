@@ -46,6 +46,9 @@ jobs:
       - name: Verify session recovery and safe HTTP retries
         run: npm run test:resilience
 
+      - name: Verify grade access management
+        run: npm run test:access
+
       - name: Verify report Excel exports
         run: npm run test:reports
 

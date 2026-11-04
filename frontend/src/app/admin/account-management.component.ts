@@ -226,6 +226,19 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                       }
                     </div>
                   }
+                  @if (form.accessScopes.includes('Grade') && !form.accessScopes.includes('All')) {
+                    <p class="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#817389]">{{ languageService.t('access.gradeLevels') }}</p>
+                    <p class="mt-1 text-xs text-[#756a7d]">{{ languageService.t('access.gradeLevelsHint') }}</p>
+                    <div class="mt-2 grid gap-2 sm:grid-cols-3">
+                      @for (grade of gradeLevels(); track grade) {
+                        <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#e2dce7] bg-white px-3 py-2 text-sm">
+                          <input type="checkbox" class="h-4 w-4 accent-[#4b2070]" [checked]="form.gradeLevels.includes(grade)"
+                            (change)="toggleGradeLevel(grade)" />
+                          <span>{{ languageService.t('access.gradeLabel') }} {{ grade }}</span>
+                        </label>
+                      }
+                    </div>
+                  }
                   @if (form.accessScopes.includes('SchoolLevel') && !form.accessScopes.includes('All')) {
                     <p class="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#817389]">{{ languageService.t('access.schoolLevels') }}</p>
                     <p class="mt-1 text-xs text-[#756a7d]">{{ languageService.t('access.schoolLevelsHint') }}</p>
@@ -316,6 +329,7 @@ export class AccountManagementComponent implements OnInit {
   accessScopes = signal<string[]>(['All', 'Health', 'Bus', 'Academic', 'Class', 'SchoolLevel']);
   homerooms = signal<string[]>([]);
   schoolLevels = signal<string[]>(['Primary', 'LowerSecondary', 'UpperSecondary']);
+  gradeLevels = signal<string[]>([]);
   saving = signal(false);
   error = signal<string | null>(null);
   success = signal<string | null>(null);
@@ -366,6 +380,7 @@ export class AccountManagementComponent implements OnInit {
         this.accessScopes.set(data.accessScopes);
         this.homerooms.set(data.homerooms);
         this.schoolLevels.set(data.schoolLevels);
+        this.gradeLevels.set(data.gradeLevels ?? []);
       },
       error: () => this.error.set(this.languageService.t('accounts.loadError')),
     });
@@ -443,6 +458,7 @@ export class AccountManagementComponent implements OnInit {
         : user.accessScopes?.length ? user.accessScopes : [...this.accessScopes()],
       homerooms: user.homerooms || [],
       schoolLevels: user.schoolLevels || [],
+      gradeLevels: user.gradeLevels || [],
     };
     this.clearMessages();
     this.openSheet();
@@ -477,6 +493,7 @@ export class AccountManagementComponent implements OnInit {
         accessScopes: this.form.role === 'Teacher' ? this.normalizedAccessScopes() : [],
         homerooms: this.form.role === 'Teacher' ? this.form.homerooms : [],
         schoolLevels: this.form.role === 'Teacher' ? this.form.schoolLevels : [],
+        gradeLevels: this.form.role === 'Teacher' ? this.form.gradeLevels : [],
       };
 
       this.adminUsersService.apiAdminUsersIdPut(editingId, payload).subscribe({
@@ -495,6 +512,7 @@ export class AccountManagementComponent implements OnInit {
       accessScopes: this.form.role === 'Teacher' ? this.normalizedAccessScopes() : [],
       homerooms: this.form.role === 'Teacher' ? this.form.homerooms : [],
       schoolLevels: this.form.role === 'Teacher' ? this.form.schoolLevels : [],
+      gradeLevels: this.form.role === 'Teacher' ? this.form.gradeLevels : [],
     };
 
     this.adminUsersService.apiAdminUsersPost(payload).subscribe({
@@ -562,6 +580,12 @@ export class AccountManagementComponent implements OnInit {
     this.form.schoolLevels = [...selected];
   }
 
+  toggleGradeLevel(grade: string): void {
+    const selected = new Set(this.form.gradeLevels);
+    selected.has(grade) ? selected.delete(grade) : selected.add(grade);
+    this.form.gradeLevels = [...selected];
+  }
+
   private normalizedAccessScopes(): string[] {
     return this.form.accessScopes.includes('All') ? ['All'] : this.form.accessScopes;
   }
@@ -611,7 +635,8 @@ export class AccountManagementComponent implements OnInit {
 
     if (this.form.role === 'Teacher' && (!this.form.accessScopes.length ||
       (this.form.accessScopes.includes('Class') && !this.form.accessScopes.includes('All') && !this.form.homerooms.length) ||
-      (this.form.accessScopes.includes('SchoolLevel') && !this.form.accessScopes.includes('All') && !this.form.schoolLevels.length))) {
+      (this.form.accessScopes.includes('SchoolLevel') && !this.form.accessScopes.includes('All') && !this.form.schoolLevels.length) ||
+      (this.form.accessScopes.includes('Grade') && !this.form.accessScopes.includes('All') && !this.form.gradeLevels.length))) {
       return false;
     }
 
@@ -634,6 +659,7 @@ export class AccountManagementComponent implements OnInit {
       accessScopes: [...this.accessScopes()],
       homerooms: [],
       schoolLevels: [],
+      gradeLevels: [],
     };
   }
 }

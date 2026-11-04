@@ -27,7 +27,8 @@ public static class DatabaseMigrationRecovery
         "20261103090437_AddSchoolOnlineSisWarehouse",
         "20261104024508_AddSisHealthVisitSync",
         "20261104063344_EnforceSchoolOnlineSourceOwnership",
-        "20261104145633_ScopeReportInvalidation"
+        "20261104145633_ScopeReportInvalidation",
+        "20261104161615_AddTeacherGradeAccessAndCorrectSchoolLevels"
     ];
 
     private static readonly string[] LearningReportTables =

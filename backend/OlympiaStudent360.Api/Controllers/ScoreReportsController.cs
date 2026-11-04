@@ -43,9 +43,9 @@ public sealed class ScoreReportsController(
                 Grade = item.Student.GradeLevel ?? item.Student.CanvasGradeLevel ?? item.Course.CanvasGradeLevel,
                 item.Student.Homeroom
             }).Distinct().ToListAsync(cancellationToken);
-        var categories = CanvasReportFilters.AvailableCategories(await visible
-            .Where(item => !item.IsFinalCourseScore && item.AssessmentCategory != null)
-            .Select(item => item.AssessmentCategory).Distinct().ToListAsync(cancellationToken));
+        var categories = CanvasReportFilters.AvailableCategoriesForGroups(await visible
+            .Where(item => !item.IsFinalCourseScore && item.AssignmentGroupName != null)
+            .Select(item => item.AssignmentGroupName).Distinct().ToListAsync(cancellationToken));
         var subjectOptions = courseRows
             .Select(course => CanvasCourseSubject(course.CanvasCourseId, course.SisCourseId,
                 course.CourseCode, course.Name))
@@ -286,7 +286,13 @@ public sealed class ScoreReportsController(
         facts = ApplyShared(facts, request, subjectCourseIds, subaccountIds);
         facts = CanvasActivityPeriodFilter.Apply(facts, request.Month, request.WeekStart);
         var category = CanvasReportFilters.CanonicalCategory(request.AssessmentCategory)!;
-        if (category != "all") facts = facts.Where(item => item.AssessmentCategory == category);
+        if (category.Contains('.'))
+        {
+            var groupNames = await facts.Select(item => item.AssignmentGroupName).Distinct().ToListAsync(cancellationToken);
+            var selectedGroups = groupNames.Where(name => CanvasReportFilters.MatchesCategory(name, category)).OfType<string>().ToList();
+            facts = facts.WhereMatchesAny(item => item.AssignmentGroupName, selectedGroups);
+        }
+        else if (category != "all") facts = facts.Where(item => item.AssessmentCategory == category);
 
         return await facts.GroupBy(item => new
             {

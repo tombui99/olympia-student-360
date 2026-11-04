@@ -12,6 +12,7 @@ public class AdminUserDto
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];
+    public List<string> GradeLevels { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 }
@@ -31,6 +32,7 @@ public class AdminUserOptionsDto
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];
+    public List<string> GradeLevels { get; set; } = [];
 }
 
 public class CreateAdminUserDto
@@ -47,6 +49,7 @@ public class CreateAdminUserDto
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];
+    public List<string> GradeLevels { get; set; } = [];
 }
 
 public class UpdateAdminUserDto
@@ -60,4 +63,5 @@ public class UpdateAdminUserDto
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];
+    public List<string> GradeLevels { get; set; } = [];
 }

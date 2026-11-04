@@ -214,6 +214,7 @@ public class AuthController : ControllerBase
         Scopes = access.Scopes.OrderBy(item => item).ToList(),
         Homerooms = access.Homerooms.ToList(),
         SchoolLevels = access.SchoolLevels.ToList(),
+        GradeLevels = access.GradeLevels.ToList(),
         CanAccessHealth = access.CanAccessHealth,
         CanAccessBus = access.CanAccessBus,
         CanAccessAcademic = access.CanAccessAcademic,

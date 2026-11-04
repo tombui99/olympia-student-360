@@ -26,4 +26,22 @@ public sealed class CanvasReportFiltersTests
     {
         Assert.Equal(expected, CanvasReportFilters.CategoryForGroup(group));
     }
+
+    [Theory]
+    [InlineData("HK1-HS1.1", "HS1.1")]
+    [InlineData("HK2-HS1.2", "HS1.2")]
+    [InlineData("Hệ số 1.3", "HS1.3")]
+    [InlineData(" HS1.4 (quiz) ", "HS1.4")]
+    [InlineData("HS1.10", null)]
+    [InlineData("HS1.5", null)]
+    [InlineData("HS1.1.2", null)]
+    [InlineData("HS1.1-HS1.2", null)]
+    [InlineData("HS1.1-HS1.10", null)]
+    [InlineData("HS1.1-HS2", null)]
+    [InlineData("HS1", null)]
+    public void IndividualAssessmentsKeepTheirNumbersAndRejectAmbiguousLabels(string group, string? expected)
+    {
+        Assert.Equal(expected, CanvasReportFilters.AssessmentForGroup(group));
+        Assert.Equal(expected == "HS1.1", CanvasReportFilters.MatchesCategory(group, "HS1.1"));
+    }
 }

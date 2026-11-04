@@ -4,7 +4,8 @@ import { Observable, shareReplay } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
 
 export type LeadershipReportKey = 'learning-engagement' | 'assessment-results';
-export type AssessmentCategory = 'all' | 'HS1' | 'HS2' | 'HS3' | 'GPA';
+import { AssessmentCategory } from './assessment-categories';
+export type { AssessmentCategory } from './assessment-categories';
 
 export interface LeadershipSubaccountOption {
   id: number;

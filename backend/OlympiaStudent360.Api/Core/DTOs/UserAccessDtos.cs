@@ -11,6 +11,7 @@ public class UserAccessCapabilitiesDto
     public List<string> Scopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];
+    public List<string> GradeLevels { get; set; } = [];
     public bool CanAccessHealth { get; set; }
     public bool CanAccessBus { get; set; }
     public bool CanAccessAcademic { get; set; }
@@ -31,6 +32,7 @@ public class TeacherAccessUserDto
     public List<string> Scopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];
+    public List<string> GradeLevels { get; set; } = [];
 }
 
 public class UserAccessManagementDto
@@ -39,6 +41,7 @@ public class UserAccessManagementDto
     public List<string> AvailableScopes { get; set; } = [];
     public List<string> AvailableHomerooms { get; set; } = [];
     public List<string> AvailableSchoolLevels { get; set; } = [];
+    public List<string> AvailableGradeLevels { get; set; } = [];
 }
 
 public class UpdateTeacherAccessDto
@@ -47,4 +50,5 @@ public class UpdateTeacherAccessDto
     public List<string> Scopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];
+    public List<string> GradeLevels { get; set; } = [];
 }

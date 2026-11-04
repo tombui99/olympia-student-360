@@ -123,7 +123,7 @@ compatible aggregate remains readable while materialization is retried. The buil
 its actual freshness; a newer completed sync no longer makes an existing snapshot unavailable.
 
 The two reports appear directly in `/reports` and use the page's academic year and term. Both
-support grade, homeroom, Canvas subject, and the HS1, HS2, HS3, and GPA
+support grade, homeroom, Canvas subject, and the HS1, HS1.1–HS1.4, HS2, HS3, and GPA
 assignment-group categories that are actually present in the user's visible Canvas data. Category matching uses only the
 literal Canvas group label (for example `Hệ số 2`, `HS2`, or `HK1-HS1.2`); it does not infer weights from
 assignment titles or course names. The assignment-score breakdowns therefore describe graded Canvas
@@ -162,7 +162,7 @@ The C+D share is the count in C or D divided by all scored student-course result
 histogram has a 0–<5 bin followed by half-point bins through 9.5–10+, retaining extra credit in the
 last bin.
 
-HS1, HS2, HS3, and GPA categories are derived only from literal tokens in actual Canvas assignment
+HS1, individual HS1.1–HS1.4, HS2, HS3, and GPA categories are derived only from literal tokens in actual Canvas assignment
 group names. Assignment, distribution, histogram, and ranking reports always use graded
 assignment-group points and expose the category filter. The dedicated current-course-score report
 always uses Canvas `current_score` and does not expose that category filter. Users do not select a
@@ -242,3 +242,42 @@ bounded work over report facts, not on-demand classification of operational rows
 snapshots are refreshed after data changes and at least daily, so a moving-window risk flag
 can lag its exact expiry until the next build. Record-detail pages use SQL count/pagination
 and are intentionally not precomputed because they show individual source records.
+
+
+## Subject-specific classes needing support
+
+`/reports` → **Classes needing support / Lớp học cần hỗ trợ** now requires a subject (the first
+available visible subject is selected initially). The subject choice is retained as `supportSubject`
+in the URL. The grade and class views, student counts, support-only drilldowns and Excel export all
+use that subject and the selected school year/semester, through `GET /api/reports/subject-support`
+and its `/students` endpoint. Existing SIS active-roster and class/grade/school-level permissions
+are applied before discovering subjects or reading student results.
+
+A student's subject average uses the same usable Canvas grading-period `FinalScore` facts and
+one-decimal rounding as the existing academic risk calculation, restricted to their enrollments
+in that subject. It is compared strictly below `StudentClassificationSettings.HighRiskCanvasAverageBelow`
+(default 50%). A score equal to the threshold is not flagged. Behaviour and bus signals do not
+contribute to this subject-specific count. The configuration is read for each report request;
+changing it needs no extra ETL run or aggregation rebuild.
+
+The enrolled total includes active-roster students taking the subject, once per student even if
+there are multiple courses or score facts. Students without usable marks are shown in **No score yet**,
+are excluded from subject averages, and are not treated as low-scoring. A genuine graded zero is
+retained; a Canvas zero placeholder without grading evidence is missing. Cohorts with no scored
+students have an unavailable status rather than a green status. The support rate divides flagged
+students by all students enrolled in the subject in that cohort. The existing Green/Amber/Red display
+thresholds remain configurable separately from the school's low-score threshold.
+
+Individual HS1 filters inspect original stored assignment-group names, e.g. `HK1-HS1.2` or
+`HK2-HS1.2`, inside the selected academic period. The combined **HS1** choice still includes all
+HS1 groups. **HS1.1** never matches **HS1.10** or an ambiguous label containing different assessment
+numbers. Options come from groups visible to the current user; a valid saved URL selection with no
+matching data remains selected and returns an empty report. Filters survive URL loading before
+options arrive and are retained in result pagination and exports. Current-course and final-course
+scores remain separate from assignment-group selection. No Canvas reimport, fact rewrite or extra
+scheduled aggregation job is required for these filters.
+
+Deploy the backend (including the grade-access migration) before publishing the frontend, because
+the subject-support screen calls the new API route. The independent deployment workflows must be
+sequenced for this release. Once both are live, no manual SIS/Canvas sync or report rebuild is needed
+for the subject and individual-assessment changes.

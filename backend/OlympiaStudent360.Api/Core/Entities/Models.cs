@@ -10,6 +10,7 @@ public class ApplicationUser : IdentityUser
     public ICollection<TeacherAccessGrant> AccessGrants { get; set; } = [];
     public ICollection<TeacherClassAccess> ClassAccesses { get; set; } = [];
     public ICollection<TeacherSchoolLevelAccess> SchoolLevelAccesses { get; set; } = [];
+    public ICollection<TeacherGradeAccess> GradeAccesses { get; set; } = [];
 }
 
 /// <summary>A data-domain permission assigned to a teacher account.</summary>
@@ -34,6 +35,14 @@ public class TeacherSchoolLevelAccess : BaseEntity
     public string UserId { get; set; } = default!;
     public ApplicationUser User { get; set; } = default!;
     public string SchoolLevel { get; set; } = default!;
+}
+
+/// <summary>A grade cohort whose students a teacher is allowed to access.</summary>
+public class TeacherGradeAccess : BaseEntity
+{
+    public string UserId { get; set; } = default!;
+    public ApplicationUser User { get; set; } = default!;
+    public string GradeLevel { get; set; } = default!;
 }
 
 public abstract class BaseEntity

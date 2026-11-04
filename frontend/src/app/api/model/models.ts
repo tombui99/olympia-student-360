@@ -43,6 +43,7 @@ export interface UserAccessCapabilitiesDto {
   scopes: string[];
   homerooms: string[];
   schoolLevels: string[];
+  gradeLevels: string[];
 }
 
 export interface MetricCardDto {
@@ -66,6 +67,7 @@ export interface AdminUserDto {
   accessScopes: string[];
   homerooms: string[];
   schoolLevels: string[];
+  gradeLevels: string[];
 }
 
 export interface AdminUserPageDto {
@@ -81,6 +83,7 @@ export interface AdminUserOptionsDto {
   accessScopes: string[];
   homerooms: string[];
   schoolLevels: string[];
+  gradeLevels: string[];
 }
 
 export interface CreateAdminUserDto {
@@ -92,6 +95,7 @@ export interface CreateAdminUserDto {
   accessScopes: string[];
   homerooms: string[];
   schoolLevels: string[];
+  gradeLevels: string[];
 }
 
 export interface UpdateAdminUserDto {
@@ -102,4 +106,5 @@ export interface UpdateAdminUserDto {
   accessScopes: string[];
   homerooms: string[];
   schoolLevels: string[];
+  gradeLevels: string[];
 }

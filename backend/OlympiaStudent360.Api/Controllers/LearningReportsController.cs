@@ -42,8 +42,7 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
             .Select(item => item.AssignmentGroupName!)
             .Distinct().OrderBy(item => item).ToListAsync(cancellationToken);
         var subaccounts = await CanvasReportFilters.VisibleSubaccounts(db, courseIds, cancellationToken);
-        var categories = CanvasReportFilters.AvailableCategories(
-            assignmentGroups.Select(CanvasReportFilters.CategoryForGroup));
+        var categories = CanvasReportFilters.AvailableCategoriesForGroups(assignmentGroups);
         return Ok(new LearningReportOptions(courses, assignmentGroups, subaccounts,
             categories));
     }
@@ -111,7 +110,7 @@ public sealed class LearningReportsController(AppDbContext db, UserAccessService
                 .Select(item => item.Assignment!.AssignmentGroupName!)
                 .Distinct().ToListAsync(cancellationToken);
             var categoryNames = availableNames
-                .Where(name => CanvasReportFilters.CategoryForGroup(name) == category).ToList();
+                .Where(name => CanvasReportFilters.MatchesCategory(name, category)).ToList();
             facts = facts.Where(item => item.Assignment != null)
                 .WhereMatchesAny(item => item.Assignment!.AssignmentGroupName, categoryNames);
         }

@@ -90,6 +90,21 @@ import { TeacherAccessUser, UserAccessService } from './user-access.service';
                 </div>
               </section>
             }
+            @if (hasScope('Grade') && !hasScope('All')) {
+              <section class="mt-6 rounded-xl border border-[#ded7e4] bg-[#faf9fc] p-5">
+                <h4 class="font-semibold text-[#32124f]">{{ language.t('access.gradeLevels') }}</h4>
+                <p class="mt-1 text-sm text-[#746a7c]">{{ language.t('access.gradeLevelsHint') }}</p>
+                <div class="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  @for (grade of gradeLevels(); track grade) {
+                    <label class="flex cursor-pointer items-center gap-3 rounded-md border border-[#e0dae5] bg-white px-3 py-2.5 text-sm">
+                      <input type="checkbox" class="h-4 w-4 accent-[#4b2070]" [checked]="selectedGradeLevels().has(grade)"
+                        (change)="toggleGradeLevel(grade)" />
+                      <span>{{ language.t('access.gradeLabel') }} {{ grade }}</span>
+                    </label>
+                  }
+                </div>
+              </section>
+            }
             @if (hasScope('SchoolLevel') && !hasScope('All')) {
               <section class="mt-6 rounded-xl border border-[#ded7e4] bg-[#faf9fc] p-5">
                 <h4 class="font-semibold text-[#32124f]">{{ language.t('access.schoolLevels') }}</h4>
@@ -120,10 +135,12 @@ export class UserAccessManagementComponent implements OnInit {
   readonly scopes = signal<string[]>([]);
   readonly homerooms = signal<string[]>([]);
   readonly schoolLevels = signal<string[]>([]);
+  readonly gradeLevels = signal<string[]>([]);
   readonly selectedUser = signal<TeacherAccessUser | null>(null);
   readonly selectedScopes = signal(new Set<string>());
   readonly selectedHomerooms = signal(new Set<string>());
   readonly selectedSchoolLevels = signal(new Set<string>());
+  readonly selectedGradeLevels = signal(new Set<string>());
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly success = signal<string | null>(null);
@@ -146,6 +163,7 @@ export class UserAccessManagementComponent implements OnInit {
         this.scopes.set(data.availableScopes);
         this.homerooms.set(data.availableHomerooms);
         this.schoolLevels.set(data.availableSchoolLevels);
+        this.gradeLevels.set(data.availableGradeLevels ?? []);
         if (data.users.length) this.selectUser(data.users[0]);
       },
       error: () => this.error.set(this.language.t('access.loadError')),
@@ -157,6 +175,7 @@ export class UserAccessManagementComponent implements OnInit {
     this.selectedScopes.set(new Set(user.scopes.includes('All') ? this.scopes() : user.scopes));
     this.selectedHomerooms.set(new Set(user.homerooms));
     this.selectedSchoolLevels.set(new Set(user.schoolLevels));
+    this.selectedGradeLevels.set(new Set(user.gradeLevels ?? []));
     this.error.set(null);
     this.success.set(null);
   }
@@ -189,6 +208,12 @@ export class UserAccessManagementComponent implements OnInit {
     this.selectedSchoolLevels.set(next);
   }
 
+  toggleGradeLevel(grade: string): void {
+    const next = new Set(this.selectedGradeLevels());
+    next.has(grade) ? next.delete(grade) : next.add(grade);
+    this.selectedGradeLevels.set(next);
+  }
+
   save(): void {
     const user = this.selectedUser();
     if (!user || this.selectedScopes().size === 0) {
@@ -203,12 +228,17 @@ export class UserAccessManagementComponent implements OnInit {
       this.error.set(this.language.t('access.selectSchoolLevel'));
       return;
     }
+    if (this.hasScope('Grade') && !this.hasScope('All') && this.selectedGradeLevels().size === 0) {
+      this.error.set(this.language.t('access.selectGrade'));
+      return;
+    }
     const scopes = this.hasScope('All') ? ['All'] : [...this.selectedScopes()];
     const homerooms = scopes.includes('Class') ? [...this.selectedHomerooms()] : [];
     const schoolLevels = scopes.includes('SchoolLevel') ? [...this.selectedSchoolLevels()] : [];
+    const gradeLevels = scopes.includes('Grade') ? [...this.selectedGradeLevels()] : [];
     this.saving.set(true);
     this.error.set(null);
-    this.accessService.update(user.userId, scopes, homerooms, schoolLevels).subscribe({
+    this.accessService.update(user.userId, scopes, homerooms, schoolLevels, gradeLevels).subscribe({
       next: (updated) => {
         this.users.update((users) => users.map((item) => item.userId === updated.userId ? updated : item));
         this.selectUser(updated);

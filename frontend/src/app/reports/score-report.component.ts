@@ -1,3 +1,4 @@
+import { isAssessmentCategory, assessmentCategoryChoices } from './assessment-categories';
 import { Component, computed, inject, Input, OnChanges, OnDestroy, OnInit, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { activityWeeks, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
@@ -296,10 +297,7 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
       + (programmes.length === 2 ? ` ${this.t('reports.score.englishBothNotice')}` : '');
   }
   categoryChoices(): AssessmentCategory[] {
-    return (this.options()?.assessmentCategories ?? [])
-      .filter((category): category is AssessmentCategory =>
-        category === 'all' || category === 'HS1' || category === 'HS2' ||
-        category === 'HS3' || category === 'GPA');
+    return assessmentCategoryChoices(this.options()?.assessmentCategories, this.query.assessmentCategory);
   }
   subaccountChoices(): Array<{ value: number; label: string; detail?: string }> {
     const constrained = !!(this.query.schoolLevel || this.query.grade || this.query.homeroom);
@@ -640,7 +638,7 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
     query.subaccountIds = [...new Set(params.getAll('scoreAccount').map(Number).filter(value => Number.isSafeInteger(value) && value > 0))]
       .slice(0, this.singleSubjectReport() ? 1 : 50);
     const category = params.get('scoreCategory');
-    if (!this.isCourseScore() && this.categoryChoices().includes(category as AssessmentCategory))
+    if (!this.isCourseScore() && isAssessmentCategory(category))
       query.assessmentCategory = category as AssessmentCategory;
     const rankingLimit = Number(params.get('scoreLimit'));
     if (this.isRanking() && this.rankingLimitChoices.some(value => value === rankingLimit))
@@ -684,8 +682,8 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   private schoolLevelForGrade(grade: string): string | null {
     const value = Number(grade.match(/\d+/)?.[0]);
     if (value >= 1 && value <= 4) return 'Primary';
-    if (value >= 5 && value <= 9) return 'LowerSecondary';
-    if (value >= 10 && value <= 12) return 'UpperSecondary';
+    if (value >= 5 && value <= 8) return 'LowerSecondary';
+    if (value >= 9 && value <= 12) return 'UpperSecondary';
     return null;
   }
   private sortedUnique(values: string[]): string[] {

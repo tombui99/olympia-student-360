@@ -30,10 +30,13 @@ public sealed class UserAccessController(
         var schoolLevels = await context.TeacherSchoolLevelAccesses.AsNoTracking()
             .ToListAsync();
 
+        var gradeLevels = await context.TeacherGradeAccesses.AsNoTracking().ToListAsync();
+
         return Ok(new UserAccessManagementDto
         {
             AvailableScopes = TeacherAccessScopes.Values.ToList(),
             AvailableSchoolLevels = TeacherSchoolLevels.Values.ToList(),
+            AvailableGradeLevels = TeacherGradeLevels.Values.ToList(),
             AvailableHomerooms = await context.StudentProfiles.AsNoTracking().CurrentRoster(context)
                 .Where(item => item.Homeroom != null && item.Homeroom != "")
                 .Select(item => item.Homeroom!)
@@ -48,7 +51,9 @@ public sealed class UserAccessController(
                     Scopes = grants.Where(item => item.UserId == user.Id).Select(item => item.Scope).DefaultIfEmpty(TeacherAccessScopes.All).ToList(),
                     Homerooms = classes.Where(item => item.UserId == user.Id).Select(item => item.Homeroom).OrderBy(item => item).ToList(),
                     SchoolLevels = schoolLevels.Where(item => item.UserId == user.Id)
-                        .Select(item => item.SchoolLevel).OrderBy(item => item).ToList()
+                        .Select(item => item.SchoolLevel).OrderBy(item => item).ToList(),
+                    GradeLevels = UserAccessService.NormalizeGradeLevels(gradeLevels.Where(item => item.UserId == user.Id)
+                        .Select(item => item.GradeLevel))
                 }).ToList()
         });
     }
@@ -61,12 +66,16 @@ public sealed class UserAccessController(
         var user = await userManager.FindByIdAsync(userId);
         if (user == null || !await userManager.IsInRoleAsync(user, "Teacher")) return NotFound();
 
+        var validationError = UserAccessService.ValidateRequestedScopes(model.Scopes)
+            ?? UserAccessService.ValidateRequestedGrades(model.GradeLevels);
+        if (validationError != null) return BadRequest(new { Message = validationError });
         var scopes = UserAccessService.NormalizeScopes(model.Scopes);
         if (scopes.Count == 0)
             return BadRequest(new { Message = "Select at least one access scope." });
 
         var homerooms = UserAccessService.NormalizeHomerooms(model.Homerooms);
         var schoolLevels = UserAccessService.NormalizeSchoolLevels(model.SchoolLevels);
+        var gradeLevels = UserAccessService.NormalizeGradeLevels(model.GradeLevels);
         if (scopes.Contains(TeacherAccessScopes.Class) && homerooms.Count == 0)
             return BadRequest(new { Message = "Select at least one class for class access." });
 
@@ -81,6 +90,11 @@ public sealed class UserAccessController(
         if (scopes.Contains(TeacherAccessScopes.SchoolLevel) && schoolLevels.Count == 0)
             return BadRequest(new { Message = "Select at least one school level for school-level access." });
 
+        if (scopes.Contains(TeacherAccessScopes.Grade) && gradeLevels.Count == 0)
+            return BadRequest(new { Message = "Select at least one grade for grade access." });
+
+        var existingGrades = await context.TeacherGradeAccesses.Where(item => item.UserId == userId).ToListAsync();
+        context.TeacherGradeAccesses.RemoveRange(existingGrades);
         var existingGrants = await context.TeacherAccessGrants.Where(item => item.UserId == userId).ToListAsync();
         var existingClasses = await context.TeacherClassAccesses.Where(item => item.UserId == userId).ToListAsync();
         var existingSchoolLevels = await context.TeacherSchoolLevelAccesses
@@ -110,6 +124,11 @@ public sealed class UserAccessController(
                     SchoolLevel = schoolLevel
                 }));
         }
+        if (scopes.Contains(TeacherAccessScopes.Grade))
+        {
+            context.TeacherGradeAccesses.AddRange(gradeLevels.Select(grade =>
+                new TeacherGradeAccess { UserId = userId, GradeLevel = grade }));
+        }
         await context.SaveChangesAsync();
 
         return Ok(new TeacherAccessUserDto
@@ -120,7 +139,8 @@ public sealed class UserAccessController(
             FullName = user.FullName,
             Scopes = scopes,
             Homerooms = scopes.Contains(TeacherAccessScopes.Class) ? homerooms : [],
-            SchoolLevels = scopes.Contains(TeacherAccessScopes.SchoolLevel) ? schoolLevels : []
+            SchoolLevels = scopes.Contains(TeacherAccessScopes.SchoolLevel) ? schoolLevels : [],
+            GradeLevels = scopes.Contains(TeacherAccessScopes.Grade) ? gradeLevels : []
         });
     }
 }

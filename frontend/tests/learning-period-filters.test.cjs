@@ -22,7 +22,7 @@ const { StaticReportsComponent } = require('../src/app/reports/static-reports.co
 const { ReportBuilderService } = require('../src/app/reports/report-builder.service.ts');
 const { WorkspaceFiltersService, defaultFilterSet } = require('../src/app/workspace/workspace-filters.service.ts');
 const { AuthenticationService } = require('../src/app/core/auth/auth.service.ts');
-const { DashboardOverviewService } = require('../src/app/dashboard/dashboard-overview.service.ts');
+const { SubjectSupportReportsService } = require('../src/app/reports/subject-support-reports.service.ts');
 const { StudentsService } = require('../src/app/students/students.service.ts');
 const { ScoreReportComponent } = require('../src/app/reports/score-report.component.ts');
 const { ScoreReportsService } = require('../src/app/reports/score-reports.service.ts');
@@ -39,6 +39,28 @@ const { SupplementalReportComponent } = require('../src/app/reports/supplemental
 const { ErpMealReportComponent } = require('../src/app/reports/erp-meal-report.component.ts');
 const { ErpMealReportsService } = require('../src/app/reports/erp-meal-reports.service.ts');
 const { BASE_PATH } = require('../src/app/api/variables.ts');
+
+test('score report school-level filters put Grade 8 in lower and Grade 9 in upper secondary', () => {
+  const injector = createEnvironmentInjector([
+    { provide: LanguageService, useValue: { t: key => key } },
+    { provide: ToastService, useValue: {} },
+    { provide: ActivatedRoute, useValue: {} },
+    { provide: Router, useValue: {} },
+    { provide: ScoreReportsService, useValue: {} },
+    { provide: ReportExcelExportService, useValue: {} },
+  ]);
+  try {
+    const component = runInInjectionContext(injector, () => new ScoreReportComponent());
+    component.options.set({ schoolLevels: ['Primary', 'LowerSecondary', 'UpperSecondary'],
+      cohorts: ['4', '5', '8', '9', '12'].map(grade => ({ grade, homeroom: `${grade}A` })) });
+    component.query.schoolLevel = 'LowerSecondary';
+    assert.deepEqual(component.gradeChoices(), ['5', '8']);
+    assert.deepEqual(component.homeroomChoices(), ['5A', '8A']);
+    component.query.schoolLevel = 'UpperSecondary';
+    assert.deepEqual(component.gradeChoices(), ['9', '12']);
+    assert.deepEqual(component.homeroomChoices(), ['9A', '12A']);
+  } finally { injector.destroy(); }
+});
 
 test('remaining report APIs preserve month/week across summaries, details, pagination and exports', () => {
   const calls = [];
@@ -305,7 +327,7 @@ test('learning diligence restores activity filters after loading its year and se
     { provide: LanguageService, useValue: { t: key => key } },
     { provide: ToastService, useValue: {} },
     { provide: AuthenticationService, useValue: { canAccess: () => true } },
-    { provide: DashboardOverviewService, useValue: {} },
+    { provide: SubjectSupportReportsService, useValue: {} },
     { provide: StudentsService, useValue: {} },
     { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({
       report: 'learning-diligence', ldMonth: '10', ldWeekStart: '2026-10-26',

@@ -1,3 +1,4 @@
+import { isAssessmentCategory, assessmentCategoryChoices } from './assessment-categories';
 import { Component, computed, inject, Input, OnChanges, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
@@ -277,10 +278,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     return this.selectedSubaccountOptions(this.query.subaccountIds).map(account => account.id);
   }
   categoryChoices(): LearningReportQuery['assessmentCategory'][] {
-    return (this.options()?.assessmentCategories ?? [])
-      .filter((category): category is LearningReportQuery['assessmentCategory'] =>
-        category === 'all' || category === 'HS1' || category === 'HS2' ||
-        category === 'HS3' || category === 'GPA');
+    return assessmentCategoryChoices(this.options()?.assessmentCategories, this.query.assessmentCategory);
   }
   selectGroups(values: Array<string | number>): void {
     this.query.assignmentGroupNames = values.map(String);
@@ -455,7 +453,7 @@ export class LearningReviewReportComponent implements OnInit, OnChanges, OnDestr
     query.assignmentGroupNames = [...new Set(params.getAll('lrGroup')
       .map(value => value.trim()).filter(value => value.length > 0 && value.length <= 255))].slice(0, 100);
     const category = params.get('lrCategory');
-    if (category === 'HS1' || category === 'HS2' || category === 'HS3' || category === 'GPA') query.assessmentCategory = category;
+    if (isAssessmentCategory(category)) query.assessmentCategory = category;
     query.month = params.has('lrMonth') ? this.numberFromUrl(params, 'lrMonth', 0, 1, 12, true) || null : null;
     query.weekStart = params.get('lrWeekStart');
     Object.assign(query, normalizeActivityPeriod(this.academicYear, query));

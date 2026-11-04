@@ -16,9 +16,12 @@ public sealed record CanvasReportCohortOption(string Grade, string Homeroom);
 /// </summary>
 public static class CanvasReportFilters
 {
-    public static readonly string[] AssessmentCategories = ["all", "HS1", "HS2", "HS3", "GPA"];
+    public static readonly string[] AssessmentCategories = ["all", "HS1", "HS1.1", "HS1.2", "HS1.3", "HS1.4", "HS2", "HS3", "GPA"];
     private static readonly Regex CoefficientGroupPattern = new(
         @"(?<![a-z0-9])(?:hs|he[\s._-]*so)[\s._-]*([123])(?=$|[.\s/_-])",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex Hs1AssessmentPattern = new(
+        @"(?<![a-z0-9])(?:hs|he[\s._-]*so)[\s._-]*1\.([0-9]+)(?=$|[^a-z0-9.])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex GpaGroupPattern = new(
         @"(?<![a-z0-9])gpa(?=$|[^a-z0-9])",
@@ -34,6 +37,10 @@ public static class CanvasReportFilters
         {
             "ALL" => "all",
             "HS1" => "HS1",
+            "HS1.1" => "HS1.1",
+            "HS1.2" => "HS1.2",
+            "HS1.3" => "HS1.3",
+            "HS1.4" => "HS1.4",
             "HS2" => "HS2",
             "HS3" => "HS3",
             "GPA" => "GPA",
@@ -44,6 +51,19 @@ public static class CanvasReportFilters
     public static string? CategoryForGroup(string? groupName)
     {
         if (string.IsNullOrWhiteSpace(groupName)) return null;
+        var label = NormalizeGroupLabel(groupName);
+        // Both midterm assignment groups use coefficient 2, regardless of semester.
+        if (label is "ghk1" or "ghk2") return "HS2";
+        var coefficients = CoefficientGroupPattern.Matches(label)
+            .Select(match => match.Groups[1].Value).Distinct().ToList();
+        var hasGpa = GpaGroupPattern.IsMatch(label);
+        if ((hasGpa && coefficients.Count > 0) || coefficients.Count > 1) return null;
+        if (hasGpa) return "GPA";
+        return coefficients.Count == 1 ? $"HS{coefficients[0]}" : null;
+    }
+
+    private static string NormalizeGroupLabel(string groupName)
+    {
         var decomposed = groupName.Trim().Normalize(NormalizationForm.FormD);
         var normalized = new StringBuilder(decomposed.Length);
         foreach (var character in decomposed)
@@ -53,19 +73,25 @@ public static class CanvasReportFilters
                 ? 'd' : char.ToLowerInvariant(character));
         }
 
-        // Canvas often names these groups by term and assessment number, e.g. HK1-HS1.1.
-        // Match coefficient tokens in the group label, but not unrelated numbers such as HS10.
-        var label = normalized.ToString();
-        // Both midterm assignment groups use coefficient 2. The trailing digit is
-        // the semester, so GHK1 must not be interpreted as coefficient 1.
-        if (label is "ghk1" or "ghk2") return "HS2";
-        var coefficients = CoefficientGroupPattern.Matches(label)
-            .Select(match => match.Groups[1].Value).Distinct().ToList();
-        var hasGpa = GpaGroupPattern.IsMatch(label);
-        if ((hasGpa && coefficients.Count > 0) || coefficients.Count > 1) return null;
-        if (hasGpa) return "GPA";
-        return coefficients.Count == 1 ? $"HS{coefficients[0]}" : null;
+        return normalized.ToString();
     }
+
+    // Retain coefficient categories in the warehouse; individual assessments are resolved
+    // from the original group labels, so existing snapshots need no rebuild or reimport.
+    public static string? AssessmentForGroup(string? groupName)
+    {
+        var category = CategoryForGroup(groupName);
+        if (category != "HS1") return category;
+        var assessments = Hs1AssessmentPattern.Matches(NormalizeGroupLabel(groupName!))
+            .Select(match => "HS1." + match.Groups[1].Value).Distinct().ToList();
+        return assessments.Count == 1 && AssessmentCategories.Contains(assessments[0]) ? assessments[0] : null;
+    }
+
+    public static bool MatchesCategory(string? groupName, string category) =>
+        category.Contains('.') ? AssessmentForGroup(groupName) == category : CategoryForGroup(groupName) == category;
+
+    public static List<string> AvailableCategoriesForGroups(IEnumerable<string?> groups) =>
+        AvailableCategories(groups.SelectMany(group => new[] { CategoryForGroup(group), AssessmentForGroup(group) }));
 
     public static List<string> AvailableCategories(IEnumerable<string?> categories)
     {

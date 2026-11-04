@@ -6,14 +6,10 @@ import { catchError, firstValueFrom, forkJoin, Observable, of } from 'rxjs';
 import { LanguageService } from '../core/language/language.service';
 import { AuthenticationService } from '../core/auth/auth.service';
 import { ToastService } from '../core/toast/toast.service';
-import {
-  DashboardOverview,
-  DashboardOverviewService,
-} from '../dashboard/dashboard-overview.service';
+import { SubjectSupportReportsService, SubjectSupportSummary, SubjectSupportStudent } from './subject-support-reports.service';
 import {
   AtRiskStudent,
   AtRiskStudentsPage,
-  StudentListItem,
   StudentsService,
 } from '../students/students.service';
 import { MetricVariable, ReportBuilderService } from './report-builder.service';
@@ -95,6 +91,10 @@ interface ClassDrilldownContext {
   homeroom: string;
   view: CohortView;
   kind: ClassDrilldownKind;
+  subjectId: number;
+  subjectName: string;
+  year: string;
+  term: string;
 }
 
 interface SupportCohortRow {
@@ -105,10 +105,12 @@ interface SupportCohortRow {
   students: number;
   atRisk: number;
   averageCanvasScorePercentage?: number | null;
+  scoredStudents: number;
+  noScoreStudents: number;
 }
 
 interface ClassDrilldownPage {
-  items: StudentListItem[];
+  items: SubjectSupportStudent[];
   page: number;
   pageSize: number;
   totalCount: number;
@@ -486,6 +488,19 @@ interface ClassDrilldownPage {
     <ng-template #supportClasses>
       <section class="overflow-hidden rounded-xl border border-[#e7e0eb] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.07)]">
         <ng-container *ngTemplateOutlet="reportHeader; context: { titleKey: 'reports.classes.title', descriptionKey: 'reports.classes.longDescription' }"></ng-container>
+        <div class="border-b border-[#eee8f1] bg-[#faf9fc] px-5 py-4 sm:px-6">
+          <label class="block max-w-sm text-xs font-semibold text-[#625969]">
+            {{ languageService.t('reports.classes.subject') }}
+            <select class="mt-2 h-11 w-full rounded-md border border-[#d8d0df] bg-white px-3 text-sm" name="supportSubject"
+              [ngModel]="selectedSupportSubjectId()" (ngModelChange)="onSupportSubjectChange($event)">
+              @for (subject of supportSummary()?.subjects ?? []; track subject.id) {
+                <option [ngValue]="subject.id">{{ subject.name }}</option>
+              }
+            </select>
+          </label>
+          <p class="mt-3 text-sm text-[#6f6877]">{{ subjectThresholdLabel() }}</p>
+          <p class="mt-1 text-xs text-[#817589]">{{ languageService.t('reports.classes.subjectScopeHint') }}</p>
+        </div>
         <div class="no-print flex flex-wrap items-center justify-between gap-3 border-b border-[#eee8f1] bg-[#fdfbfe] px-5 py-3 sm:px-6">
           <div class="flex min-w-0 flex-1 flex-wrap items-center gap-3">
             <div class="inline-flex rounded-lg border border-[#ddd3e3] bg-white p-1" role="tablist" [attr.aria-label]="languageService.t('reports.classes.viewLabel')">
@@ -546,7 +561,8 @@ interface ClassDrilldownPage {
                 <tr>
                   <th class="px-5 py-3.5 font-bold">{{ languageService.t(cohortView() === 'grade' ? 'reports.table.grade' : 'reports.table.class') }}</th>
                   <th class="px-4 py-3.5 text-right font-bold">{{ languageService.t('reports.table.students') }}</th>
-                  <th class="px-4 py-3.5 text-right font-bold">{{ languageService.t('reports.table.canvasAverage') }}</th>
+                  <th class="px-4 py-3.5 text-right font-bold">{{ languageService.t('reports.classes.noScores') }}</th>
+                  <th class="px-4 py-3.5 text-right font-bold">{{ languageService.t('reports.classes.subjectAverage') }}</th>
                   <th class="px-4 py-3.5 text-right font-bold">{{ languageService.t('reports.table.needSupport') }}</th>
                   <th class="px-4 py-3.5 text-right font-bold">{{ languageService.t('reports.table.riskRate') }}</th>
                   <th class="px-4 py-3.5 font-bold">{{ languageService.t('reports.table.status') }}</th>
@@ -572,6 +588,7 @@ interface ClassDrilldownPage {
                         (click)="openClassDrilldown(row, 'students')"
                       >{{ row.students }}</button>
                     </td>
+                    <td class="px-4 py-4 text-right text-sm text-[#625969]">{{ row.noScoreStudents }}</td>
                     <td class="px-4 py-4 text-right text-sm font-semibold text-[#32124f]">{{ formatPercent(row.averageCanvasScorePercentage ?? null) }}</td>
                     <td class="px-4 py-4 text-right text-sm font-semibold text-[#32124f]">
                       <button
@@ -721,7 +738,7 @@ interface ClassDrilldownPage {
               </p>
               <h3 class="mt-2 text-xl font-semibold text-[#32124f]">{{ classDrilldownTitle() }}</h3>
               <p class="mt-1 text-sm text-[#6f6877]">
-                {{ classDrilldownContext()?.label }} · {{ periodLabel() }}
+                {{ classDrilldownContext()?.subjectName }} · {{ classDrilldownContext()?.label }} · {{ classDrilldownPeriodLabel() }}
               </p>
             </div>
             <button
@@ -781,7 +798,7 @@ interface ClassDrilldownPage {
                         <span class="block truncate text-sm font-semibold text-[#32124f]">{{ student.fullName }}</span>
                         <span class="mt-0.5 block truncate text-xs text-[#7c7284]">{{ student.sisUserId }} · {{ student.homeroom || (languageService.t('reports.grade') + ' ' + (student.gradeLevel || '—')) }}</span>
                       </span>
-                      <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold" [ngClass]="riskBadgeClass(student.riskLevel)">{{ riskLabel(student.riskLevel) }}</span>
+                      <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold" [ngClass]="student.needsSupport ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'">{{ formatPercent(student.averageCanvasScorePercentage) }}</span>
                       <span aria-hidden="true" class="text-[#6d3a91]">→</span>
                     </a>
                   </li>
@@ -908,7 +925,7 @@ interface ClassDrilldownPage {
 })
 export class StaticReportsComponent implements OnInit, OnDestroy {
   private readonly reportBuilder = inject(ReportBuilderService);
-  private readonly overviewService = inject(DashboardOverviewService);
+  private readonly subjectSupportReports = inject(SubjectSupportReportsService);
   private readonly studentsService = inject(StudentsService);
   private readonly workspaceFilters = inject(WorkspaceFiltersService);
   private readonly route = inject(ActivatedRoute);
@@ -1023,7 +1040,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   readonly years = signal<string[]>([]);
   readonly terms = signal<string[]>([]);
   readonly metrics = signal<MetricVariable[]>([]);
-  readonly overview = signal<DashboardOverview | null>(null);
+  readonly supportSummary = signal<SubjectSupportSummary | null>(null);
+  readonly selectedSupportSubjectId = signal<number | null>(null);
   readonly supportStudents = signal<AtRiskStudent[]>([]);
   readonly loading = signal(true);
   readonly reportLoading = signal(false);
@@ -1049,7 +1067,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   readonly classDrilldownLoading = signal(false);
   readonly classDrilldownLoadFailed = signal(false);
   readonly classDrilldownContext = signal<ClassDrilldownContext | null>(null);
-  readonly classDrilldownStudents = signal<StudentListItem[]>([]);
+  readonly classDrilldownStudents = signal<SubjectSupportStudent[]>([]);
   readonly classDrilldownSearch = signal('');
   readonly classDrilldownPage = signal(1);
   readonly classDrilldownTotalCount = signal(0);
@@ -1076,7 +1094,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   }
 
   readonly classRows = computed<SupportCohortRow[]>(() => {
-    const overview = this.overview();
+    const overview = this.supportSummary();
     if (!overview) return [];
     if (this.cohortView() === 'class') {
       return (overview.classDistribution ?? []).map((row) => ({
@@ -1087,6 +1105,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         students: row.students,
         atRisk: row.atRisk,
         averageCanvasScorePercentage: row.averageCanvasScorePercentage,
+        scoredStudents: row.scoredStudents,
+        noScoreStudents: row.noScoreStudents,
       }));
     }
     return overview.gradeDistribution.map((row) => ({
@@ -1097,6 +1117,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       students: row.students,
       atRisk: row.atRisk,
       averageCanvasScorePercentage: row.averageCanvasScorePercentage,
+      scoredStudents: row.scoredStudents,
+      noScoreStudents: row.noScoreStudents,
     }));
   });
 
@@ -1263,7 +1285,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   }
 
   openClassDrilldown(row: SupportCohortRow, kind: ClassDrilldownKind): void {
-    if ((kind === 'students' ? row.students : row.atRisk) <= 0) return;
+    const summary = this.supportSummary();
+    if (!summary?.subjectId || (kind === 'students' ? row.students : row.atRisk) <= 0) return;
     if (this.classDrilldownUnmountTimer !== undefined) {
       window.clearTimeout(this.classDrilldownUnmountTimer);
       this.classDrilldownUnmountTimer = undefined;
@@ -1274,6 +1297,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       homeroom: row.homeroom,
       view: this.cohortView(),
       kind,
+      subjectId: summary.subjectId, subjectName: summary.subjectName ?? '',
+      year: summary.periodYear, term: summary.periodTerm,
     });
     this.classDrilldownSearch.set('');
     this.classDrilldownStudents.set([]);
@@ -1306,24 +1331,11 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     const requestId = ++this.classDrilldownRequestId;
     this.classDrilldownLoading.set(true);
     this.classDrilldownLoadFailed.set(false);
-    const request$: Observable<ClassDrilldownPage> = context.kind === 'support'
-      ? this.studentsService.atRisk(
-          page,
-          this.classDrilldownPageSize,
-          this.classDrilldownSearch(),
-          context.grade,
-          this.selectedYear,
-          this.selectedTerm,
-          context.homeroom,
-        )
-      : this.studentsService.list(
-          page,
-          this.classDrilldownPageSize,
-          this.classDrilldownSearch(),
-          context.grade,
-          false,
-          context.homeroom,
-        );
+    const request$: Observable<ClassDrilldownPage> = this.subjectSupportReports.students({
+      subjectId: context.subjectId, year: context.year, term: context.term,
+      grade: context.grade, homeroom: context.homeroom, supportOnly: context.kind === 'support',
+      search: this.classDrilldownSearch(), page, pageSize: this.classDrilldownPageSize,
+    });
 
     request$.subscribe({
       next: (response) => {
@@ -1358,6 +1370,11 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     }
     this.classDrilldownSearch.set('');
     this.loadClassDrilldown(1);
+  }
+
+  classDrilldownPeriodLabel(): string {
+    const context = this.classDrilldownContext();
+    return context ? `${this.formatYear(context.year)} · ${this.termLabel(context.term)}` : this.periodLabel();
   }
 
   classDrilldownTitle(): string {
@@ -1465,7 +1482,16 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     this.studentTotalPages.set(response.totalPages);
   }
 
+  onSupportSubjectChange(value: number): void {
+    this.selectedSupportSubjectId.set(value);
+    if (this.classDrilldownMounted()) this.closeClassDrilldown();
+    this.syncReportStateToQuery();
+    this.loadReportData();
+  }
+
   onPeriodChange(): void {
+    if (this.supportSummary()?.periodYear !== this.selectedYear) this.selectedSupportSubjectId.set(null);
+    if (this.classDrilldownMounted()) this.closeClassDrilldown();
     this.activityPeriod = normalizeActivityPeriod(this.selectedYear, this.activityPeriod);
     this.currentFilters = { ...this.currentFilters, year: this.selectedYear, semester: this.selectedTerm };
     this.workspaceFilters.save(this.currentFilters);
@@ -1538,8 +1564,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       metrics: needsMetrics && this.authService.canAccess('academic')
         ? this.reportBuilder.loadMetricVariables(params) : of(null as MetricVariable[] | null),
       overview: needsOverview
-        ? this.overviewService.overview(this.selectedYear || undefined, this.selectedTerm)
-        : of(null as DashboardOverview | null),
+        ? this.subjectSupportReports.summary(this.selectedYear, this.selectedTerm, this.selectedSupportSubjectId())
+        : of(null as SubjectSupportSummary | null),
       students: needsStudents && this.authService.canAccess('academic') ? this.studentsService.atRisk(
         1,
         this.studentPageSize(),
@@ -1554,7 +1580,9 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         if (requestId !== this.requestId) return;
         if (metrics) this.metrics.set(metrics);
         if (overview) {
-          this.overview.set(overview);
+          this.supportSummary.set(overview);
+          this.selectedSupportSubjectId.set(overview.subjectId);
+          this.syncReportStateToQuery();
           this.classPage.set(1);
           if (!this.years().includes(overview.periodYear)) this.years.update((years) => [overview.periodYear, ...years]);
           this.selectedYear = overview.periodYear;
@@ -1593,6 +1621,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     if (!activeReport) return;
     this.activeReport.set(activeReport);
 
+    const requestedSubject = Number(params.get('supportSubject'));
+    if (Number.isSafeInteger(requestedSubject) && requestedSubject > 0) this.selectedSupportSubjectId.set(requestedSubject);
     const requestedCohort = params.get('cohort');
     if (requestedCohort === 'grade' || requestedCohort === 'class') {
       this.cohortView.set(requestedCohort);
@@ -1629,6 +1659,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
         report: this.activeReport(),
         groups: expandedGroups.length ? expandedGroups.join(',') : 'none',
         cohort: this.cohortView(),
+        supportSubject: this.selectedSupportSubjectId(),
         library: this.reportMenuCollapsed() ? 'collapsed' : null,
         activityMonth: this.activityPeriod.month,
         activityWeekStart: this.activityPeriod.weekStart,
@@ -1705,17 +1736,24 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
     return value >= 90 ? 'green' : value >= 75 ? 'amber' : 'red';
   }
 
+  subjectThresholdLabel(): string {
+    return this.interpolate('reports.classes.subjectThreshold', {
+      threshold: this.formatPercent(this.supportSummary()?.lowScoreThreshold ?? null),
+    });
+  }
+
   classRiskRate(row: SupportCohortRow): string {
     return row.students > 0 ? this.formatPercent(row.atRisk / row.students * 100) : '—';
   }
 
-  classStatus(row: SupportCohortRow): ReportStatus {
+  classStatus(row: SupportCohortRow): ReportStatus | null {
+    if (row.scoredStudents === 0) return null;
     const rate = row.students > 0 ? row.atRisk / row.students * 100 : 0;
     return rate <= this.greenMaxRate() ? 'green' : rate <= this.amberMaxRate() ? 'amber' : 'red';
   }
 
   classFollowUpKey(row: SupportCohortRow): string {
-    return this.languageService.t(`reports.classes.followUp.${this.classStatus(row)}`);
+    return this.languageService.t(`reports.classes.followUp.${this.classStatus(row) ?? 'unavailable'}`);
   }
 
   classStatusExplanation(row: SupportCohortRow): string {
@@ -1788,6 +1826,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
   }
 
   canExportStaticReport(): boolean {
+    if (this.loading() || this.reportLoading() || this.loadFailed()) return false;
     if (this.activeReport() === 'learning-diligence') return this.learningRows().some(row => row.value !== null);
     if (this.activeReport() === 'support-classes') return this.filteredClassRows().length > 0;
     if (this.activeReport() === 'support-students') return this.studentTotalCount() > 0;
@@ -1829,6 +1868,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
           title,
           period: this.periodLabel(),
           filters: [
+            [this.languageService.t('reports.classes.subject'), this.supportSummary()?.subjectName ?? '—'],
+            [this.languageService.t('reports.classes.lowScoreThreshold'), this.formatPercent(this.supportSummary()?.lowScoreThreshold ?? null)],
             [this.languageService.t('reports.classes.viewLabel'), this.languageService.t(this.cohortView() === 'grade' ? 'reports.classes.gradeView' : 'reports.classes.classView')],
             [this.languageService.t('reports.classes.search'), this.classSearch()],
           ],
@@ -1836,7 +1877,8 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
             { header: this.languageService.t(this.cohortView() === 'grade' ? 'reports.table.grade' : 'reports.table.class'), value: row => row.label },
             { header: this.languageService.t('reports.table.grade'), value: row => row.grade },
             { header: this.languageService.t('reports.table.students'), value: row => row.students },
-            { header: this.languageService.t('reports.table.canvasAverage'), value: row => row.averageCanvasScorePercentage, format: 'percentage' },
+            { header: this.languageService.t('reports.classes.noScores'), value: row => row.noScoreStudents },
+            { header: this.languageService.t('reports.classes.subjectAverage'), value: row => row.averageCanvasScorePercentage, format: 'percentage' },
             { header: this.languageService.t('reports.table.needSupport'), value: row => row.atRisk },
             { header: this.languageService.t('reports.table.riskRate'), value: row => row.students ? row.atRisk / row.students * 100 : null, format: 'percentage' },
             { header: this.languageService.t('reports.table.status'), value: row => this.statusLabel(this.classStatus(row)) },

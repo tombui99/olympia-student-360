@@ -1,3 +1,4 @@
+import { isAssessmentCategory, assessmentCategoryChoices } from './assessment-categories';
 import { Component, computed, inject, Input, OnChanges, OnDestroy, OnInit, signal, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { activityWeeks, ActivityPeriodSelection, normalizeActivityPeriod } from './activity-period';
@@ -370,10 +371,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
   formatNumber(value: number): string { return Number.isFinite(value) ? new Intl.NumberFormat(this.language.language() === 'vi' ? 'vi-VN' : 'en-US').format(value) : '—'; }
   formatPercent(value: number | null): string { return value == null || !Number.isFinite(value) ? '—' : `${value.toFixed(1)}%`; }
   categoryChoices(): AssessmentCategory[] {
-    return (this.options()?.assessmentCategories ?? [])
-      .filter((category): category is AssessmentCategory =>
-        category === 'all' || category === 'HS1' || category === 'HS2' ||
-        category === 'HS3' || category === 'GPA');
+    return assessmentCategoryChoices(this.options()?.assessmentCategories, this.query.assessmentCategory);
   }
   gradeChoices(): string[] {
     const rows = this.options()?.cohorts ?? [];
@@ -494,7 +492,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
     return row.label;
   }
   categoryLabel(category: string | null): string {
-    return category && ['HS1', 'HS2', 'HS3', 'GPA'].includes(category)
+    return isAssessmentCategory(category)
       ? this.t('reports.leadership.category.' + category) : category || '—';
   }
   breakdownPanels(result: LeadershipReportResult): BreakdownPanel[] {
@@ -625,7 +623,7 @@ export class LeadershipReportComponent implements OnInit, OnChanges, OnDestroy {
     query.subaccountIds = [...new Set(params.getAll('leadAccount').map(Number)
       .filter(value => Number.isSafeInteger(value) && value > 0))].slice(0, 50);
     const category = params.get('leadCategory');
-    if (this.categoryChoices().includes(category as AssessmentCategory))
+    if (isAssessmentCategory(category))
       query.assessmentCategory = category as AssessmentCategory;
     const page = Number(params.get('leadPage'));
     query.page = Number.isSafeInteger(page) && page >= 1 && page <= 100000 ? page : 1;

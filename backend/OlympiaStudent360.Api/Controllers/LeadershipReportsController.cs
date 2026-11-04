@@ -33,9 +33,9 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
                 item.Student.Homeroom
             })
             .Distinct().ToListAsync(cancellationToken);
-        var categories = CanvasReportFilters.AvailableCategories(await facts
-            .Where(item => !item.IsFinalCourseScore && item.AssessmentCategory != null)
-            .Select(item => item.AssessmentCategory).Distinct().ToListAsync(cancellationToken));
+        var categories = CanvasReportFilters.AvailableCategoriesForGroups(await facts
+            .Where(item => !item.IsFinalCourseScore && item.AssignmentGroupName != null)
+            .Select(item => item.AssignmentGroupName).Distinct().ToListAsync(cancellationToken));
         var accounts = await CanvasReportFilters.VisibleSubaccounts(db, courseIds, cancellationToken);
 
         return Ok(new LeadershipReportOptions(
@@ -108,8 +108,13 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
         facts = facts.Where(item => !item.IsFinalCourseScore);
         facts = CanvasActivityPeriodFilter.Apply(facts, request.Month, request.WeekStart);
 
-        if (category != "all")
-            facts = facts.Where(item => item.AssessmentCategory == category);
+        if (category.Contains('.'))
+        {
+            var groupNames = await facts.Select(item => item.AssignmentGroupName).Distinct().ToListAsync(cancellationToken);
+            var selectedGroups = groupNames.Where(name => CanvasReportFilters.MatchesCategory(name, category)).OfType<string>().ToList();
+            facts = facts.WhereMatchesAny(item => item.AssignmentGroupName, selectedGroups);
+        }
+        else if (category != "all") facts = facts.Where(item => item.AssessmentCategory == category);
 
         // Keep the grouped result as IQueryable. Summary and breakdowns are reduced by SQL and
         // only the requested detail page crosses the database boundary.
@@ -409,7 +414,7 @@ public sealed class LeadershipReportsController(AppDbContext db, UserAccessServi
         var groupNames = group.Select(item => item.AssignmentGroupName).Distinct().ToList();
         var groupName = groupNames.Count == 1 ? groupNames[0] : null;
         var category = groupName is null ? null
-            : CanvasReportFilters.CategoryForGroup(groupName);
+            : CanvasReportFilters.AssessmentForGroup(groupName) ?? CanvasReportFilters.CategoryForGroup(groupName);
         var accountId = first.SubaccountId;
         return new LeadershipReportRow(first.StudentId, first.SisUserId, first.Name,
             first.Grade, first.Homeroom, first.CourseId,

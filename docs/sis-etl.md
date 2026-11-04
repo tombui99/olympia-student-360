@@ -167,8 +167,8 @@ historical student details are preserved.
 Campus and programme are **manual Student 360 fields**, as requested. Existing values and filters remain;
 Admin, SchoolAdministration and Principal can maintain them on a student's profile using the separate
 Student 360 details form (`PUT /api/students/{id}/local-details`). SIS never updates these two fields.
-Education level is derived from the SIS grade using Olympia's existing school-level mapping: grades
-1–4 Primary, 5–9 LowerSecondary, 10–12 UpperSecondary. Parent age-group and employment-sector export
+Education level is derived from the SIS grade using Olympia's school-level mapping: grades
+1–4 Primary, 5–8 LowerSecondary, 9–12 UpperSecondary. Parent age-group and employment-sector export
 attributes are retired from read models because the API does not supply them; birth year and occupation
 continue to sync. Parent contact notes remain local, while withdrawn source contacts are hidden.
 

@@ -3652,6 +3652,36 @@ namespace OlympiaStudent360.Api.Migrations
                     b.ToTable("TeacherClassAccesses");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherGradeAccess", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("GradeLevel")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("varchar(2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("varchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "GradeLevel")
+                        .IsUnique();
+
+                    b.ToTable("TeacherGradeAccesses");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherSchoolLevelAccess", b =>
                 {
                     b.Property<int>("Id")
@@ -4223,6 +4253,17 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherGradeAccess", b =>
+                {
+                    b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "User")
+                        .WithMany("GradeAccesses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("OlympiaStudent360.Api.Core.Entities.TeacherSchoolLevelAccess", b =>
                 {
                     b.HasOne("OlympiaStudent360.Api.Core.Entities.ApplicationUser", "User")
@@ -4250,6 +4291,8 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Navigation("AccessGrants");
 
                     b.Navigation("ClassAccesses");
+
+                    b.Navigation("GradeAccesses");
 
                     b.Navigation("SchoolLevelAccesses");
                 });

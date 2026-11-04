@@ -14,8 +14,9 @@ public static class TeacherAccessScopes
     public const string Academic = "Academic";
     public const string Class = "Class";
     public const string SchoolLevel = "SchoolLevel";
+    public const string Grade = "Grade";
 
-    public static readonly string[] Values = [All, Health, Bus, Academic, Class, SchoolLevel];
+    public static readonly string[] Values = [All, Health, Bus, Academic, Class, SchoolLevel, Grade];
 
     public static bool IsValid(string value) =>
         Values.Contains(value, StringComparer.OrdinalIgnoreCase);
@@ -38,13 +39,21 @@ public static class TeacherSchoolLevels
     public static IReadOnlyList<string> Grades(string schoolLevel) => schoolLevel switch
     {
         Primary => ["1", "2", "3", "4"],
-        LowerSecondary => ["5", "6", "7", "8", "9"],
-        UpperSecondary => ["10", "11", "12"],
+        LowerSecondary => ["5", "6", "7", "8"],
+        UpperSecondary => ["9", "10", "11", "12"],
         _ => []
     };
 
     public static bool IncludesGrade(string schoolLevel, string? grade) =>
         !string.IsNullOrWhiteSpace(grade) && Grades(schoolLevel).Contains(grade.Trim());
+}
+
+public static class TeacherGradeLevels
+{
+    public static readonly string[] Values = Enumerable.Range(1, 12)
+        .Select(grade => grade.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+
+    public static string? Canonical(string? value) => Values.FirstOrDefault(grade => grade == value?.Trim());
 }
 
 public sealed record UserAccessSnapshot(
@@ -54,12 +63,15 @@ public sealed record UserAccessSnapshot(
     IReadOnlyList<string> Homerooms,
     IReadOnlyList<string> SchoolLevels)
 {
+    public IReadOnlyList<string> GradeLevels { get; init; } = [];
+
     public bool IsTeacher => string.Equals(Role, "Teacher", StringComparison.OrdinalIgnoreCase);
     public bool HasAll => !IsTeacher || Scopes.Contains(TeacherAccessScopes.All);
     public bool CanAccessHealth => HasAll || Scopes.Contains(TeacherAccessScopes.Health);
     public bool CanAccessBus => HasAll || Scopes.Contains(TeacherAccessScopes.Bus);
     public bool CanAccessAcademic => HasAll || Scopes.Contains(TeacherAccessScopes.Academic) ||
-        Scopes.Contains(TeacherAccessScopes.Class) || Scopes.Contains(TeacherAccessScopes.SchoolLevel);
+        Scopes.Contains(TeacherAccessScopes.Class) || Scopes.Contains(TeacherAccessScopes.SchoolLevel) ||
+        Scopes.Contains(TeacherAccessScopes.Grade);
     public bool CanAccessWorkspace => CanAccessAcademic;
     public bool CanAccessAtRisk => CanAccessAcademic;
     public bool CanAccessCommendations => CanAccessAcademic;
@@ -69,20 +81,22 @@ public sealed record UserAccessSnapshot(
         Scopes.Contains(TeacherAccessScopes.Health) || Scopes.Contains(TeacherAccessScopes.Bus);
     public bool RestrictsClasses => IsTeacher && !HasAll && Scopes.Contains(TeacherAccessScopes.Class);
     public bool RestrictsStudents => IsTeacher && !HasAll &&
-        (Scopes.Contains(TeacherAccessScopes.Class) || Scopes.Contains(TeacherAccessScopes.SchoolLevel));
+        (Scopes.Count == 0 || Scopes.Contains(TeacherAccessScopes.Class) ||
+         Scopes.Contains(TeacherAccessScopes.SchoolLevel) || Scopes.Contains(TeacherAccessScopes.Grade));
     public string CacheKey => !IsTeacher
         ? $"role:{Role.ToLowerInvariant()}"
         : $"teacher:{string.Join(',', Scopes.Order())}:{string.Join(',', Homerooms.Order())}:" +
-          string.Join(',', SchoolLevels.Order());
+          string.Join(',', SchoolLevels.Order()) + $":{string.Join(',', GradeLevels.Order())}";
 
     public bool CanAccessStudent(string? homeroom, string? gradeLevel, string? canvasGradeLevel)
     {
         if (!RestrictsStudents) return true;
         if (RestrictsClasses && !string.IsNullOrWhiteSpace(homeroom) &&
             Homerooms.Contains(homeroom, StringComparer.OrdinalIgnoreCase)) return true;
-        if (!Scopes.Contains(TeacherAccessScopes.SchoolLevel)) return false;
-        var grade = !string.IsNullOrWhiteSpace(gradeLevel) ? gradeLevel : canvasGradeLevel;
-        return SchoolLevels.Any(level => TeacherSchoolLevels.IncludesGrade(level, grade));
+        var grade = (!string.IsNullOrWhiteSpace(gradeLevel) ? gradeLevel : canvasGradeLevel)?.Trim();
+        return (Scopes.Contains(TeacherAccessScopes.Grade) && GradeLevels.Contains(grade)) ||
+            (Scopes.Contains(TeacherAccessScopes.SchoolLevel) &&
+             SchoolLevels.Any(level => TeacherSchoolLevels.IncludesGrade(level, grade)));
     }
 
     public bool CanAccessModule(string moduleId) => moduleId switch
@@ -145,7 +159,6 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
         if (scopes.Count == 0) scopes.Add(TeacherAccessScopes.All);
         var canonicalScopes = scopes.Select(TeacherAccessScopes.Canonical).OfType<string>()
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (canonicalScopes.Count == 0) canonicalScopes.Add(TeacherAccessScopes.All);
 
         var homerooms = await context.TeacherClassAccesses.AsNoTracking()
             .Where(item => item.UserId == userId)
@@ -157,7 +170,14 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
             .Select(item => item.SchoolLevel)
             .OrderBy(item => item)
             .ToListAsync();
-        return new UserAccessSnapshot(userId, role, canonicalScopes, homerooms, schoolLevels);
+        var gradeLevels = await context.TeacherGradeAccesses.AsNoTracking()
+            .Where(item => item.UserId == userId)
+            .Select(item => item.GradeLevel)
+            .ToListAsync();
+        return new UserAccessSnapshot(userId, role, canonicalScopes, homerooms, schoolLevels)
+        {
+            GradeLevels = NormalizeGradeLevels(gradeLevels)
+        };
     }
 
     public IQueryable<StudentProfile> ApplyStudentScope(IQueryable<StudentProfile> query)
@@ -210,12 +230,19 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
         {
             match = HomeroomMatch(Expression.Property(student, nameof(StudentProfile.Homeroom)), access.Homerooms);
         }
-        if (access.Scopes.Contains(TeacherAccessScopes.SchoolLevel))
+        if (access.Scopes.Contains(TeacherAccessScopes.SchoolLevel) || access.Scopes.Contains(TeacherAccessScopes.Grade))
         {
             var gradeLevel = Expression.Property(student, nameof(StudentProfile.GradeLevel));
             var canvasGradeLevel = Expression.Property(student, nameof(StudentProfile.CanvasGradeLevel));
-            var effectiveGrade = Expression.Coalesce(gradeLevel, canvasGradeLevel);
-            var gradeMatch = GradeMatch(effectiveGrade, access.SchoolLevels);
+            var trim = typeof(string).GetMethod(nameof(string.Trim), Type.EmptyTypes)!;
+            var empty = Expression.Constant("", typeof(string));
+            var officialGrade = Expression.Call(Expression.Coalesce(gradeLevel, empty), trim);
+            var fallbackGrade = Expression.Call(Expression.Coalesce(canvasGradeLevel, empty), trim);
+            var effectiveGrade = Expression.Condition(Expression.NotEqual(officialGrade, empty), officialGrade, fallbackGrade);
+            var grades = (access.Scopes.Contains(TeacherAccessScopes.SchoolLevel)
+                ? access.SchoolLevels.SelectMany(TeacherSchoolLevels.Grades) : [])
+                .Concat(access.Scopes.Contains(TeacherAccessScopes.Grade) ? access.GradeLevels : []);
+            var gradeMatch = GradeMatch(effectiveGrade, grades);
             match = match == null ? gradeMatch : Expression.OrElse(match, gradeMatch);
         }
         return match ?? Expression.Constant(false);
@@ -241,11 +268,10 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
         return match ?? Expression.Constant(false);
     }
 
-    private static Expression GradeMatch(Expression effectiveGrade, IReadOnlyList<string> allowedSchoolLevels)
+    private static Expression GradeMatch(Expression effectiveGrade, IEnumerable<string> allowedGrades)
     {
         Expression? match = null;
-        var grades = allowedSchoolLevels.SelectMany(TeacherSchoolLevels.Grades)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+        var grades = allowedGrades.Distinct(StringComparer.OrdinalIgnoreCase);
         foreach (var grade in grades)
         {
             var equals = Expression.Equal(effectiveGrade, Expression.Constant(grade, typeof(string)));
@@ -270,6 +296,18 @@ public sealed class UserAccessService(AppDbContext context, IHttpContextAccessor
     public static List<string> NormalizeSchoolLevels(IEnumerable<string>? schoolLevels) =>
         (schoolLevels ?? []).Select(TeacherSchoolLevels.Canonical).OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList();
+
+    public static List<string> NormalizeGradeLevels(IEnumerable<string>? gradeLevels) =>
+        (gradeLevels ?? []).Select(TeacherGradeLevels.Canonical).OfType<string>()
+            .Distinct().OrderBy(grade => int.Parse(grade, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+
+    public static string? ValidateRequestedScopes(IEnumerable<string>? scopes) =>
+        (scopes ?? []).Any(scope => TeacherAccessScopes.Canonical(scope) == null)
+            ? "One or more selected access scopes are invalid." : null;
+
+    public static string? ValidateRequestedGrades(IEnumerable<string>? grades) =>
+        (grades ?? []).Any(grade => TeacherGradeLevels.Canonical(grade) == null)
+            ? "Grades must be between 1 and 12." : null;
 
     private sealed class ParameterReplaceVisitor(ParameterExpression source, ParameterExpression target)
         : ExpressionVisitor
@@ -311,7 +349,8 @@ public sealed class UserAccessMiddleware(RequestDelegate next)
         if (path.StartsWith("/api/transcripts") || path.StartsWith("/api/dashboard/canvas-explore"))
             return access.CanAccessAcademic && access.CanAccessWorkspace;
         if (path.StartsWith("/api/reports/health-visits")) return access.CanAccessHealth;
-        if (path.StartsWith("/api/reports/behaviours")) return access.CanAccessAcademic;
+        if (path.StartsWith("/api/reports/behaviours") || path.StartsWith("/api/reports/subject-support"))
+            return access.CanAccessAcademic;
         if (path.StartsWith("/api/reports/custom") || path.StartsWith("/api/workspace-ai-reports") ||
             path.StartsWith("/api/users/directory")) return access.CanAccessWorkspace;
         if (path.StartsWith("/api/dashboard/metrics") || path.StartsWith("/api/dashboard/metric-drilldown"))

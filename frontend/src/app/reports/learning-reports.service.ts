@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
 import { BASE_PATH } from '../api/variables';
+import { AssessmentCategory } from './assessment-categories';
 
 export type LearningReportKey =
   | 'missing-frequency' | 'homework-achievement' | 'reading-completion'
@@ -17,7 +18,7 @@ export interface LearningReportQuery {
   subaccountIds: number[];
   assignmentIds: number[];
   assignmentGroupNames: string[];
-  assessmentCategory: 'all' | 'HS1' | 'HS2' | 'HS3' | 'GPA';
+  assessmentCategory: AssessmentCategory;
   maxMissing: number;
   minScore: number;
   minCompletion: number;
@@ -39,7 +40,7 @@ export interface LearningReportOptions {
   courses: LearningCourseOption[];
   subaccounts: LearningSubaccountOption[];
   assignmentGroups: string[];
-  assessmentCategories: Array<'all' | 'HS1' | 'HS2' | 'HS3' | 'GPA'>;
+  assessmentCategories: Array<AssessmentCategory>;
 }
 export interface LearningReportRow {
   studentId: number | null;

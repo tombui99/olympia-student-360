@@ -51,7 +51,7 @@ for (const language of ['en', 'vi']) {
     const t = languageService(language).t;
     const definition = {
       fileName: 'distribution', title: t('reports.score.subjectDistribution.title'), period: '2026–2027 · Full year',
-      filters: [[t('reports.score.schoolLevel'), 'Lower Secondary (Grades 5–9)'],
+      filters: [[t('reports.score.schoolLevel'), 'Lower Secondary (Grades 5–8)'],
         [t('reports.leadership.subaccounts'), 'English/Tiếng Anh']],
       columns: [
         { header: t('reports.leadership.byCourse'), value: row => row.course },
