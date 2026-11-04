@@ -29,7 +29,7 @@ public sealed class ImportedReportAggregateWorker(
                         {
                             var build = await db.ImportedReportBuilds.AsNoTracking()
                                 .OrderByDescending(item => item.Id)
-                                .Select(item => new { item.LastChangeId, item.CompletedAtUtc })
+                                .Select(item => new { item.LastChangeId, item.CompletedAtUtc, item.SchemaVersion })
                                 .FirstOrDefaultAsync(stoppingToken);
                             var latest = await db.ImportedReportChanges.AsNoTracking()
                                 .OrderByDescending(item => item.Id)
@@ -41,12 +41,12 @@ public sealed class ImportedReportAggregateWorker(
                             // Continuous imports may never have a 30-second quiet period. Keep
                             // reports boundedly fresh; a later pass catches writes made mid-build.
                             var maxWaitReached = build is not null && build.CompletedAtUtc <= now.AddMinutes(-5);
-                            if (build is null || changed && (quiet || maxWaitReached) ||
+                            if (build is null || build.SchemaVersion < ReportRefreshPlan.SchemaVersion || changed && (quiet || maxWaitReached) ||
                                 build.CompletedAtUtc.Date < now.Date)
                             {
                                 var count = await scope.ServiceProvider
                                     .GetRequiredService<ImportedReportAggregateService>()
-                                    .RebuildAsync(stoppingToken);
+                                    .RefreshIfNeededAsync(stoppingToken);
                                 logger.LogInformation("Rebuilt {Count} imported report aggregate rows", count);
                             }
                         }

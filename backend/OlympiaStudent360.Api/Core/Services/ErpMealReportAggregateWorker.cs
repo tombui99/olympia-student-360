@@ -34,13 +34,13 @@ public sealed class ErpMealReportAggregateWorker(
                             var detailMissing = build is not null &&
                                 await db.ErpMealDailyAggregates.AsNoTracking().AnyAsync(stoppingToken) &&
                                 !await db.ErpMealReportDetails.AsNoTracking().AnyAsync(stoppingToken);
-                            if (build is null || lastRun > build.LastSyncRunId ||
+                            if (build is null || build.SchemaVersion < ReportRefreshPlan.SchemaVersion || lastRun > build.LastSyncRunId ||
                                 lastStudentChange > build.LastStudentChangeId ||
-                                build.CompletedAtUtc.Date < DateTime.UtcNow.Date || detailMissing)
+                                detailMissing)
                             {
                                 var count = await scope.ServiceProvider
                                     .GetRequiredService<ErpMealReportAggregateService>()
-                                    .RebuildAsync(stoppingToken);
+                                    .RefreshIfNeededAsync(stoppingToken);
                                 logger.LogInformation("Rebuilt {Count} ERP meal daily aggregates", count);
                             }
                         }

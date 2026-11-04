@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
+using OlympiaStudent360.Api.Core.Services;
 
 namespace OlympiaStudent360.Api.Data;
 
@@ -15,16 +16,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
-        if (ChangeTracker.Entries().Any(entry =>
-            (entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted) &&
-            entry.Entity is StudentProfile or StudentBehaviour or StudentProject or StudentMentalHealthRecord
-                or StudentHealthVisit or StudentBusAttendanceRecord or StudentRecordFieldOption
-                or StudentClassificationSetting or AcademicPeriod or CanvasDashboardAggregateBuild))
-        {
-            ImportedReportChanges.Add(new ImportedReportChange());
-        }
+        ReportChangeTracking.Queue(this);
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
+
+    // SIS batches capture invalidations before accepting bulk-updated entities and persist
+    // the queue with one parameterized insert in the same page transaction.
+    internal Task<int> SaveQueuedSourceChangesAsync(CancellationToken ct) => base.SaveChangesAsync(true, ct);
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
     public DbSet<SisWarehouseRecord> SisWarehouseRecords { get; set; }
@@ -85,6 +83,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     {
         base.OnModelCreating(modelBuilder);
         SisModelConfiguration.Configure(modelBuilder);
+        modelBuilder.Entity<ImportedReportChange>().Property(x => x.Areas).HasDefaultValue(ReportArea.All);
 
         modelBuilder.Entity<StudentTranscriptRecord>(record =>
         {

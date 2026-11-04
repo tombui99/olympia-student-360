@@ -12,10 +12,16 @@ namespace OlympiaStudent360.Api.Core.Services;
 /// </summary>
 public sealed class ImportedReportAggregateService(AppDbContext db, CanvasReportingPeriodService canvasPeriods)
 {
-    public async Task<int> RebuildAsync(CancellationToken cancellationToken = default)
+    public Task<int> RebuildAsync(CancellationToken cancellationToken = default) => BuildAsync(true, cancellationToken);
+    public Task<int> RefreshIfNeededAsync(CancellationToken cancellationToken = default) => BuildAsync(false, cancellationToken);
+
+    private async Task<int> BuildAsync(bool force, CancellationToken cancellationToken)
     {
-        var latestChange = await db.ImportedReportChanges.AsNoTracking()
-            .MaxAsync(item => (int?)item.Id, cancellationToken) ?? 0;
+        var previous = await db.ImportedReportBuilds.AsNoTracking().OrderByDescending(x => x.Id).FirstOrDefaultAsync(cancellationToken);
+        var plan = await ReportRefreshPlan.LoadAsync(db, previous?.LastChangeId ?? 0,
+            force || previous is null || previous.SchemaVersion < ReportRefreshPlan.SchemaVersion,
+            previous is not null && previous.CompletedAtUtc.Date < DateTime.UtcNow.Date, cancellationToken);
+        if (!plan.Has(ReportArea.Imported | ReportArea.Risk) && previous?.LastChangeId == plan.LastChangeId) return 0;
         var rows = new Dictionary<AggregateKey, ImportedReportAggregate>();
         var settingsRow = await db.StudentClassificationSettings.AsNoTracking()
             .OrderBy(item => item.Id).FirstOrDefaultAsync(cancellationToken);
@@ -38,105 +44,132 @@ public sealed class ImportedReportAggregateService(AppDbContext db, CanvasReport
         var riskBus = new Dictionary<int, int>();
         var commendationBus = new Dictionary<int, int>();
 
-        await foreach (var item in db.StudentBehaviours.AsNoTracking()
-            .Include(item => item.Student).Include(item => item.ImportHistory)
-            .AsAsyncEnumerable().WithCancellation(cancellationToken))
-        {
-            var type = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType).Trim();
-            var category = StudentClassificationService.BehaviourCategory(item.BehaviourType, item.ClassificationCategory);
-            if (item.StudentProfileId is int behaviourStudentId)
+        var behaviourRows = plan.Filter(db.StudentBehaviours.AsNoTracking(),
+            ReportArea.Behaviours | ReportArea.Risk, x => x.StudentProfileId);
+        if (plan.Has(ReportArea.Behaviours | ReportArea.Risk))
+            await foreach (var item in behaviourRows
+                .Include(item => item.Student).Include(item => item.ImportHistory)
+                .AsAsyncEnumerable().WithCancellation(cancellationToken))
             {
-                if (category == "Concerning" && item.IncidentDate >= riskSince)
-                    Increment(riskConcerns, behaviourStudentId);
-                if (category == "Positive" && item.IncidentDate >= commendationSince)
-                    Increment(positiveRecent, behaviourStudentId);
+                var type = StudentClassificationService.CanonicalBehaviourTypeOrOriginal(item.BehaviourType).Trim();
+                var category = StudentClassificationService.BehaviourCategory(item.BehaviourType, item.ClassificationCategory);
+                if (item.StudentProfileId is int behaviourStudentId)
+                {
+                    if (category == "Concerning" && item.IncidentDate >= riskSince)
+                        Increment(riskConcerns, behaviourStudentId);
+                    if (category == "Positive" && item.IncidentDate >= commendationSince)
+                        Increment(positiveRecent, behaviourStudentId);
+                }
+                if (plan.Includes(ReportArea.Behaviours, item.StudentProfileId))
+                    Add(rows, Base("student-behaviours", item.Student, item.IncidentDate,
+                        item.AcademicYear, item.Term, item.Program, item.Subject, item.MeasurementCycle,
+                        item.SourceStudentName) with
+                    {
+                        Type = type,
+                        Category = category,
+                        EnteredBy = Clean(item.ReporterName) ?? Clean(item.RecordedByEmail) ?? Clean(item.ImportHistory?.ImportedByName),
+                        AttentionCount = category == "Concerning" ? 1 : 0,
+                        Recent30Count = item.IncidentDate >= asOf.AddDays(-30) ? 1 : 0
+                    });
             }
-            Add(rows, Base("student-behaviours", item.Student, item.IncidentDate,
-                item.AcademicYear, item.Term, item.Program, item.Subject, item.MeasurementCycle,
-                item.SourceStudentName) with
-            {
-                Type = type,
-                Category = category,
-                EnteredBy = Clean(item.ReporterName) ?? Clean(item.RecordedByEmail) ?? Clean(item.ImportHistory?.ImportedByName),
-                AttentionCount = category == "Concerning" ? 1 : 0,
-                Recent30Count = item.IncidentDate >= asOf.AddDays(-30) ? 1 : 0
-            });
-        }
 
-        await foreach (var item in db.StudentProjects.AsNoTracking()
-            .Include(item => item.Student).Include(item => item.ImportHistory)
-            .AsAsyncEnumerable().WithCancellation(cancellationToken))
+        if (plan.Has(ReportArea.Projects))
+            await foreach (var item in plan.Filter(db.StudentProjects.AsNoTracking(), ReportArea.Projects, x => (int?)x.StudentProfileId)
+                .Include(item => item.Student).Include(item => item.ImportHistory)
+                .AsAsyncEnumerable().WithCancellation(cancellationToken))
+            {
+                var active = !StudentDataEntryOptions.IsCompletedProjectStatus(item.Status);
+                Add(rows, Base("student-projects", item.Student, item.ActivityDate ?? item.CreatedAt,
+                    item.AcademicYear, item.Term, item.Program, item.Subject, item.MeasurementCycle) with
+                {
+                    Status = Clean(item.Status),
+                    EnteredBy = Clean(item.ImportHistory?.ImportedByName),
+                    AttentionCount = active ? 1 : 0
+                });
+            }
+
+        if (plan.Has(ReportArea.MentalHealth))
+            await foreach (var item in plan.Filter(db.StudentMentalHealthRecords.AsNoTracking(), ReportArea.MentalHealth, x => (int?)x.StudentProfileId)
+                .Include(item => item.Student).Include(item => item.ImportHistory)
+                .AsAsyncEnumerable().WithCancellation(cancellationToken))
+            {
+                Add(rows, Base("student-mental-health", item.Student, item.RecordDate,
+                    item.AcademicYear, null, null, null, null) with
+                {
+                    Type = Clean(item.ConcernType),
+                    Status = Clean(item.RiskLevel),
+                    EnteredBy = Clean(item.ImportHistory?.ImportedByName) ?? Clean(item.RecordedByName),
+                    AttentionCount = item.RiskLevel is "High" or "Medium" ? 1 : 0
+                });
+            }
+
+        var busRows = plan.Filter(db.StudentBusAttendanceRecords.AsNoTracking(),
+            ReportArea.Bus | ReportArea.Risk, x => (int?)x.StudentProfileId);
+        if (plan.Has(ReportArea.Bus | ReportArea.Risk))
+            await foreach (var item in busRows
+                .Include(item => item.Student).Include(item => item.ImportHistory)
+                .AsAsyncEnumerable().WithCancellation(cancellationToken))
+            {
+                if (item.AttendanceDate >= riskSince) Increment(riskBus, item.StudentProfileId);
+                if (item.AttendanceDate >= commendationSince) Increment(commendationBus, item.StudentProfileId);
+                if (plan.Includes(ReportArea.Bus, item.StudentProfileId))
+                    Add(rows, Base("student-bus-attendance", item.Student, item.AttendanceDate,
+                        item.AcademicYear, item.Term, null, null, null) with
+                    {
+                        Type = Clean(item.ViolationType),
+                        Status = Clean(item.TripDirection),
+                        EnteredBy = Clean(item.ImportHistory?.ImportedByName) ?? Clean(item.RecordedByName),
+                        AttentionCount = 1
+                    });
+            }
+
+        if (plan.Has(ReportArea.Health))
+            await foreach (var item in plan.Filter(db.StudentHealthVisits.AsNoTracking(), ReportArea.Health, x => x.StudentProfileId)
+                .Include(item => item.Student).Include(item => item.ImportHistory)
+                .AsAsyncEnumerable().WithCancellation(cancellationToken))
+            {
+                var row = Base("student-health-visits", item.Student, item.ExamTime,
+                    null, null, null, null, null, item.FullName);
+                row.SISUserId = Clean(item.Student?.SISUserId) ?? Clean(item.SISUserId);
+                row.Homeroom = Clean(item.Student?.Homeroom) ?? Clean(item.ClassName);
+                row.ClassName = Clean(item.ClassName);
+                row.StudentKey = item.StudentProfileId.HasValue
+                    ? $"profile:{item.StudentProfileId.Value}"
+                    : row.SISUserId is not null
+                        ? $"sis:{row.SISUserId.ToUpperInvariant()}"
+                        : $"name:{row.StudentName.ToUpperInvariant()}:{row.Homeroom?.ToUpperInvariant()}";
+                Add(rows, row with
+                {
+                    Diagnosis = Clean(item.Diagnosis) ?? Clean(item.Classification) ?? Clean(item.Symptoms) ?? "—",
+                    Symptoms = Clean(item.Symptoms),
+                    Category = Clean(item.Classification),
+                    EnteredBy = Clean(item.ImportHistory?.ImportedByName) ?? Clean(item.ExaminedBy)
+                        ?? (item.SisVisitId is not null ? "SchoolOnline SIS" : null)
+                });
+            }
+
+        var riskSnapshots = new List<StudentRiskSnapshot>();
+        if (plan.Has(ReportArea.Risk))
         {
-            var active = !StudentDataEntryOptions.IsCompletedProjectStatus(item.Status);
-            Add(rows, Base("student-projects", item.Student, item.ActivityDate ?? item.CreatedAt,
-                item.AcademicYear, item.Term, item.Program, item.Subject, item.MeasurementCycle) with
-            {
-                Status = Clean(item.Status),
-                EnteredBy = Clean(item.ImportHistory?.ImportedByName),
-                AttentionCount = active ? 1 : 0
-            });
+            var existing = await plan.Filter(db.ImportedReportAggregates.AsNoTracking(), ReportArea.Risk, x => x.StudentProfileId)
+                .Where(x => x.Source == "student-behaviours" || x.Source == "student-projects" || x.Source == "student-mental-health")
+                .ToListAsync(cancellationToken);
+            var riskRows = existing.Where(x => !ReportRefreshPlan.Sources.Any(source => source.Source == x.Source &&
+                plan.Includes(source.Area, x.StudentProfileId))).Concat(rows.Values).ToList();
+            riskSnapshots = await BuildRiskSnapshots(riskRows, settings, asOf,
+                riskConcerns, positiveRecent, riskBus, commendationBus, plan, cancellationToken);
         }
-
-        await foreach (var item in db.StudentMentalHealthRecords.AsNoTracking()
-            .Include(item => item.Student).Include(item => item.ImportHistory)
-            .AsAsyncEnumerable().WithCancellation(cancellationToken))
-        {
-            Add(rows, Base("student-mental-health", item.Student, item.RecordDate,
-                item.AcademicYear, null, null, null, null) with
-            {
-                Type = Clean(item.ConcernType),
-                Status = Clean(item.RiskLevel),
-                EnteredBy = Clean(item.ImportHistory?.ImportedByName) ?? Clean(item.RecordedByName),
-                AttentionCount = item.RiskLevel is "High" or "Medium" ? 1 : 0
-            });
-        }
-
-        await foreach (var item in db.StudentBusAttendanceRecords.AsNoTracking()
-            .Include(item => item.Student).Include(item => item.ImportHistory)
-            .AsAsyncEnumerable().WithCancellation(cancellationToken))
-        {
-            if (item.AttendanceDate >= riskSince) Increment(riskBus, item.StudentProfileId);
-            if (item.AttendanceDate >= commendationSince) Increment(commendationBus, item.StudentProfileId);
-            Add(rows, Base("student-bus-attendance", item.Student, item.AttendanceDate,
-                item.AcademicYear, item.Term, null, null, null) with
-            {
-                Type = Clean(item.ViolationType),
-                Status = Clean(item.TripDirection),
-                EnteredBy = Clean(item.ImportHistory?.ImportedByName) ?? Clean(item.RecordedByName),
-                AttentionCount = 1
-            });
-        }
-
-        await foreach (var item in db.StudentHealthVisits.AsNoTracking()
-            .Include(item => item.Student).Include(item => item.ImportHistory)
-            .AsAsyncEnumerable().WithCancellation(cancellationToken))
-        {
-            var row = Base("student-health-visits", item.Student, item.ExamTime,
-                null, null, null, null, null, item.FullName);
-            row.SISUserId = Clean(item.Student?.SISUserId) ?? Clean(item.SISUserId);
-            row.Homeroom = Clean(item.Student?.Homeroom) ?? Clean(item.ClassName);
-            row.ClassName = Clean(item.ClassName);
-            row.StudentKey = item.StudentProfileId.HasValue
-                ? $"profile:{item.StudentProfileId.Value}"
-                : row.SISUserId is not null
-                    ? $"sis:{row.SISUserId.ToUpperInvariant()}"
-                    : $"name:{row.StudentName.ToUpperInvariant()}:{row.Homeroom?.ToUpperInvariant()}";
-            Add(rows, row with
-            {
-                Diagnosis = Clean(item.Diagnosis) ?? Clean(item.Classification) ?? Clean(item.Symptoms) ?? "—",
-                Symptoms = Clean(item.Symptoms),
-                Category = Clean(item.Classification),
-                EnteredBy = Clean(item.ImportHistory?.ImportedByName) ?? Clean(item.ExaminedBy)
-                    ?? (item.SisVisitId is not null ? "SchoolOnline SIS" : null)
-            });
-        }
-
-        var riskSnapshots = await BuildRiskSnapshots(rows.Values.ToList(), settings, asOf,
-            riskConcerns, positiveRecent, riskBus, commendationBus, cancellationToken);
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await db.ImportedReportAggregates.ExecuteDeleteAsync(cancellationToken);
-        await db.StudentRiskSnapshots.ExecuteDeleteAsync(cancellationToken);
+        if (plan.GloballyIncludes(ReportArea.Imported))
+            await db.ImportedReportAggregates.ExecuteDeleteAsync(cancellationToken);
+        else
+            foreach (var (area, source) in ReportRefreshPlan.Sources)
+                if (plan.Has(area))
+                    await plan.Filter(db.ImportedReportAggregates.Where(x => x.Source == source), area, x => x.StudentProfileId)
+                        .ExecuteDeleteAsync(cancellationToken);
+        if (plan.Has(ReportArea.Risk))
+            await plan.Filter(db.StudentRiskSnapshots, ReportArea.Risk, x => (int?)x.StudentProfileId).ExecuteDeleteAsync(cancellationToken);
         foreach (var batch in rows.Values.Chunk(1000))
         {
             await MySqlRowBatchWriter.InsertAsync(db, batch, cancellationToken);
@@ -148,14 +181,12 @@ public sealed class ImportedReportAggregateService(AppDbContext db, CanvasReport
         await db.ImportedReportBuilds.ExecuteDeleteAsync(cancellationToken);
         db.ImportedReportBuilds.Add(new ImportedReportBuild
         {
-            LastChangeId = latestChange,
+            SchemaVersion = ReportRefreshPlan.SchemaVersion,
+            LastChangeId = plan.LastChangeId,
             CompletedAtUtc = DateTime.UtcNow
         });
         await db.SaveChangesAsync(cancellationToken);
-        // Retain the highest marker so an empty-table AUTO_INCREMENT reset cannot make a
-        // later source change appear older than LastChangeId after a database restart.
-        await db.ImportedReportChanges.Where(item => item.Id < latestChange)
-            .ExecuteDeleteAsync(cancellationToken);
+        await ReportRefreshPlan.PruneAsync(db, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return rows.Count;
     }
@@ -163,10 +194,10 @@ public sealed class ImportedReportAggregateService(AppDbContext db, CanvasReport
     private async Task<List<StudentRiskSnapshot>> BuildRiskSnapshots(
         List<ImportedReportAggregate> aggregates, StudentClassificationSettingsDto settings,
         DateTime asOf, Dictionary<int, int> riskConcerns, Dictionary<int, int> positiveRecent,
-        Dictionary<int, int> riskBus, Dictionary<int, int> commendationBus,
+        Dictionary<int, int> riskBus, Dictionary<int, int> commendationBus, ReportRefreshPlan plan,
         CancellationToken cancellationToken)
     {
-        var students = await db.StudentProfiles.AsNoTracking().Select(item => item.Id)
+        var students = await plan.Filter(db.StudentProfiles.AsNoTracking(), ReportArea.Risk, x => (int?)x.Id).Select(item => item.Id)
             .ToListAsync(cancellationToken);
         var countsByStudent = aggregates.Where(item => item.StudentProfileId.HasValue)
             .GroupBy(item => item.StudentProfileId!.Value)
@@ -203,6 +234,7 @@ public sealed class ImportedReportAggregateService(AppDbContext db, CanvasReport
             var scoreQuery = CanvasReportingPeriodService.FilterUsableScores(
                 CanvasReportingPeriodService.FilterScores(
                     db.CanvasCourseScores.AsNoTracking().Where(item => item.StudentProfileId != null), period));
+            scoreQuery = plan.Filter(scoreQuery, ReportArea.Risk, x => x.StudentProfileId);
             var scores = await scoreQuery.GroupBy(item => item.StudentProfileId!.Value)
                 .Select(group => new { StudentId = group.Key,
                     Average = group.Average(item => (decimal)item.FinalScore!.Value) })

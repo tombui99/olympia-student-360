@@ -1755,6 +1755,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<int>("LastSyncRunId")
                         .HasColumnType("int");
 
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -2251,6 +2254,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<int>("LastChangeId")
                         .HasColumnType("int");
 
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -2265,8 +2271,16 @@ namespace OlympiaStudent360.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    b.Property<int>("Areas")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(127);
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("StudentProfileId")
+                        .HasColumnType("int");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");

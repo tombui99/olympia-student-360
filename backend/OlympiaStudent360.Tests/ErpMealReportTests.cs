@@ -116,7 +116,11 @@ public sealed partial class MySqlResilienceTests
     {
         await using var test = await TestDatabase.CreateAsync(targetMigration: "20261028030256_AddLeadershipActivityReportingDate");
         await using var db = test.Open();
-        db.ErpMealReportBuilds.Add(new() { CompletedAtUtc = DateTime.UtcNow });
+        // Seed the historical schema without columns introduced by later migrations.
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO ErpMealReportBuilds (LastSyncRunId, LastStudentChangeId, CompletedAtUtc, CreatedAt, UpdatedAt)
+            VALUES (0, 0, UTC_TIMESTAMP(), UTC_TIMESTAMP(), UTC_TIMESTAMP())
+            """);
         db.ErpCanteenPurchases.Add(new()
         {
             ErpStudentId = "unmatched", PurchaseDate = new DateTime(2026, 10, 1), Quantity = 3,

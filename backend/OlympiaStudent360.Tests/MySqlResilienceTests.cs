@@ -619,11 +619,12 @@ public sealed partial class MySqlResilienceTests
         var studentId = await db.StudentProfiles.Where(x => x.SISUserId == "ghk-test").Select(x => x.Id).SingleAsync();
         var course = new CanvasCourse { CanvasCourseId = 100, Name = "Report course" };
         db.CanvasCourses.Add(course);
-        db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
-        {
-            SchemaVersion = 5, LastCompletedSyncRunId = 24,
-            CompletedAtUtc = new DateTime(2026, 10, 20), PeriodConfigurationHash = "existing-snapshot"
-        });
+        // A historical publication must not invoke the current scoped invalidation schema.
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO CanvasDashboardAggregateBuilds
+                (SchemaVersion, LastCompletedSyncRunId, CompletedAtUtc, PeriodConfigurationHash, CreatedAt, UpdatedAt)
+            VALUES (5, 24, '2026-10-20', 'existing-snapshot', UTC_TIMESTAMP(), UTC_TIMESTAMP())
+            """);
         await db.SaveChangesAsync();
         // Seed the pre-activity-date schema without using the current entity's new column.
         foreach (var group in new[] { "GHK1", "GHK2", " ghk1 ", "GHK10", "HS1" })

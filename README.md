@@ -529,6 +529,10 @@ Excel/manual visits and legacy SIS dashboard observations are archived outside l
 SIS jobs batch database writes and coordinate with report publishers; after ingestion, the runner
 refreshes dependent report views. Use workflow mode `reports-only` to recover a failed report refresh
 without replaying committed SIS data.
+Health changes refresh health reports only; student dimension changes refresh the affected students'
+summaries. Parent contacts and import timestamps do not invalidate reports. Shared change markers
+remain until both report consumers acknowledge them. The dashboard shows separate SIS and Canvas
+sync badges using the latest successful run completions in UTC, displayed in Vietnam time.
 
 Academic score ownership is separate from the roster: grades 1–4 use SIS and grades 5–12 use Canvas.
 The current score pipeline is Canvas-based; primary-school SIS scores are not integrated yet. The

@@ -37,6 +37,7 @@ export interface DashboardOverview {
   periodYear: string;
   periodTerm: string;
   lastSuccessfulCanvasSyncAtUtc?: string | null;
+  lastSuccessfulSisSyncAtUtc?: string | null;
   includedGradeLevels?: string[];
   totalStudents: number;
   atRiskTotal: number;

@@ -906,6 +906,8 @@
   "dashboard.gradeScope.list": "Grades {grades}",
   "dashboard.canvasSync.label": "Last successful Canvas sync:",
   "dashboard.canvasSync.none": "No successful sync recorded",
+  "dashboard.sisSync.label": "Last successful SIS sync:",
+  "dashboard.sisSync.none": "No successful sync recorded",
   "dashboard.cards.atRisk": "At-risk students",
   "dashboard.cards.atRiskSub": "{high} high · {medium} medium",
   "dashboard.cards.behaviours": "Behaviour records",

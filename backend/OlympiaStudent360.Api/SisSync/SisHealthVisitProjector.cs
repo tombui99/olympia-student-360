@@ -2,12 +2,13 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Data;
+using OlympiaStudent360.Api.Core.Services;
 
 namespace OlympiaStudent360.Api.SisSync;
 
 /// <summary>Projects source visits into the existing health page/report table, with stable source keys.</summary>
 public sealed class SisHealthVisitProjector(AppDbContext db, List<StudentProfile>? students = null,
-    List<StudentHealthVisit>? visits = null, ISet<StudentHealthVisit>? changed = null)
+    List<StudentHealthVisit>? visits = null, ISet<StudentHealthVisit>? changed = null, Action? reportChanged = null)
 {
     public async Task ProjectAsync(string sourceKey, JsonElement source, CancellationToken ct)
     {
@@ -15,10 +16,15 @@ public sealed class SisHealthVisitProjector(AppDbContext db, List<StudentProfile
         var visit = visits is null ? await db.StudentHealthVisits.IgnoreQueryFilters()
             .SingleOrDefaultAsync(x => x.SisSourceKey == sourceKey && x.SisVisitId == visitId, ct)
             : visits.SingleOrDefault(x => x.SisVisitId == visitId);
+        var previous = visit is null ? null : ReportChangeTracking.HealthValues(visit);
         var deleted = SisJson.RequiredBool(source, "is_deleted");
         if (deleted)
         {
-            if (visit is not null) { visit.SisIsDeleted = true; visit.UpdatedAt = DateTime.UtcNow; changed?.Add(visit); }
+            if (visit is not null)
+            {
+                visit.SisIsDeleted = true; visit.UpdatedAt = DateTime.UtcNow; changed?.Add(visit);
+                if (!Equals(previous, ReportChangeTracking.HealthValues(visit))) reportChanged?.Invoke();
+            }
             return;
         }
         if (!SisApiClient.TryTimestamp(SisJson.Text(source, "visited_at", 50), out var visitedAt))
@@ -69,6 +75,7 @@ public sealed class SisHealthVisitProjector(AppDbContext db, List<StudentProfile
         visit.ExaminedBy = null; // Not supplied by the SIS visit contract.
         visit.UpdatedAt = DateTime.UtcNow;
         changed?.Add(visit);
+        if (!Equals(previous, ReportChangeTracking.HealthValues(visit))) reportChanged?.Invoke();
     }
 
     private sealed record SourceValues(DateTime ExamTime, string? Symptoms, string? Diagnosis,

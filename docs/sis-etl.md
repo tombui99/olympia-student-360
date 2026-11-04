@@ -193,6 +193,29 @@ manual campus/programme, parent notes and Canvas-owned fields. New profiles and 
 relationship fix-up to allocate linked IDs. Report publication also uses batches inside its existing
 atomic replacement transaction, reducing database round trips over remote RDS.
 
+Report invalidation records now identify the affected areas and, for student dimension changes,
+the affected student. The CLI and background publishers share these rules:
+
+| Change | Refresh |
+| --- | --- |
+| Reported visit date, diagnosis, symptoms, source deletion, student link or other health-report inputs | Health report facts only |
+| Student name, username, grade, homeroom, campus, education level or programme | Imported summaries for that student; meal summaries only when name/grade/class changes |
+| New or deleted student | Dependent summaries and risk snapshot |
+| Parent contacts/notes, student contact details, SIS status flags or import timestamps | No aggregation; pages and roster queries read these fields directly |
+| Canvas report publication | Risk snapshots only; Canvas academic facts retain their separate incremental pipeline |
+| Behaviour, project, counselling or bus records | Their own report source and risk snapshots |
+
+Unchanged SIS replays queue no report work. Invalidation rows are inserted in batches within the
+source transaction. Each report consumer advances its own cursor, and queue rows are retained until
+both imported and meal consumers have acknowledged them. Health-only changes can advance the meal
+cursor without scanning/replacing meal facts. Date rollover refreshes behaviour rolling-window counts
+and risk calculations; it does not force health or meal rebuilds.
+
+`ScopeReportInvalidation` adds scope/student metadata and report build versions. It adopts existing
+valid snapshots without changing their report rows. Legacy pending markers keep a conservative full
+scope. Schema changes support interrupted-DDL recovery; selective fact replacement and its cursor
+commit atomically, preserving the preceding snapshot if publication fails.
+
 Each scan starts from its last successful server watermark. Page upserts and student/parent updates
 commit together; the watermark only commits after all pages and reconciliation succeed. A failure
 replays from the previous watermark. Previously completed endpoint/filter scans may advance even

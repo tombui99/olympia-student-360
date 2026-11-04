@@ -326,7 +326,8 @@ public sealed class SisSyncRunner
         row.UpdatedAt = DateTime.UtcNow;
         if (project && endpoint == "students") await new SisStudentProjector(db, batch.Students, batch.Parents).ProjectAsync(record, ct);
         if (endpoint == "health/visits")
-            await new SisHealthVisitProjector(db, batch.Students, batch.Visits, batch.ChangedVisits).ProjectAsync(source, record, ct);
+            await new SisHealthVisitProjector(db, batch.Students, batch.Visits, batch.ChangedVisits,
+                () => batch.HealthReportsChanged = true).ProjectAsync(source, record, ct);
     }
 
     internal static string RecordKey(string endpoint, JsonElement record) => endpoint == "attendances"

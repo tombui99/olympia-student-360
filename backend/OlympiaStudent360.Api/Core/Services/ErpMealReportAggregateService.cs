@@ -11,13 +11,28 @@ public sealed class ErpMealReportAggregateService(AppDbContext db)
         string? CanvasGrade, string? Homeroom);
     private sealed record AggregateKey(string StudentKey, DateTime Day, string Meal);
 
-    public async Task<int> RebuildAsync(CancellationToken cancellationToken = default)
+    public Task<int> RebuildAsync(CancellationToken cancellationToken = default) => BuildAsync(true, cancellationToken);
+    public Task<int> RefreshIfNeededAsync(CancellationToken cancellationToken = default) => BuildAsync(false, cancellationToken);
+
+    private async Task<int> BuildAsync(bool force, CancellationToken cancellationToken)
     {
         var lastRunId = await db.ErpMealSyncRuns.AsNoTracking()
             .MaxAsync(x => (int?)x.Id, cancellationToken) ?? 0;
-        var lastStudentChangeId = await db.ImportedReportChanges.AsNoTracking()
-            .MaxAsync(x => (int?)x.Id, cancellationToken) ?? 0;
-        var students = await db.StudentProfiles.AsNoTracking()
+        var previous = await db.ErpMealReportBuilds.AsNoTracking().OrderByDescending(x => x.Id).FirstOrDefaultAsync(cancellationToken);
+        var detailMissing = previous is not null && await db.ErpMealDailyAggregates.AsNoTracking().AnyAsync(cancellationToken) &&
+            !await db.ErpMealReportDetails.AsNoTracking().AnyAsync(cancellationToken);
+        var plan = await ReportRefreshPlan.LoadAsync(db, previous?.LastStudentChangeId ?? 0,
+            force || detailMissing || previous is null || previous.SchemaVersion < ReportRefreshPlan.SchemaVersion || lastRunId > previous.LastSyncRunId,
+            false, cancellationToken);
+        if (!plan.Has(ReportArea.Meals))
+        {
+            if (previous is not null && previous.LastStudentChangeId < plan.LastChangeId)
+                await db.ErpMealReportBuilds.Where(x => x.Id == previous.Id)
+                    .ExecuteUpdateAsync(update => update.SetProperty(x => x.LastStudentChangeId, plan.LastChangeId), cancellationToken);
+            await ReportRefreshPlan.PruneAsync(db, cancellationToken);
+            return 0;
+        }
+        var students = await plan.Filter(db.StudentProfiles.AsNoTracking(), ReportArea.Meals, x => (int?)x.Id)
             .Select(x => new StudentInfo(x.Id, x.FullName, x.GradeLevel,
                 x.CanvasGradeLevel, x.Homeroom))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
@@ -68,7 +83,7 @@ public sealed class ErpMealReportAggregateService(AppDbContext db)
             SourceRowId = sourceRowId
         };
 
-        await foreach (var item in db.ErpMealStatuses.AsNoTracking()
+        await foreach (var item in plan.Filter(db.ErpMealStatuses.AsNoTracking(), ReportArea.Meals, x => x.StudentProfileId)
             .Select(x => new { x.Id, x.StudentProfileId, x.ErpStudentId, x.StudentName,
                 x.ClassCode, x.MealDate, x.Meal, x.Feed, x.OrderStatus, x.TicketStatus })
             .AsAsyncEnumerable().WithCancellation(cancellationToken))
@@ -102,7 +117,7 @@ public sealed class ErpMealReportAggregateService(AppDbContext db)
             }
         }
 
-        await foreach (var item in db.ErpCanteenPurchases.AsNoTracking()
+        await foreach (var item in plan.Filter(db.ErpCanteenPurchases.AsNoTracking(), ReportArea.Meals, x => x.StudentProfileId)
             .Select(x => new { x.Id, x.StudentProfileId, x.ErpStudentId, x.StudentName,
                 x.ClassCode, x.PurchaseDate, x.ProductCode, x.ProductName, x.Quantity })
             .AsAsyncEnumerable().WithCancellation(cancellationToken))
@@ -120,8 +135,8 @@ public sealed class ErpMealReportAggregateService(AppDbContext db)
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await db.ErpMealReportDetails.ExecuteDeleteAsync(cancellationToken);
-        await db.ErpMealDailyAggregates.ExecuteDeleteAsync(cancellationToken);
+        await plan.Filter(db.ErpMealReportDetails, ReportArea.Meals, x => x.StudentProfileId).ExecuteDeleteAsync(cancellationToken);
+        await plan.Filter(db.ErpMealDailyAggregates, ReportArea.Meals, x => x.StudentProfileId).ExecuteDeleteAsync(cancellationToken);
         foreach (var batch in aggregates.Values.Chunk(1000))
         {
             await MySqlRowBatchWriter.InsertAsync(db, batch, cancellationToken);
@@ -134,10 +149,12 @@ public sealed class ErpMealReportAggregateService(AppDbContext db)
         db.ErpMealReportBuilds.Add(new ErpMealReportBuild
         {
             LastSyncRunId = lastRunId,
-            LastStudentChangeId = lastStudentChangeId,
+            SchemaVersion = ReportRefreshPlan.SchemaVersion,
+            LastStudentChangeId = plan.LastChangeId,
             CompletedAtUtc = DateTime.UtcNow
         });
         await db.SaveChangesAsync(cancellationToken);
+        await ReportRefreshPlan.PruneAsync(db, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return aggregates.Count;
     }

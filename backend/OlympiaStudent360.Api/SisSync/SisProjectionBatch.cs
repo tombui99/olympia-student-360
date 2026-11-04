@@ -14,6 +14,7 @@ internal sealed class SisProjectionBatch(AppDbContext db)
     public List<SISStudentParent> Parents { get; private set; } = [];
     public List<StudentHealthVisit> Visits { get; private set; } = [];
     public HashSet<StudentHealthVisit> ChangedVisits { get; } = [];
+    public bool HealthReportsChanged { get; set; }
 
     public static async Task<SisProjectionBatch> LoadAsync(AppDbContext db, string source, string endpoint,
         IReadOnlyList<JsonElement> records, bool projectStudents, CancellationToken ct)
@@ -47,10 +48,18 @@ internal sealed class SisProjectionBatch(AppDbContext db)
         // Existing source-owned fields can be upserted without one network request per row.
         // Only EF's modified columns are updated, preserving manual campus/programme and Canvas fields.
         db.ChangeTracker.DetectChanges();
-        var modified = await FlushModifiedAsync<StudentProfile>(ct) + await FlushModifiedAsync<SISStudentParent>(ct);
-        if (modified > 0 || ChangedVisits.Count > 0) db.ImportedReportChanges.Add(new ImportedReportChange());
+        var newStudents = db.ChangeTracker.Entries<StudentProfile>().Where(x => x.State == EntityState.Added)
+            .Select(x => x.Entity).ToArray();
+        ReportChangeTracking.Queue(db, deferNewStudents: true);
+        await FlushModifiedAsync<StudentProfile>(ct);
+        await FlushModifiedAsync<SISStudentParent>(ct);
+        if (HealthReportsChanged) ReportChangeTracking.Add(db, ReportArea.Health);
+        var changes = db.ChangeTracker.Entries<ImportedReportChange>().Where(x => x.State == EntityState.Added).ToArray();
+        foreach (var entry in changes) entry.State = EntityState.Detached;
         // EF allocates IDs and fixes up new student/parent relationships. Existing rows were accepted above.
-        await db.SaveChangesAsync(ct);
+        await db.SaveQueuedSourceChangesAsync(ct);
+        await MySqlRowBatchWriter.InsertAsync(db, changes.Select(x => x.Entity).Concat(newStudents.Select(student =>
+            new ImportedReportChange { Areas = ReportArea.All, StudentProfileId = student.Id })), ct);
         await MySqlRowBatchWriter.UpsertAsync(db, Warehouse.Values, null, ct);
         await MySqlRowBatchWriter.UpsertAsync(db, ChangedVisits, null, ct);
     }

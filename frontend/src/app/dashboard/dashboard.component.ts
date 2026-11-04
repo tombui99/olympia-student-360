@@ -9,6 +9,7 @@ import { LanguageService } from '../core/language/language.service';
 import { riskBadgeClass, riskDotClass } from '../students/risk.util';
 import { DashboardAttentionStudent, DashboardOverview, DashboardOverviewService } from './dashboard-overview.service';
 import { defaultFilterSet, WorkspaceFiltersService, WorkspaceFilterSet } from '../workspace/workspace-filters.service';
+import { formatSyncDate } from './sync-date';
 
 interface RiskRow {
   level: 'High' | 'Medium' | 'None';
@@ -81,13 +82,22 @@ interface RiskRow {
 
       <div class="-mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#8a8190]">
         <p>{{ languageService.t('dashboard.period.rosterNote') }}</p>
-        @if (overview()?.canAccessAcademic) {
-        <p class="inline-flex items-center gap-2 rounded-full border border-[#e6dfea] bg-white px-3 py-1.5">
-          <span class="h-2 w-2 rounded-full" [ngClass]="overview()?.lastSuccessfulCanvasSyncAtUtc ? 'bg-emerald-500' : 'bg-slate-300'"></span>
-          <span class="font-semibold text-[#5f5368]">{{ languageService.t('dashboard.canvasSync.label') }}</span>
-          <span>{{ overview()?.lastSuccessfulCanvasSyncAtUtc ? formatSyncDate(overview()!.lastSuccessfulCanvasSyncAtUtc!) : languageService.t('dashboard.canvasSync.none') }}</span>
-        </p>
-        }
+        <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+          @if (overview()) {
+            <p class="inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-[#e6dfea] bg-white px-3 py-1.5">
+              <span class="h-2 w-2 shrink-0 rounded-full" [ngClass]="overview()?.lastSuccessfulSisSyncAtUtc ? 'bg-emerald-500' : 'bg-slate-300'"></span>
+              <span class="font-semibold text-[#5f5368]">{{ languageService.t('dashboard.sisSync.label') }}</span>
+              <span>{{ overview()?.lastSuccessfulSisSyncAtUtc ? formatSyncDate(overview()!.lastSuccessfulSisSyncAtUtc!) : languageService.t('dashboard.sisSync.none') }}</span>
+            </p>
+          }
+          @if (overview()?.canAccessAcademic) {
+            <p class="inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-[#e6dfea] bg-white px-3 py-1.5">
+              <span class="h-2 w-2 shrink-0 rounded-full" [ngClass]="overview()?.lastSuccessfulCanvasSyncAtUtc ? 'bg-emerald-500' : 'bg-slate-300'"></span>
+              <span class="font-semibold text-[#5f5368]">{{ languageService.t('dashboard.canvasSync.label') }}</span>
+              <span>{{ overview()?.lastSuccessfulCanvasSyncAtUtc ? formatSyncDate(overview()!.lastSuccessfulCanvasSyncAtUtc!) : languageService.t('dashboard.canvasSync.none') }}</span>
+            </p>
+          }
+        </div>
       </div>
 
       @if (periodLoading()) {
@@ -403,12 +413,7 @@ export class DashboardComponent implements OnInit {
   }
 
   formatSyncDate(value: string): string {
-    const locale = this.languageService.language() === 'vi' ? 'vi-VN' : 'en-GB';
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZone: 'Asia/Ho_Chi_Minh',
-    }).format(new Date(value));
+    return formatSyncDate(value, this.languageService.language());
   }
 
   termLabel(term: string): string {

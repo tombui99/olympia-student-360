@@ -1877,7 +1877,8 @@ public class DashboardController : ControllerBase
     {
         var now = DateTime.UtcNow;
         var period = await ResolvePeriod(year, term, now);
-        var lastSuccessfulCanvasSyncAtUtc = await LastSuccessfulCanvasSyncAtUtc();
+        var lastSuccessfulCanvasSyncAtUtc = await DashboardSyncFreshness.LatestSuccessfulCanvasAtUtcAsync(_context, HttpContext?.RequestAborted ?? default);
+        var lastSuccessfulSisSyncAtUtc = await DashboardSyncFreshness.LatestSuccessfulSisAtUtcAsync(_context, HttpContext?.RequestAborted ?? default);
         var access = _userAccess.Current;
 
         if (!await _context.ImportedReportBuilds.AsNoTracking().AnyAsync())
@@ -1934,6 +1935,7 @@ public class DashboardController : ControllerBase
             PeriodYear = period.Year,
             PeriodTerm = period.Term,
             LastSuccessfulCanvasSyncAtUtc = lastSuccessfulCanvasSyncAtUtc,
+            LastSuccessfulSisSyncAtUtc = lastSuccessfulSisSyncAtUtc,
             TotalStudents = students.Count,
             CanAccessAcademic = access.CanAccessAcademic,
             CanAccessHealth = access.CanAccessHealth,
@@ -2074,32 +2076,6 @@ public class DashboardController : ControllerBase
             .ToList();
 
         return Ok(overview);
-    }
-
-    private async Task<DateTime?> LastSuccessfulCanvasSyncAtUtc()
-    {
-        var completedRunAt = await _context.CanvasSyncRuns.AsNoTracking()
-            .Where(run => run.Status == "completed" && run.CompletedAtUtc != null)
-            .OrderByDescending(run => run.CompletedAtUtc)
-            .Select(run => run.CompletedAtUtc)
-            .FirstOrDefaultAsync();
-        var state = await _context.CanvasSyncStates.AsNoTracking()
-            .Where(item => item.LastSuccessfulWatermarkUtc != null)
-            .OrderByDescending(item => item.LastSuccessfulWatermarkUtc)
-            .Select(item => new
-            {
-                item.LastSuccessfulWatermarkUtc,
-                item.LastCompletedAtUtc,
-                item.LastStatus
-            })
-            .FirstOrDefaultAsync();
-        var successfulStateAt = state?.LastStatus == "completed"
-            ? state.LastCompletedAtUtc ?? state.LastSuccessfulWatermarkUtc
-            : state?.LastSuccessfulWatermarkUtc;
-
-        if (completedRunAt is null) return successfulStateAt;
-        if (successfulStateAt is null) return completedRunAt;
-        return completedRunAt > successfulStateAt ? completedRunAt : successfulStateAt;
     }
 
     private async Task<(string Year, string Term, DateTime Start, DateTime End)> ResolvePeriod(

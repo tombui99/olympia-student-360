@@ -345,10 +345,25 @@ public class ImportedReportAggregate : BaseEntity
 }
 
 /// <summary>One change marker per source write; the background builder drains these after a successful swap.</summary>
-public class ImportedReportChange : BaseEntity { }
+[Flags]
+public enum ReportArea
+{
+    None = 0, Behaviours = 1, Projects = 2, MentalHealth = 4, Bus = 8, Health = 16,
+    Risk = 32, Meals = 64,
+    Imported = Behaviours | Projects | MentalHealth | Bus | Health,
+    All = Imported | Risk | Meals
+}
+
+public class ImportedReportChange : BaseEntity
+{
+    // Legacy/manual invalidations remain conservative; new writes specify their dependencies.
+    public ReportArea Areas { get; set; } = ReportArea.All;
+    public int? StudentProfileId { get; set; }
+}
 
 public class ImportedReportBuild : BaseEntity
 {
+    public int SchemaVersion { get; set; }
     public int LastChangeId { get; set; }
     public DateTime CompletedAtUtc { get; set; }
 }
@@ -995,6 +1010,7 @@ public class ErpMealReportDetail : BaseEntity
 
 public class ErpMealReportBuild : BaseEntity
 {
+    public int SchemaVersion { get; set; }
     public int LastSyncRunId { get; set; }
     public int LastStudentChangeId { get; set; }
     public DateTime CompletedAtUtc { get; set; }

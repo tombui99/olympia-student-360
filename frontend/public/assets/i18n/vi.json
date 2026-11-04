@@ -906,6 +906,8 @@
   "dashboard.gradeScope.list": "Khối {grades}",
   "dashboard.canvasSync.label": "Đồng bộ Canvas thành công gần nhất:",
   "dashboard.canvasSync.none": "Chưa ghi nhận lần đồng bộ thành công",
+  "dashboard.sisSync.label": "Đồng bộ SIS thành công gần nhất:",
+  "dashboard.sisSync.none": "Chưa ghi nhận lần đồng bộ thành công",
   "dashboard.cards.atRisk": "Học sinh cần lưu ý",
   "dashboard.cards.atRiskSub": "{high} cao · {medium} trung bình",
   "dashboard.cards.behaviours": "Bản ghi hành vi",

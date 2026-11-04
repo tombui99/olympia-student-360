@@ -82,6 +82,16 @@ public sealed partial class MySqlResilienceTests
         Assert.Equal(456, profile.CanvasUserId);
         Assert.Equal(500, await db.StudentProfiles.CountAsync());
         Assert.Equal(500, await db.SISStudentParents.CountAsync());
+        foreach (System.Text.Json.Nodes.JsonNode row in students)
+        {
+            row["full_name"] = "Changed source name";
+            row["updated_at"] = "2026-10-31T09:00:00+07:00";
+        }
+        counter.Count = 0;
+        using (var http = SisFixtures.Http(students))
+            await new SisSyncRunner().RunAsync(db, http, SisFixtures.Options(), true, default);
+        Assert.True(counter.Count < 80, $"Expected batched student invalidations; observed {counter.Count} commands.");
+        Assert.Equal(500, await db.ImportedReportChanges.CountAsync(x => x.Areas == (ReportArea.Imported | ReportArea.Meals)));
     }
 
     [MySqlFact]
