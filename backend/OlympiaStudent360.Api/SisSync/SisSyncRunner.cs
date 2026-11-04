@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using MySql.Data.MySqlClient;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
@@ -25,7 +26,7 @@ public sealed class SisSyncRunner
         await db.MigrateWithRecoveryAsync(ct);
         // Both imports update StudentProfiles. Share Canvas's session lock while SIS changes
         // student identity/dimensions and Canvas links its identities and builds reports.
-        await using var heldLock = await CanvasWarehouseLock.AcquireAsync(db, ct);
+        await using var heldLock = await SisProjectionLease.AcquireAsync(db, ct);
         await db.SisSyncRuns.Where(x => x.SourceKey == options.SourceKey && x.Status == "running")
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, "failed")
                 .SetProperty(x => x.CompletedAtUtc, DateTime.UtcNow)
@@ -186,12 +187,14 @@ public sealed class SisSyncRunner
             if (endpoint.Name == "timetable") { timetable.AddRange(page.Records); continue; }
             await using (var transaction = await db.Database.BeginTransactionAsync(ct))
             {
+                var batch = await SisProjectionBatch.LoadAsync(db, options.SourceKey, endpoint.Name, page.Records, projectStudents, ct);
                 foreach (var record in page.Records)
-                    await UpsertAsync(db, options.SourceKey, endpoint.Name, filters, record, scan, projectStudents, ct);
-                await db.SaveChangesAsync(ct);
+                    await UpsertAsync(db, options.SourceKey, endpoint.Name, filters, record, scan, projectStudents, batch, ct);
+                await batch.FlushAsync(ct);
                 await transaction.CommitAsync(ct);
             }
             db.ChangeTracker.Clear();
+            Console.WriteLine($"Stored SIS {endpoint.Name} page: {page.Records.Count} records; {count} scanned in this scope.");
         }
         if (watermark is null) throw new SisApiException("SIS scan returned no envelope.");
         if (endpoint.Name == "schools" && count == 0) throw new SisApiException("Empty SIS school catalog rejected.");
@@ -204,8 +207,10 @@ public sealed class SisSyncRunner
                 // Buffer the complete scan before replacing: failed pagination never clears a live range.
                 var scoped = ScopedRecords(db, options.SourceKey, endpoint.Name, filters);
                 await scoped.ExecuteDeleteAsync(ct);
+                var batch = await SisProjectionBatch.LoadAsync(db, options.SourceKey, endpoint.Name, timetable, false, ct);
                 foreach (var record in timetable)
-                    await UpsertAsync(db, options.SourceKey, endpoint.Name, filters, record, scan, false, ct);
+                    await UpsertAsync(db, options.SourceKey, endpoint.Name, filters, record, scan, false, batch, ct);
+                await batch.FlushAsync(ct);
             }
             if (since is null && endpoint.Name is "students" or "schools")
             {
@@ -281,7 +286,7 @@ public sealed class SisSyncRunner
     }
 
     private static async Task UpsertAsync(AppDbContext db, string source, string endpoint, IReadOnlyDictionary<string, string> filters,
-        JsonElement record, string scan, bool project, CancellationToken ct)
+        JsonElement record, string scan, bool project, SisProjectionBatch batch, CancellationToken ct)
     {
         var key = RecordKey(endpoint, record);
         var updated = SisJson.Text(record, "updated_at", 50);
@@ -300,11 +305,11 @@ public sealed class SisSyncRunner
                 date < DateTime.ParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture) ||
                 date > DateTime.ParseExact(filters["to_date"], "yyyy-MM-dd", CultureInfo.InvariantCulture)))
             throw new SisApiException("SIS returned a record outside the requested filters.");
-        var row = await db.SisWarehouseRecords.SingleOrDefaultAsync(x => x.SourceKey == source && x.Endpoint == endpoint && x.RecordKey == key, ct);
+        batch.Warehouse.TryGetValue(key, out var row);
         if (row is null)
         {
             row = new SisWarehouseRecord { SourceKey = source, Endpoint = endpoint, RecordKey = key, SourceId = SisJson.RequiredId(record) };
-            db.SisWarehouseRecords.Add(row);
+            batch.Warehouse.Add(key, row);
         }
         row.LastSeenScanId = scan;
         // A replay must not roll back a newer committed source document.
@@ -319,8 +324,9 @@ public sealed class SisSyncRunner
         row.SourceUpdatedAtUtc = timestamp.UtcDateTime;
         row.PayloadJson = record.GetRawText();
         row.UpdatedAt = DateTime.UtcNow;
-        if (project && endpoint == "students") await new SisStudentProjector(db).ProjectAsync(record, ct);
-        if (endpoint == "health/visits") await new SisHealthVisitProjector(db).ProjectAsync(source, record, ct);
+        if (project && endpoint == "students") await new SisStudentProjector(db, batch.Students, batch.Parents).ProjectAsync(record, ct);
+        if (endpoint == "health/visits")
+            await new SisHealthVisitProjector(db, batch.Students, batch.Visits, batch.ChangedVisits).ProjectAsync(source, record, ct);
     }
 
     internal static string RecordKey(string endpoint, JsonElement record) => endpoint == "attendances"
@@ -334,9 +340,15 @@ public sealed class SisSyncRunner
             yield return (month, month.AddMonths(1).AddDays(-1));
     }
 
-    public static string SafeError(Exception ex) => ex is SisApiException ? ex.Message
-        : ex is OperationCanceledException ? "SIS sync cancelled."
-        : $"SIS sync failed ({ex.GetType().Name}); credentials, response data and database parameters suppressed.";
+    public static string SafeError(Exception ex)
+    {
+        if (ex is SisApiException) return ex.Message;
+        if (ex is OperationCanceledException) return "SIS sync cancelled.";
+        for (Exception? current = ex; current is not null; current = current.InnerException)
+            if (current is MySqlException mysql)
+                return $"SIS database operation failed ({ex.GetType().Name}; MySQL error {mysql.Number}). Credentials, SQL text and parameters suppressed.";
+        return $"SIS sync failed ({ex.GetType().Name}); credentials, response data and database parameters suppressed.";
+    }
     private sealed record SchoolYear(string Id, DateTime? Start, DateTime? End);
     private sealed class Totals { public int Records; public int Scans; }
 }

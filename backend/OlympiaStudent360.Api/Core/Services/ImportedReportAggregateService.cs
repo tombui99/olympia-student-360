@@ -139,15 +139,11 @@ public sealed class ImportedReportAggregateService(AppDbContext db, CanvasReport
         await db.StudentRiskSnapshots.ExecuteDeleteAsync(cancellationToken);
         foreach (var batch in rows.Values.Chunk(1000))
         {
-            db.ImportedReportAggregates.AddRange(batch);
-            await db.SaveChangesAsync(cancellationToken);
-            db.ChangeTracker.Clear();
+            await MySqlRowBatchWriter.InsertAsync(db, batch, cancellationToken);
         }
         foreach (var batch in riskSnapshots.Chunk(1000))
         {
-            db.StudentRiskSnapshots.AddRange(batch);
-            await db.SaveChangesAsync(cancellationToken);
-            db.ChangeTracker.Clear();
+            await MySqlRowBatchWriter.InsertAsync(db, batch, cancellationToken);
         }
         await db.ImportedReportBuilds.ExecuteDeleteAsync(cancellationToken);
         db.ImportedReportBuilds.Add(new ImportedReportBuild

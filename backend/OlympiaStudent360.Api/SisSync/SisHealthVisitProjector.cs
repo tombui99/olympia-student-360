@@ -6,32 +6,38 @@ using OlympiaStudent360.Api.Data;
 namespace OlympiaStudent360.Api.SisSync;
 
 /// <summary>Projects source visits into the existing health page/report table, with stable source keys.</summary>
-public sealed class SisHealthVisitProjector(AppDbContext db)
+public sealed class SisHealthVisitProjector(AppDbContext db, List<StudentProfile>? students = null,
+    List<StudentHealthVisit>? visits = null, ISet<StudentHealthVisit>? changed = null)
 {
     public async Task ProjectAsync(string sourceKey, JsonElement source, CancellationToken ct)
     {
         var visitId = SisJson.RequiredId(source);
-        var visit = await db.StudentHealthVisits.IgnoreQueryFilters()
-            .SingleOrDefaultAsync(x => x.SisSourceKey == sourceKey && x.SisVisitId == visitId, ct);
+        var visit = visits is null ? await db.StudentHealthVisits.IgnoreQueryFilters()
+            .SingleOrDefaultAsync(x => x.SisSourceKey == sourceKey && x.SisVisitId == visitId, ct)
+            : visits.SingleOrDefault(x => x.SisVisitId == visitId);
         var deleted = SisJson.RequiredBool(source, "is_deleted");
         if (deleted)
         {
-            if (visit is not null) { visit.SisIsDeleted = true; visit.UpdatedAt = DateTime.UtcNow; }
+            if (visit is not null) { visit.SisIsDeleted = true; visit.UpdatedAt = DateTime.UtcNow; changed?.Add(visit); }
             return;
         }
         if (!SisApiClient.TryTimestamp(SisJson.Text(source, "visited_at", 50), out var visitedAt))
             throw new SisApiException("SIS health visit is missing a valid visited_at timestamp.");
         var reference = SisJson.Child(source, "student");
         var userId = SisJson.RequiredId(reference, "user_id");
-        var student = await db.StudentProfiles.SingleOrDefaultAsync(x => x.SchoolOnlineUserId == userId, ct);
+        var student = students is null ? await db.StudentProfiles.SingleOrDefaultAsync(x => x.SchoolOnlineUserId == userId, ct)
+            : students.SingleOrDefault(x => x.SchoolOnlineUserId == userId);
         var code = SisJson.Text(reference, "code", 50);
         if (student is null && code is not null)
-            student = await db.StudentProfiles.SingleOrDefaultAsync(x => x.SISStudentCode == code &&
-                (x.SchoolOnlineUserId == null || x.SchoolOnlineUserId == userId), ct);
+            student = students is null ? await db.StudentProfiles.SingleOrDefaultAsync(x => x.SISStudentCode == code &&
+                (x.SchoolOnlineUserId == null || x.SchoolOnlineUserId == userId), ct)
+                : students.SingleOrDefault(x => string.Equals(x.SISStudentCode, code, StringComparison.OrdinalIgnoreCase) &&
+                    (x.SchoolOnlineUserId == null || x.SchoolOnlineUserId == userId));
         if (visit is null)
         {
             visit = new StudentHealthVisit { SisSourceKey = sourceKey, SisVisitId = visitId };
-            db.StudentHealthVisits.Add(visit);
+            if (visits is null) db.StudentHealthVisits.Add(visit);
+            else visits.Add(visit);
         }
         visit.SisIsDeleted = false;
         visit.StudentProfileId = student?.Id;
@@ -62,6 +68,7 @@ public sealed class SisHealthVisitProjector(AppDbContext db)
         visit.NotificationSent = next.NotificationSent;
         visit.ExaminedBy = null; // Not supplied by the SIS visit contract.
         visit.UpdatedAt = DateTime.UtcNow;
+        changed?.Add(visit);
     }
 
     private sealed record SourceValues(DateTime ExamTime, string? Symptoms, string? Diagnosis,

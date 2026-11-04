@@ -8,7 +8,8 @@ using OlympiaStudent360.Api.Data;
 
 namespace OlympiaStudent360.Api.SisSync;
 
-public sealed class SisStudentProjector(AppDbContext db)
+public sealed class SisStudentProjector(AppDbContext db, List<StudentProfile>? students = null,
+    List<SISStudentParent>? parentRows = null)
 {
     public async Task ProjectAsync(JsonElement source, CancellationToken ct)
     {
@@ -22,8 +23,12 @@ public sealed class SisStudentProjector(AppDbContext db)
             StudentIdentityNormalizer.SchoolUsername(SisJson.Text(source, "username", 255));
         if (username?.Length > 100) throw new SisApiException("SIS school username exceeds the warehouse limit.");
         var deleted = SisJson.RequiredBool(source, "is_deleted");
-        var candidates = await db.StudentProfiles.Where(x => x.SchoolOnlineUserId == userId ||
-            code != null && x.SISStudentCode == code || !deleted && username != null && x.SISUserId == username).ToListAsync(ct);
+        var candidates = students is null
+            ? await db.StudentProfiles.Where(x => x.SchoolOnlineUserId == userId ||
+                code != null && x.SISStudentCode == code || !deleted && username != null && x.SISUserId == username).ToListAsync(ct)
+            : students.Where(x => x.SchoolOnlineUserId == userId ||
+                code is not null && string.Equals(x.SISStudentCode, code, StringComparison.OrdinalIgnoreCase) ||
+                !deleted && username is not null && string.Equals(x.SISUserId, username, StringComparison.OrdinalIgnoreCase)).ToList();
         if (candidates.Count > 1 || candidates.Any(x => x.SchoolOnlineUserId is not null && x.SchoolOnlineUserId != userId))
             throw new SisApiException("SIS identity conflict: stable ID, student code and school username must identify one profile. No name-based matching is allowed.");
         var student = candidates.SingleOrDefault();
@@ -36,6 +41,7 @@ public sealed class SisStudentProjector(AppDbContext db)
             student = new StudentProfile { SISUserId = username ?? "schoolonline:" + userId };
             if (student.SISUserId.Length > 100) throw new SisApiException("SIS fallback username exceeds the warehouse limit.");
             db.StudentProfiles.Add(student);
+            students?.Add(student);
         }
         student.SchoolOnlineUserId = userId;
         student.SchoolOnlineSchoolId = schoolId;
@@ -57,9 +63,12 @@ public sealed class SisStudentProjector(AppDbContext db)
         student.SISStatus = student.SISIsDeleted ? "DELETED" : SisJson.Text(source, "status", 50);
         student.SISLastImportedAtUtc = DateTime.UtcNow;
         student.UpdatedAt = DateTime.UtcNow;
-        // Save inside the caller's transaction to allocate a new profile ID before parents.
-        await db.SaveChangesAsync(ct);
-        var parents = await db.SISStudentParents.IgnoreQueryFilters().Where(x => x.StudentProfileId == student.Id).ToListAsync(ct);
+        // Navigation fix-up allocates new student/parent IDs together when the page is saved.
+        var parents = parentRows is null
+            ? student.Id == 0 ? [] : await db.SISStudentParents.IgnoreQueryFilters()
+                .Where(x => x.StudentProfileId == student.Id).ToListAsync(ct)
+            : parentRows.Where(x => ReferenceEquals(x.Student, student) ||
+                student.Id != 0 && x.StudentProfileId == student.Id).ToList();
         foreach (var role in new[] { "father", "mother", "guardian" })
         {
             if (!source.TryGetProperty(role, out var value)) throw new SisApiException("SIS student response is missing a parent field.");
@@ -75,8 +84,9 @@ public sealed class SisStudentProjector(AppDbContext db)
             if (value.ValueKind != JsonValueKind.Object) throw new SisApiException("Invalid SIS parent object.");
             if (parent is null)
             {
-                parent = new SISStudentParent { StudentProfileId = student.Id, Relationship = role };
+                parent = new SISStudentParent { Student = student, StudentProfileId = student.Id, Relationship = role };
                 db.SISStudentParents.Add(parent);
+                parentRows?.Add(parent);
             }
             parent.SISIsDeleted = student.SISIsDeleted;
             parent.SISUserId = student.SISUserId;

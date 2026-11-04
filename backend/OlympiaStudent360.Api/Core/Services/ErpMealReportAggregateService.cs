@@ -124,15 +124,11 @@ public sealed class ErpMealReportAggregateService(AppDbContext db)
         await db.ErpMealDailyAggregates.ExecuteDeleteAsync(cancellationToken);
         foreach (var batch in aggregates.Values.Chunk(1000))
         {
-            db.ErpMealDailyAggregates.AddRange(batch);
-            await db.SaveChangesAsync(cancellationToken);
-            db.ChangeTracker.Clear();
+            await MySqlRowBatchWriter.InsertAsync(db, batch, cancellationToken);
         }
         foreach (var batch in details.Chunk(1000))
         {
-            db.ErpMealReportDetails.AddRange(batch);
-            await db.SaveChangesAsync(cancellationToken);
-            db.ChangeTracker.Clear();
+            await MySqlRowBatchWriter.InsertAsync(db, batch, cancellationToken);
         }
         await db.ErpMealReportBuilds.ExecuteDeleteAsync(cancellationToken);
         db.ErpMealReportBuilds.Add(new ErpMealReportBuild

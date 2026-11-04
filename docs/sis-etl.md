@@ -119,8 +119,9 @@ full roster scan also marks previously seen students missing from that exact sco
 it does not delete profiles. Empty student snapshots fail by default before reconciliation. The override
 `Sis__AllowEmptyStudents=true` is only for an intentionally empty school/year scope.
 
-The existing imported-report change queue is written with profile changes; its API background worker
-refreshes student report aggregates. The health-visits projection writes into the existing `StudentHealthVisits` table used by `/health-visits`, student details and health reports. The source endpoint JSON for attendance, comments, buses,
+The existing imported-report change queue is written with profile and health changes. After ingestion,
+the CLI refreshes imported reports and ERP meal views on the GitHub runner before declaring the job
+successful. Background API workers continue to handle later application changes. The health-visits projection writes into the existing `StudentHealthVisits` table used by `/health-visits`, student details and health reports. The source endpoint JSON for attendance, comments, buses,
 health profiles/examinations and timetables remains available for future read models. Those optional feeds do **not** write into bus exceptions or behaviour records, which have different semantics.
 There is no new frontend UI for those optional feeds in this change.
 
@@ -181,8 +182,16 @@ their own data sources.
 
 `.github/workflows/sync-sis.yml` runs at **02:30 Vietnam time daily**. Monday performs a full
 reconciliation; other days use incremental watermarks. Manual modes are `incremental`, `full`,
-and `check-access`. GitHub concurrency prevents overlapping SIS jobs. The CLI also holds the existing
-Canvas warehouse MySQL session lock, serializing Canvas/SIS identity updates and report builds.
+`reports-only`, and `check-access`. GitHub concurrency prevents overlapping SIS jobs. The CLI holds the
+existing Canvas warehouse lock, then the imported-report and ERP meal publisher locks in a fixed order.
+This prevents report publication transactions from holding student foreign-key locks during SIS updates.
+Locks are session-scoped and released on completion or failure; acquisition waits are bounded.
+
+Page lookups are preloaded and existing profiles, contacts, warehouse documents and health visits are
+written in parameterized batches. Profile/contact updates include only modified columns, preserving
+manual campus/programme, parent notes and Canvas-owned fields. New profiles and contacts use EF
+relationship fix-up to allocate linked IDs. Report publication also uses batches inside its existing
+atomic replacement transaction, reducing database round trips over remote RDS.
 
 Each scan starts from its last successful server watermark. Page upserts and student/parent updates
 commit together; the watermark only commits after all pages and reconciliation succeed. A failure
@@ -203,11 +212,16 @@ fail immediately except 429. Requests are sequential, spaced by 1.1 seconds by d
 vendor's default 60 requests/minute). 429/503 honor `Retry-After`; 500/network/timeouts use bounded
 backoff. Rate-limit exhaustion headers pause the next request. HTTP redirects are disabled and
 request timeouts are 90 seconds. Logs/errors omit response bodies, tokens, credentials and SQL
-parameters; API failures identify the endpoint, HTTP status and safe `X-Request-Id`.
+parameters; API failures identify the endpoint, HTTP status and safe `X-Request-Id`. Database failures
+include only the exception type and MySQL numeric error code, without SQL text or provider messages.
 
 Admin monitoring: `GET /api/sis-sync/status` returns the latest 50 runs and filter watermarks. Existing
 `/api/sync-history` remains the Canvas history API. For a failed job, correct access/configuration and
-rerun the same mode. For older daily corrections outside the incremental lookback, run `full` or a
+rerun the same mode. If the CLI reports that SIS data is committed but report refresh failed, use
+`reports-only`: it refreshes derived views without fetching SIS, changing source watermarks or replaying
+the import. It needs the database connection but no SIS credentials. Report publication retries are
+separate from ingestion retries, and failed publication retains the previous committed report snapshot.
+For older daily corrections outside the incremental lookback, run `full` or a
 month-range backfill. In a local backfill, set `Sis__FromDate` and `Sis__ToDate`; these select whole
 calendar months intersecting the requested dates, including their complete first/last months.
 
@@ -257,6 +271,7 @@ credentials in shell scripts, checked-in settings, command history or exported P
 dotnet run --project backend/OlympiaStudent360.SisEtl -- --check-access
 dotnet run --project backend/OlympiaStudent360.SisEtl -- --full
 dotnet run --project backend/OlympiaStudent360.SisEtl -- --incremental
+dotnet run --project backend/OlympiaStudent360.SisEtl -- --reports-only
 ```
 
 The obsolete `backend/OlympiaStudent360.SisImport` folder contained only ignored build/cache artifacts

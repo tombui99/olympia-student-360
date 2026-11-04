@@ -526,6 +526,10 @@ historical profiles and Canvas facts are retained. Campus and programme are manu
 maintained on student profiles and preserved by sync. Health visits are read-only SIS data; legacy
 Excel/manual visits and legacy SIS dashboard observations are archived outside live reports.
 
+SIS jobs batch database writes and coordinate with report publishers; after ingestion, the runner
+refreshes dependent report views. Use workflow mode `reports-only` to recover a failed report refresh
+without replaying committed SIS data.
+
 Academic score ownership is separate from the roster: grades 1–4 use SIS and grades 5–12 use Canvas.
 The current score pipeline is Canvas-based; primary-school SIS scores are not integrated yet. The
 supplied SchoolOnline API v1 manual has no academic-results endpoint, so that vendor API contract is

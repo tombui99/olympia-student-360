@@ -10,7 +10,7 @@ on:
       mode:
         description: "Incremental sync bootstraps missing watermarks; full reloads and reconciles the selected scope"
         type: choice
-        options: [incremental, full, check-access]
+        options: [incremental, full, reports-only, check-access]
         default: incremental
 
 permissions:
@@ -62,6 +62,7 @@ jobs:
           global-json-file: global.json
 
       - name: Verify SIS credentials are configured
+        if: env.SIS_SYNC_MODE != 'reports-only'
         run: |
           if [ -z "$Sis__ClientId" ] || [ -z "$Sis__ClientSecret" ]; then
             echo "Configure production secrets SIS_CLIENT_ID and SIS_CLIENT_SECRET."
@@ -122,6 +123,7 @@ jobs:
           case "$SIS_SYNC_MODE" in
             full) argument=--full ;;
             incremental) argument=--incremental ;;
+            reports-only) argument=--reports-only ;;
             *) echo "Unknown SIS sync mode"; exit 1 ;;
           esac
           dotnet run --project backend/OlympiaStudent360.SisEtl --configuration Release --no-build -- "$argument"
