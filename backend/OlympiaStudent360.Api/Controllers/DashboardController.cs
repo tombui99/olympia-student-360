@@ -104,7 +104,7 @@ public class DashboardController : ControllerBase
 
         if (deferHeavy)
         {
-            var studentDimensions = await VisibleStudents()
+            var studentDimensions = await VisibleStudents().CurrentRoster(_context)
                 .Select(item => new
                 {
                     item.Campus,
@@ -309,7 +309,7 @@ public class DashboardController : ControllerBase
         }
 
         var canvasOnly = reportId.HasValue && await IsCanvasOnlyReport(reportId.Value);
-        var students = VisibleStudents();
+        var students = VisibleStudents().CurrentRoster(_context);
         var scopedObservations = _userAccess.ApplyStudentScope(
             _context.DashboardMetricObservations.AsNoTracking(), item => item.Student);
         if (canvasOnly)
@@ -590,12 +590,15 @@ public class DashboardController : ControllerBase
 
         var startedAt = Stopwatch.GetTimestamp();
         var allRequestedMetricIds = ParseMetricIds(metricIds);
-        var allStoredMetricDefinitions = await _context.DashboardMetrics.AsNoTracking()
-            .Select(metric => new { metric.Key, metric.Source, metric.Domain })
+        var allStoredMetricDefinitions = await _context.DashboardMetrics.IgnoreQueryFilters().AsNoTracking()
+            .Select(metric => new { metric.Key, metric.Label, metric.Source, metric.Domain })
             .ToListAsync(cancellationToken);
         var storedMetricDefinitions = allStoredMetricDefinitions
             .Where(metric => allRequestedMetricIds.Contains(metric.Key))
             .ToDictionary(metric => metric.Key, StringComparer.Ordinal);
+        var retiredMetricIds = storedMetricDefinitions.Values
+            .Where(x => string.Equals(x.Source?.Trim(), "SIS", StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
         var deniedMetricIds = allRequestedMetricIds
             .Where(metricId =>
             {
@@ -605,8 +608,24 @@ public class DashboardController : ControllerBase
             })
             .ToHashSet(StringComparer.Ordinal);
         var requestedMetricIds = allRequestedMetricIds
-            .Where(metricId => !deniedMetricIds.Contains(metricId))
+            .Where(metricId => !deniedMetricIds.Contains(metricId) && !retiredMetricIds.Contains(metricId))
             .ToHashSet(StringComparer.Ordinal);
+        var unavailableMetrics = deniedMetricIds.Except(retiredMetricIds).Select(metricId => new DashboardMetricDto
+        {
+            Id = metricId, Label = LabelForMetric(metricId), Category = "Unavailable",
+            Source = "Access policy", Dataset = "Access policy",
+            UnavailableReason = "access_scope_updated", SupportsDrilldown = false
+        }).Concat(retiredMetricIds.Select(metricId => new DashboardMetricDto
+        {
+            Id = metricId, Label = storedMetricDefinitions[metricId].Label,
+            Category = "Unavailable", Source = "Retired source", Dataset = "Retired source",
+            UnavailableReason = "source_retired", SupportsDrilldown = false
+        })).ToList();
+        if (allRequestedMetricIds.Count > 0 && requestedMetricIds.Count == 0)
+        {
+            RecordMetricsTiming(startedAt, 0, unavailableMetrics.Count, cacheHit: false);
+            return Ok(unavailableMetrics);
+        }
         if ((allRequestedMetricIds.Count == 0 || requestedMetricIds.Count > 0 &&
              ImportedMetricCatalog().Any(metric => requestedMetricIds.Contains(metric.Id))) &&
             !await _context.ImportedReportBuilds.AsNoTracking().AnyAsync(cancellationToken))
@@ -722,16 +741,7 @@ public class DashboardController : ControllerBase
         computed = computed
             .Where(metric => _userAccess.Current.CanAccessMetric(metric.Id, metric.Source))
             .ToList();
-        computed.AddRange(deniedMetricIds.Select(metricId => new DashboardMetricDto
-        {
-            Id = metricId,
-            Label = LabelForMetric(metricId),
-            Category = "Unavailable",
-            Source = "Access policy",
-            Dataset = "Access policy",
-            UnavailableReason = "access_scope_updated",
-            SupportsDrilldown = false
-        }));
+        computed.AddRange(unavailableMetrics);
         computed = computed
             .OrderBy(metric => metric.Category)
             .ThenBy(metric => metric.Label)
@@ -1872,7 +1882,7 @@ public class DashboardController : ControllerBase
 
         if (!await _context.ImportedReportBuilds.AsNoTracking().AnyAsync())
             return StatusCode(503, new { Message = "Report aggregates are being prepared." });
-        var students = await VisibleStudents().ToListAsync();
+        var students = await VisibleStudents().CurrentRoster(_context).ToListAsync();
         var canvasPeriod = await _canvasReportingPeriods.ResolveAsync(
             period.Year, period.Term is "hk1" or "hk2" ? period.Term : null, now);
         var snapshots = await _userAccess.ApplyStudentScope(

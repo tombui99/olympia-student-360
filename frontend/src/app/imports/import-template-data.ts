@@ -6,6 +6,7 @@ export type ImportModule = {
   headers: string[];
   requiredHeaders: string[];
   supportsManualEntry?: boolean;
+  supportsExcelImport?: boolean;
   supportsCustomFields?: boolean;
 };
 
@@ -86,6 +87,9 @@ export const importModules: ImportModule[] = [
   },
   {
     id: 'student-health-visits',
+    supportsManualEntry: false,
+    supportsExcelImport: false,
+    supportsCustomFields: false,
     category: 'health-wellbeing',
     titleKey: 'imports.modules.healthVisits.title',
     descriptionKey: 'imports.modules.healthVisits.description',

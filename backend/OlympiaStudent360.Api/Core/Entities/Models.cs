@@ -48,6 +48,12 @@ public class StudentProfile : BaseEntity
     public long? CanvasUserId { get; set; }
     /// <summary>Permanent, authoritative student code from SIS (for example OS012223-18).</summary>
     public string? SISStudentCode { get; set; }
+    /// <summary>SchoolOnline's stable account ID; distinct from the school-email username below.</summary>
+    public string? SchoolOnlineUserId { get; set; }
+    public string? SchoolOnlineSchoolId { get; set; }
+    public string? SchoolOnlineSchoolYearId { get; set; }
+    public bool SISIsDeleted { get; set; }
+    public bool? SISIsActive { get; set; }
     /// <summary>Normalized school-email username used to join Canvas and SIS identities.</summary>
     public string SISUserId { get; set; } = default!;
     public string FullName { get; set; } = default!;
@@ -64,8 +70,11 @@ public class StudentProfile : BaseEntity
     public string? HomeroomCode { get; set; }
     public string? SISStatus { get; set; }
     public DateTime? SISLastImportedAtUtc { get; set; }
+    /// <summary>Manually maintained Student 360 campus; not overwritten by SIS.</summary>
     public string? Campus { get; set; }
+    /// <summary>School level derived from the SIS grade.</summary>
     public string? EducationLevel { get; set; }
+    /// <summary>Manually maintained Student 360 programme; not overwritten by SIS.</summary>
     public string? Program { get; set; }
     public ICollection<StudentBehaviour> Behaviours { get; set; } = [];
     public ICollection<StudentProject> Projects { get; set; } = [];
@@ -211,6 +220,9 @@ public class StudentMentalHealthRecord : BaseEntity
 /// </summary>
 public class StudentHealthVisit : BaseEntity
 {
+    public string? SisSourceKey { get; set; }
+    public string? SisVisitId { get; set; }
+    public bool SisIsDeleted { get; set; }
     public int? ImportHistoryId { get; set; }
     public ImportHistory? ImportHistory { get; set; }
     public int? StudentProfileId { get; set; }
@@ -270,6 +282,7 @@ public class StudentBusAttendanceRecord : BaseEntity
 /// <summary>Parent demographic data synchronised from SIS.</summary>
 public class SISStudentParent : BaseEntity
 {
+    public bool SISIsDeleted { get; set; }
     public int StudentProfileId { get; set; }
     public string SISUserId { get; set; } = default!;
     public StudentProfile Student { get; set; } = default!;

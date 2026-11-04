@@ -62,6 +62,7 @@ type InlineSaveRequest = {
               {{ t('imports.designer.customize') }}
             </button>
           }
+          @if (module().supportsExcelImport !== false) {
           <button
             class="inline-flex items-center gap-2 rounded-md border border-[#d8d0df] bg-white px-4 py-2.5 text-sm font-semibold text-[#32124f] transition hover:border-[#f3c246] hover:bg-[#fff8e1]"
             type="button"
@@ -70,11 +71,14 @@ type InlineSaveRequest = {
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
             {{ t('imports.manual.importExcel') }}
           </button>
+          }
+          @if (module().supportsManualEntry !== false) {
           <button
             class="rounded-md bg-[#32124f] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4b2070]"
             type="button"
             (click)="creating.set(true)"
           >{{ t('moduleRecords.addRecord') }}</button>
+          }
         </div>
       </div>
 
@@ -157,6 +161,7 @@ type InlineSaveRequest = {
           <table #recordsTable class="w-full min-w-max text-left">
             <thead class="bg-[#faf9f6] text-xs uppercase tracking-[0.1em] text-[#7c7284]">
               <tr>
+                @if (module().supportsManualEntry !== false) {
                 <th class="w-14 min-w-14 px-3 py-3 text-center">
                   <button
                     class="mx-auto grid h-8 w-8 place-items-center rounded-md border border-[#cfc3d8] bg-white text-xl font-medium leading-none text-[#5b287d] shadow-sm transition hover:border-[#6d3a91] hover:bg-[#f7f3fa] disabled:cursor-not-allowed disabled:opacity-40"
@@ -167,6 +172,7 @@ type InlineSaveRequest = {
                     (click)="startNewRow()"
                   >+</button>
                 </th>
+                }
                 @if (isHealthModule()) {
                   <th class="min-w-28 px-5 py-4 font-semibold">{{ t('imports.templateFields.class_name') }}</th>
                 }
@@ -180,18 +186,17 @@ type InlineSaveRequest = {
                 @if (!isBehaviourModule()) {
                   <th class="min-w-40 px-5 py-4 font-semibold">{{ t('moduleRecords.enteredBy') }}</th>
                 }
-                <th class="sticky right-0 z-20 min-w-40 bg-[#f1edf4] px-5 py-4 text-right font-semibold text-[#5b287d] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#8f70a1] before:content-['']">{{ t('moduleRecords.actions') }}</th>
+                @if (!isHealthModule()) {
+                  <th class="sticky right-0 z-20 min-w-40 bg-[#f1edf4] px-5 py-4 text-right font-semibold text-[#5b287d] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#8f70a1] before:content-['']">{{ t('moduleRecords.actions') }}</th>
+                }
               </tr>
             </thead>
             <tbody class="divide-y divide-[#ebe6ef]">
-              @if (newRowOpen()) {
+              @if (newRowOpen() && module().supportsManualEntry !== false) {
                 <tr class="relative align-top bg-[#fffdf6] text-sm shadow-[inset_0_0_0_1px_rgba(243,194,70,0.45)]">
                   <td class="px-3 py-3 text-center">
                     <button class="grid h-7 w-7 place-items-center rounded-md text-lg text-[#7c7284] hover:bg-white hover:text-red-700" type="button" [attr.aria-label]="t('moduleRecords.cancelNewRow')" (click)="cancelNewRow()">×</button>
                   </td>
-                  @if (isHealthModule()) {
-                    <td class="whitespace-nowrap px-5 py-4 font-semibold text-[#32124f]">{{ newRowStudent()?.homeroom || '—' }}</td>
-                  }
                   <td class="relative min-w-72 px-3 py-3">
                     @if (newRowStudent(); as student) {
                       <button class="w-full rounded-md border border-[#d8d0df] bg-white px-3 py-2 text-left hover:border-[#6d3a91]" type="button" (click)="clearNewRowStudent()">
@@ -253,9 +258,6 @@ type InlineSaveRequest = {
                       @if (field.required && !newRowValues[field.key]) { <span class="mt-1 block text-[0.68rem] font-medium text-[#9a6f00]">{{ t('moduleRecords.required') }}</span> }
                     </td>
                   }
-                  @if (isHealthModule()) {
-                    <td class="whitespace-nowrap px-5 py-4 text-[#6f6877]">{{ newRowStudent()?.sisUserId || '—' }}</td>
-                  }
                   @if (!isBehaviourModule()) {
                     <td class="px-5 py-4 text-[#8b8193]">{{ t('moduleRecords.currentUser') }}</td>
                   }
@@ -267,7 +269,7 @@ type InlineSaveRequest = {
               }
               @for (record of records(); track record.id) {
                 <tr class="group align-top text-sm transition hover:bg-[#fdfcff]">
-                  <td class="px-3 py-4"></td>
+                  @if (module().supportsManualEntry !== false) { <td class="px-3 py-4"></td> }
                   @if (isHealthModule()) {
                     <td class="whitespace-nowrap px-5 py-4 font-semibold text-[#32124f]">{{ record.homeroom || '—' }}</td>
                   }
@@ -305,6 +307,8 @@ type InlineSaveRequest = {
                         } @else {
                           <input class="w-full rounded-md border border-[#6d3a91] bg-white px-2 py-2 text-sm outline-none ring-4 ring-[#6d3a91]/10" [type]="field.type" [attr.aria-label]="editFieldLabel(field)" [(ngModel)]="inlineValue" (blur)="commitInlineEdit(record, field)" (keydown)="onInlineKeydown($event, record, field)" />
                         }
+                      } @else if (isHealthModule()) {
+                        <span class="block min-h-9 px-2 py-1" [class.line-clamp-3]="field.type === 'textarea'">{{ displayValue(field.key, record.values[field.key]) || '—' }}</span>
                       } @else {
                         <button class="block min-h-9 w-full rounded px-2 py-1 text-left transition hover:bg-[#f3edf7] focus:outline-none focus:ring-2 focus:ring-[#6d3a91]/30" type="button" [attr.aria-label]="t('moduleRecords.editCell').replace('{field}', tableFieldLabel(field))" (click)="startInlineEdit(record, field, $event)">
                           @if (isBehaviourModule() && field.key === 'incident_date') {
@@ -331,12 +335,14 @@ type InlineSaveRequest = {
                       <span class="mt-1 block whitespace-nowrap text-xs text-[#9a91a3]">{{ formatDateTime(record.createdAt) }}</span>
                     </td>
                   }
-                  <td class="sticky right-0 z-10 bg-[#fbf8fc] px-5 py-4 text-right transition before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#8f70a1] before:content-[''] group-hover:bg-[#f7f1fa]">
-                    <div class="flex justify-end gap-2">
-                      <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:bg-[#f7f3fa]" type="button" (click)="edit(record)">{{ t('moduleRecords.edit') }}</button>
-                      <button class="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50" type="button" (click)="remove(record)">{{ t('moduleRecords.delete') }}</button>
-                    </div>
-                  </td>
+                  @if (!isHealthModule()) {
+                    <td class="sticky right-0 z-10 bg-[#fbf8fc] px-5 py-4 text-right transition before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#8f70a1] before:content-[''] group-hover:bg-[#f7f1fa]">
+                      <div class="flex justify-end gap-2">
+                        <button class="rounded-md border border-[#d8d0df] px-3 py-2 text-xs font-semibold text-[#32124f] hover:bg-[#f7f3fa]" type="button" (click)="edit(record)">{{ t('moduleRecords.edit') }}</button>
+                        <button class="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50" type="button" (click)="remove(record)">{{ t('moduleRecords.delete') }}</button>
+                      </div>
+                    </td>
+                  }
                 </tr>
               }
               @if (loading()) {
@@ -367,11 +373,11 @@ type InlineSaveRequest = {
         }
       </section>
 
-      @if (creating()) {
+      @if (creating() && module().supportsManualEntry !== false) {
         <app-manual-entry-sheet [moduleId]="moduleId" (close)="creating.set(false)" (saved)="created()" />
       }
 
-      @if (excelImportOpen()) {
+      @if (excelImportOpen() && module().supportsExcelImport !== false) {
         <app-excel-import-sheet
           [moduleId]="moduleId"
           (close)="excelImportOpen.set(false)"
@@ -379,7 +385,7 @@ type InlineSaveRequest = {
         />
       }
 
-      @if (designerOpen()) {
+      @if (designerOpen() && module().supportsCustomFields !== false) {
         <app-field-designer-sheet
           [moduleId]="moduleId"
           [moduleTitleKey]="module().titleKey"
@@ -388,7 +394,7 @@ type InlineSaveRequest = {
         />
       }
 
-      @if (editing()) {
+      @if (editing() && !isHealthModule()) {
         <div class="fixed inset-0 z-[70]">
           <button class="absolute inset-0 h-full w-full bg-[#1d1025]/35" type="button" [attr.aria-label]="t('moduleRecords.close')" (click)="closeEdit()"></button>
           <aside class="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col bg-white shadow-[-18px_0_45px_rgba(50,18,79,0.18)]" role="dialog" aria-modal="true">
@@ -530,7 +536,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
       concatMap((request) => this.performInlineSave(request)),
       takeUntil(this.destroy$),
     ).subscribe();
-    forkJoin({ fields: this.fieldsService.list(this.moduleId), options: this.manualService.options() }).subscribe({
+    forkJoin({ fields: this.module().supportsCustomFields === false ? of([]) : this.fieldsService.list(this.moduleId), options: this.manualService.options() }).subscribe({
       next: ({ fields, options }) => { this.customFields.set(fields); this.options.set(options); },
       error: () => this.error.set(this.t('moduleRecords.optionsError')),
     });
@@ -730,7 +736,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
       : this.fieldLabel(field);
   }
   tableColumnCount(): number {
-    return this.tableFields().length + 3 + (this.isBehaviourModule() ? 0 : 1) + (this.isHealthModule() ? 2 : 0);
+    return this.tableFields().length + (this.isHealthModule() ? 4 : this.isBehaviourModule() ? 3 : 4);
   }
   isBehaviourModule(): boolean { return this.moduleId === 'student-behaviours'; }
   isHealthModule(): boolean { return this.moduleId === 'student-health-visits'; }
@@ -787,11 +793,11 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
 
   isInlineEditing(record: ModuleRecord, field: RecordField): boolean {
     const cell = this.activeInlineCell();
-    return cell?.recordId === record.id && cell.fieldKey === field.key;
+    return !this.isHealthModule() && cell?.recordId === record.id && cell.fieldKey === field.key;
   }
 
   startInlineEdit(record: ModuleRecord, field: RecordField, event: Event): void {
-    if (this.isInlineEditing(record, field)) return;
+    if (this.isHealthModule() || this.isInlineEditing(record, field)) return;
     const cell = (event.currentTarget as HTMLElement).closest('td');
     this.activeInlineCell.set({ recordId: record.id, fieldKey: field.key });
     this.inlineValue = record.values[field.key] ?? '';
@@ -861,6 +867,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   startNewRow(): void {
+    if (this.module().supportsManualEntry === false) return;
     const now = new Date();
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString();
     this.newRowValues = Object.fromEntries(this.fields().map((field) => [field.key, '']));
@@ -934,7 +941,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   maybeCreateNewRow(): void {
-    if (!this.newRowOpen() || this.newRowSaving() || !this.newRowStudent() || !this.requiredValuesPresent(this.newRowValues)) return;
+    if (this.module().supportsManualEntry === false || !this.newRowOpen() || this.newRowSaving() || !this.newRowStudent() || !this.requiredValuesPresent(this.newRowValues)) return;
     this.createNewRow();
   }
 
@@ -1003,11 +1010,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
         concernType: value('concern_type')!, riskLevel: value('risk_level')!, notes: value('notes'), customFields,
       });
     } else {
-      request = this.manualService.createHealthVisit(student.id, {
-        visitDate: value('visit_date')!, symptoms: value('symptoms')!, diagnosis: value('diagnosis'),
-        classification: value('classification'), treatment: value('treatment'), medication: value('medication'),
-        notes: value('notes'), notificationSent: value('notification_sent') === 'true', customFields,
-      });
+      return;
     }
     this.newRowSaving.set(true);
     this.newRowError.set(null);
@@ -1043,6 +1046,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   private cellKey(recordId: number, fieldKey: string): string { return `${recordId}:${fieldKey}`; }
 
   edit(record: ModuleRecord): void {
+    if (this.isHealthModule()) return;
     this.editing.set(record);
     this.editValues = Object.fromEntries(this.fields().map((field) => [field.key, record.values[field.key] ?? '']));
     this.editError.set(null);
@@ -1050,6 +1054,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
 
   closeEdit(): void { this.editing.set(null); this.editError.set(null); }
   saveEdit(): void {
+    if (this.isHealthModule()) return;
     const record = this.editing(); if (!record) return;
     this.saving.set(true); this.editError.set(null);
     this.service.update(this.moduleId, record.id, this.editValues).pipe(finalize(() => this.saving.set(false))).subscribe({
@@ -1059,6 +1064,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   remove(record: ModuleRecord): void {
+    if (this.isHealthModule()) return;
     if (!window.confirm(this.t('moduleRecords.confirmDelete').replace('{student}', record.studentName))) return;
     this.service.delete(this.moduleId, record.id).subscribe({
       next: () => { this.message.set(this.t('moduleRecords.deleted')); this.load(); },
@@ -1087,6 +1093,7 @@ export class ModuleRecordsComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   reloadCustomFields(): void {
+    if (this.module().supportsCustomFields === false) { this.customFields.set([]); return; }
     this.fieldsService.list(this.moduleId).subscribe({
       next: (fields) => this.customFields.set(fields),
       error: () => this.error.set(this.t('moduleRecords.optionsError')),

@@ -294,7 +294,7 @@ public class CustomReportsController : ControllerBase
 
     private async Task<bool> ContainsDisallowedMetrics(JsonElement definition)
     {
-        if (!_userAccess.Current.IsTeacher || definition.ValueKind != JsonValueKind.Object ||
+        if (definition.ValueKind != JsonValueKind.Object ||
             !definition.TryGetProperty("charts", out var charts) || charts.ValueKind != JsonValueKind.Array)
             return false;
 
@@ -306,7 +306,7 @@ public class CustomReportsController : ControllerBase
             .Select(metric => metric.GetString()!)
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        var storedDefinitions = await _context.DashboardMetrics.AsNoTracking()
+        var storedDefinitions = await _context.DashboardMetrics.IgnoreQueryFilters().AsNoTracking()
             .Select(metric => new { metric.Key, metric.Source, metric.Domain })
             .ToListAsync();
         var definitions = storedDefinitions
@@ -315,7 +315,8 @@ public class CustomReportsController : ControllerBase
         return metricIds.Any(metricId =>
         {
             definitions.TryGetValue(metricId, out var metricDefinition);
-            return !_userAccess.Current.CanAccessMetric(
+            return string.Equals(metricDefinition?.Source?.Trim(), "SIS", StringComparison.OrdinalIgnoreCase) ||
+                !_userAccess.Current.CanAccessMetric(
                 metricId, metricDefinition?.Source, metricDefinition?.Domain);
         });
     }
@@ -323,7 +324,7 @@ public class CustomReportsController : ControllerBase
     private static BadRequestObjectResult AccessScopeViolation() => new(new
     {
         code = "access_scope_updated",
-        message = "One or more charts use data outside your current access scope."
+        message = "One or more charts use retired data or data outside your current access scope."
     });
 
     private static WorkspacePreferenceDto ToPreferenceDto(WorkspacePreference preference) => new()

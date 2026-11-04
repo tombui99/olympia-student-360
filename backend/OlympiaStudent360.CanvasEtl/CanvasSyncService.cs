@@ -65,6 +65,7 @@ internal sealed partial class CanvasSyncService
             "StudentProfiles remains authoritative; Canvas-only users are excluded.");
 
         var activeCanvasUserIds = (await _db.StudentProfiles.AsNoTracking()
+                .CurrentRoster(_db)
                 .Where(student => student.CanvasUserId != null)
                 .Select(student => student.CanvasUserId!.Value)
                 .ToListAsync(cancellationToken))

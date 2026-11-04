@@ -34,7 +34,7 @@ public sealed class UserAccessController(
         {
             AvailableScopes = TeacherAccessScopes.Values.ToList(),
             AvailableSchoolLevels = TeacherSchoolLevels.Values.ToList(),
-            AvailableHomerooms = await context.StudentProfiles.AsNoTracking()
+            AvailableHomerooms = await context.StudentProfiles.AsNoTracking().CurrentRoster(context)
                 .Where(item => item.Homeroom != null && item.Homeroom != "")
                 .Select(item => item.Homeroom!)
                 .Distinct().OrderBy(item => item).ToListAsync(),
@@ -72,7 +72,7 @@ public sealed class UserAccessController(
 
         if (scopes.Contains(TeacherAccessScopes.Class))
         {
-            var availableHomerooms = await context.StudentProfiles.AsNoTracking()
+            var availableHomerooms = await context.StudentProfiles.AsNoTracking().CurrentRoster(context)
                 .Where(item => item.Homeroom != null && item.Homeroom != "")
                 .Select(item => item.Homeroom!).Distinct().ToListAsync();
             if (homerooms.Except(availableHomerooms, StringComparer.OrdinalIgnoreCase).Any())

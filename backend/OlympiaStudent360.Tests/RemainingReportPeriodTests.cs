@@ -44,7 +44,8 @@ public sealed partial class MySqlResilienceTests
             });
             db.StudentHealthVisits.Add(new StudentHealthVisit
             {
-                Student = student, ExamTime = date.AddHours(9), FullName = student.FullName, ClassName = "5H1", Diagnosis = "Cold"
+                Student = student, SisSourceKey = "test-sis", SisVisitId = date.ToString("yyyy-MM-dd"),
+                ExamTime = date.AddHours(9), FullName = student.FullName, ClassName = "5H1", Diagnosis = "Cold"
             });
         }
         db.StudentBehaviours.Add(new StudentBehaviour

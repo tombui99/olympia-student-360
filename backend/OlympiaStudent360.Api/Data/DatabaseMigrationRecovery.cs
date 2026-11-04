@@ -14,7 +14,7 @@ public static class DatabaseMigrationRecovery
     private const string MigrationLock = "olympia_student_360_schema_migration";
     private const int MigrationCommandTimeoutSeconds = 600;
 
-    private static readonly HashSet<string> ResumableCanvasMigrations =
+    private static readonly HashSet<string> ResumableWarehouseMigrations =
     [
         "20261017145751_PrecomputeCanvasLeadershipReports",
         "20261017152023_TriggerCanvasReportAggregationOnCompletedSync",
@@ -23,7 +23,10 @@ public static class DatabaseMigrationRecovery
         "20261020200719_TrackCanvasReportCourseChanges",
         "20261021093911_ClassifyGhkGroupsAsHs2",
         "20261028025118_AddCanvasActivityReportingDate",
-        "20261028030256_AddLeadershipActivityReportingDate"
+        "20261028030256_AddLeadershipActivityReportingDate",
+        "20261103090437_AddSchoolOnlineSisWarehouse",
+        "20261104024508_AddSisHealthVisitSync",
+        "20261104063344_EnforceSchoolOnlineSourceOwnership"
     ];
 
     private static readonly string[] LearningReportTables =
@@ -63,7 +66,7 @@ public static class DatabaseMigrationRecovery
             }
 
             await RepairPartiallyAppliedLearningReportsMigrationAsync(connection, cancellationToken);
-            await ResumeCanvasReportMigrationsAsync(context, connection, cancellationToken);
+            await ResumeWarehouseMigrationsAsync(context, connection, cancellationToken);
             await context.Database.MigrateAsync(cancellationToken);
         }
         finally
@@ -82,7 +85,7 @@ public static class DatabaseMigrationRecovery
         }
     }
 
-    private static async Task ResumeCanvasReportMigrationsAsync(
+    private static async Task ResumeWarehouseMigrationsAsync(
         AppDbContext context, DbConnection connection, CancellationToken cancellationToken)
     {
         if (!await TableExistsAsync(connection, "__EFMigrationsHistory", cancellationToken)) return;
@@ -96,8 +99,8 @@ public static class DatabaseMigrationRecovery
             if (applied.Contains(id)) continue;
             // Never apply a report migration ahead of an older pending schema change.
             // Fresh databases and all other migrations use EF's normal migrator.
-            if (!ResumableCanvasMigrations.Contains(id)) break;
-            Console.WriteLine($"Applying/resuming Canvas report migration {id}.");
+            if (!ResumableWarehouseMigrations.Contains(id)) break;
+            Console.WriteLine($"Applying/resuming warehouse migration {id}.");
             var migration = assembly.CreateMigration(migrationType, context.Database.ProviderName!);
             var model = context.GetService<IModelRuntimeInitializer>().Initialize(migration.TargetModel);
             foreach (var operation in migration.UpOperations)
@@ -106,6 +109,7 @@ public static class DatabaseMigrationRecovery
                 {
                     CreateTableOperation table => await CreatedTableExistsAsync(connection, table, cancellationToken),
                     AddColumnOperation column => await ColumnExistsAsync(connection, column.Table, column.Name, cancellationToken),
+                    DropColumnOperation column => !await ColumnExistsAsync(connection, column.Table, column.Name, cancellationToken),
                     CreateIndexOperation index => await CreatedIndexExistsAsync(connection, index, cancellationToken),
                     // This migration's cursor UPDATE is idempotent and must finish
                     // even when ADD COLUMN committed before the process was killed.

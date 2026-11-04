@@ -140,6 +140,7 @@ export class ExcelImportSheetComponent implements OnInit {
   readonly customFields = signal<ImportModuleField[]>([]);
 
   ngOnInit(): void {
+    if (this.module()?.supportsExcelImport === false) return;
     this.fieldsService.list(this.moduleId).subscribe({
       next: (fields) => this.customFields.set(fields),
       error: () => {},
@@ -166,7 +167,7 @@ export class ExcelImportSheetComponent implements OnInit {
 
   downloadTemplate(): void {
     const module = this.module();
-    if (!module) {
+    if (!module || module.supportsExcelImport === false) {
       return;
     }
 
@@ -182,6 +183,7 @@ export class ExcelImportSheetComponent implements OnInit {
   }
 
   handleFile(event: Event): void {
+    if (this.module()?.supportsExcelImport === false) return;
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     const file = files[0];
@@ -212,6 +214,7 @@ export class ExcelImportSheetComponent implements OnInit {
   }
 
   private importFile(fileName: string, rows: Record<string, string>[], dataStartRow: number): void {
+    if (this.module()?.supportsExcelImport === false) return;
     this.importing.set(true);
     this.excelImportService.importExcel(this.moduleId, fileName, rows, this.customFieldKeys(), dataStartRow).subscribe({
       next: () => {
@@ -230,7 +233,7 @@ export class ExcelImportSheetComponent implements OnInit {
 
   private parseFile(rawContent: string): ParsedImportFile {
     const module = this.module();
-    if (!module) {
+    if (!module || module.supportsExcelImport === false) {
       return this.rejected(this.languageService.t('imports.errors.templateMismatch'));
     }
 

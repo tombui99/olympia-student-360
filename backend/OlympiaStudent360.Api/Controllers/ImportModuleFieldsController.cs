@@ -32,6 +32,7 @@ public class ImportModuleFieldsController : ControllerBase
         {
             return NotFound();
         }
+        if (moduleId == "student-health-visits") return Ok(new List<ImportModuleFieldDto>());
         var fields = await _context.ImportModuleFields.AsNoTracking()
             .Where(f => f.ModuleId == moduleId)
             .OrderBy(f => f.SortOrder).ThenBy(f => f.Id)
@@ -43,6 +44,7 @@ public class ImportModuleFieldsController : ControllerBase
     [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
     public async Task<ActionResult<ImportModuleFieldDto>> Create(string moduleId, SaveImportModuleFieldDto model)
     {
+        if (moduleId == "student-health-visits") return Conflict(new { Message = "Health visits are synced from SIS. Manage their fields in SchoolOnline." });
         if (!ImportCustomFieldService.IsKnownModule(moduleId))
         {
             return NotFound();
@@ -77,6 +79,7 @@ public class ImportModuleFieldsController : ControllerBase
     [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
     public async Task<ActionResult<ImportModuleFieldDto>> Update(string moduleId, int id, SaveImportModuleFieldDto model)
     {
+        if (moduleId == "student-health-visits") return Conflict(new { Message = "Health visits are synced from SIS. Manage their fields in SchoolOnline." });
         var field = await _context.ImportModuleFields.FirstOrDefaultAsync(f => f.Id == id && f.ModuleId == moduleId);
         if (field == null)
         {
@@ -102,6 +105,7 @@ public class ImportModuleFieldsController : ControllerBase
     [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
     public async Task<IActionResult> Delete(string moduleId, int id)
     {
+        if (moduleId == "student-health-visits") return Conflict(new { Message = "Health visits are synced from SIS. Manage their fields in SchoolOnline." });
         var field = await _context.ImportModuleFields.FirstOrDefaultAsync(f => f.Id == id && f.ModuleId == moduleId);
         if (field == null)
         {

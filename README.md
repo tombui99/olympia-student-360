@@ -514,3 +514,19 @@ Repository:
 ```txt
 https://github.com/tombui99/olympia-student-360.git
 ```
+
+## SchoolOnline SIS API sync
+
+The .NET SIS ETL replaces the retired SIS Excel importer and uses the same direct MySQL/RDS and
+GitHub Actions stack as Canvas. See [the SIS ETL and Postman guide](docs/sis-etl.md) for all 14 data
+endpoints, protected secret configuration, daily/weekly schedules, watermarks and recovery.
+
+Current selections use the SIS active/deleted flags after the first successful current-roster scan;
+historical profiles and Canvas facts are retained. Campus and programme are manual Student 360 fields
+maintained on student profiles and preserved by sync. Health visits are read-only SIS data; legacy
+Excel/manual visits and legacy SIS dashboard observations are archived outside live reports.
+
+Academic score ownership is separate from the roster: grades 1–4 use SIS and grades 5–12 use Canvas.
+The current score pipeline is Canvas-based; primary-school SIS scores are not integrated yet. The
+supplied SchoolOnline API v1 manual has no academic-results endpoint, so that vendor API contract is
+still needed. See the coverage note in [the SIS guide](docs/sis-etl.md).

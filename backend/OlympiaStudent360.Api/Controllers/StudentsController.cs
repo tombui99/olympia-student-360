@@ -36,6 +36,19 @@ public class StudentsController : ControllerBase
         _recordFieldOptions = recordFieldOptions;
     }
 
+    [HttpPut("{studentId:int}/local-details")]
+    [Authorize(Roles = "Admin,SchoolAdministration,Principal")]
+    public async Task<IActionResult> SaveLocalDetails(int studentId, UpdateStudentLocalDetailsDto model)
+    {
+        var student = await _userAccess.ApplyStudentScope(_context.StudentProfiles).FirstOrDefaultAsync(x => x.Id == studentId);
+        if (student is null) return NotFound();
+        student.Campus = Clean(model.Campus);
+        student.Program = Clean(model.Program);
+        student.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Ok(new { student.Campus, student.Program });
+    }
+
     [HttpGet]
     public async Task<ActionResult<StudentsPageDto>> GetStudents(
         [FromQuery] int page = 1,
@@ -46,7 +59,7 @@ public class StudentsController : ControllerBase
         [FromQuery] string? homeroom = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
-        var visible = VisibleStudents();
+        var visible = VisibleStudents().CurrentRoster(_context);
         var availableGrades = (await visible
             .Where(student => (student.GradeLevel ?? student.CanvasGradeLevel) != null &&
                 (student.GradeLevel ?? student.CanvasGradeLevel) != "")
@@ -438,7 +451,7 @@ public class StudentsController : ControllerBase
 
         term = term[..Math.Min(term.Length, 100)];
         var pattern = $"%{EscapeLikePattern(term)}%";
-        var students = await VisibleStudents()
+        var students = await VisibleStudents().CurrentRoster(_context)
             .Where(student =>
                 EF.Functions.Like(student.SISUserId, pattern, "!") ||
                 EF.Functions.Like(student.FullName, pattern, "!") ||
@@ -702,46 +715,8 @@ public class StudentsController : ControllerBase
     }
 
     [HttpPost("{studentId:int}/health-visits")]
-    public async Task<ActionResult<StudentHealthVisitDto>> CreateHealthVisit(
-        int studentId,
-        [FromBody] CreateStudentHealthVisitDto model)
-    {
-        var student = await VisibleStudents().FirstOrDefaultAsync(candidate => candidate.Id == studentId);
-        if (student == null)
-        {
-            return BadRequest(new { Message = "The selected student ID is invalid." });
-        }
-
-        var (customError, customJson) = await BuildCustomFields("student-health-visits", model.CustomFields);
-        if (customError != null) return customError;
-
-        var recordedByName = await CurrentUserDisplayName();
-        var visit = new StudentHealthVisit
-        {
-            StudentProfileId = student.Id,
-            SISUserId = student.SISUserId,
-            ExamTime = DateTime.SpecifyKind(model.VisitDate!.Value, DateTimeKind.Utc),
-            FullName = student.FullName,
-            Gender = student.Gender,
-            ClassName = student.Homeroom,
-            Symptoms = model.Symptoms.Trim(),
-            Diagnosis = Clean(model.Diagnosis),
-            Classification = Clean(model.Classification),
-            Treatment = Clean(model.Treatment),
-            Medication = Clean(model.Medication),
-            Notes = Clean(model.Notes),
-            NotificationSent = model.NotificationSent,
-            ExaminedBy = Clean(model.ExaminedBy),
-            CustomFieldsJson = customJson
-        };
-
-        var history = CreateManualImportHistory("student-health-visits", recordedByName);
-        visit.ImportHistory = history;
-        _context.StudentHealthVisits.Add(visit);
-        _context.ImportHistories.Add(history);
-        await _context.SaveChangesAsync();
-        return Created($"/api/students/{student.Id}", ToHealthVisitDto(visit));
-    }
+    public ActionResult<StudentHealthVisitDto> CreateHealthVisit(int studentId, [FromBody] CreateStudentHealthVisitDto model) =>
+        Conflict(new { Message = "Health visits are synced from SIS. Create them in SchoolOnline." });
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<StudentProfileDetailDto>> GetStudent(
@@ -887,9 +862,9 @@ public class StudentsController : ControllerBase
                     PhoneNumber = parent.PhoneNumber,
                     Email = parent.Email,
                     BirthYear = parent.BirthYear,
-                    AgeGroup = parent.AgeGroup,
+                    AgeGroup = null,
                     Occupation = parent.Occupation,
-                    EmploymentSector = parent.EmploymentSector,
+                    EmploymentSector = null,
                     Notes = parent.ContactNote == null ? null : parent.ContactNote.Notes,
                     NotesUpdatedAt = parent.ContactNote == null ? null : parent.ContactNote.UpdatedAt ?? parent.ContactNote.CreatedAt,
                     NotesUpdatedByName = parent.ContactNote == null ? null : parent.ContactNote.UpdatedByName
@@ -983,9 +958,9 @@ public class StudentsController : ControllerBase
         PhoneNumber = parent.PhoneNumber,
         Email = parent.Email,
         BirthYear = parent.BirthYear,
-        AgeGroup = parent.AgeGroup,
+        AgeGroup = null,
         Occupation = parent.Occupation,
-        EmploymentSector = parent.EmploymentSector,
+        EmploymentSector = null,
         Notes = parent.ContactNote?.Notes,
         NotesUpdatedAt = parent.ContactNote == null ? null : parent.ContactNote.UpdatedAt ?? parent.ContactNote.CreatedAt,
         NotesUpdatedByName = parent.ContactNote?.UpdatedByName
@@ -1611,7 +1586,7 @@ public class StudentsController : ControllerBase
         Notes = visit.Notes,
         NotificationSent = visit.NotificationSent,
         ExaminedBy = visit.ExaminedBy,
-        CustomFields = ImportCustomFieldService.Parse(visit.CustomFieldsJson)
+        CustomFields = new()
     };
 
     private static StudentBusAttendanceRecordDto ToBusAttendanceDto(StudentBusAttendanceRecord record) => new()

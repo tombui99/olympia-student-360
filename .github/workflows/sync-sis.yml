@@ -1,0 +1,127 @@
+name: Sync SchoolOnline SIS data
+
+on:
+  schedule:
+    # 02:30 Vietnam time. Monday is a full reconciliation; other days use watermarks.
+    - cron: "30 19 * * 1-6"
+    - cron: "30 19 * * 0"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Incremental sync bootstraps missing watermarks; full reloads and reconciles the selected scope"
+        type: choice
+        options: [incremental, full, check-access]
+        default: incremental
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: sis-production-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ${{ vars.SIS_RUNNER_LABEL || 'ubuntu-latest' }}
+    timeout-minutes: 180
+    environment: production
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 13361:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      APP_RUNNER_SERVICE_ARN: ${{ vars.APP_RUNNER_SERVICE_ARN }}
+      Sis__BaseUrl: ${{ vars.SIS_BASE_URL || 'https://data-sync-api.schoolonline.edu.vn' }}
+      Sis__ClientId: ${{ secrets.SIS_CLIENT_ID }}
+      Sis__ClientSecret: ${{ secrets.SIS_CLIENT_SECRET }}
+      Sis__SchoolIds: ${{ vars.SIS_SCHOOL_IDS }}
+      Sis__SchoolYearIds: ${{ vars.SIS_SCHOOL_YEAR_IDS }}
+      Sis__Resources: ${{ vars.SIS_RESOURCES || 'schools,students,health/visits' }}
+      Sis__LookbackDays: ${{ vars.SIS_LOOKBACK_DAYS || '31' }}
+      Sis__TimetableFutureDays: ${{ vars.SIS_TIMETABLE_FUTURE_DAYS || '14' }}
+      Sis__RequestIntervalMilliseconds: ${{ vars.SIS_REQUEST_INTERVAL_MS || '1100' }}
+      SIS_SYNC_MODE: ${{ inputs.mode || (github.event.schedule == '30 19 * * 0' && 'full' || 'incremental') }}
+      ConnectionStrings__DefaultConnection: ${{ secrets.OLYMPIA_RDS_CONNECTION_STRING }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Verify SIS credentials are configured
+        run: |
+          if [ -z "$Sis__ClientId" ] || [ -z "$Sis__ClientSecret" ]; then
+            echo "Configure production secrets SIS_CLIENT_ID and SIS_CLIENT_SECRET."
+            exit 1
+          fi
+
+      - name: Restore and build SIS ETL
+        run: |
+          dotnet restore backend/OlympiaStudent360.SisEtl/OlympiaStudent360.SisEtl.csproj
+          dotnet build backend/OlympiaStudent360.SisEtl/OlympiaStudent360.SisEtl.csproj --configuration Release --no-restore
+
+      - name: Verify SIS ingestion and recovery on MySQL 8.4
+        env:
+          OLYMPIA_TEST_MYSQL: "Server=127.0.0.1;Port=13361;User=root;SslMode=Disabled;AllowPublicKeyRetrieval=true"
+        run: dotnet test backend/OlympiaStudent360.Tests/OlympiaStudent360.Tests.csproj --configuration Release --filter "FullyQualifiedName~SisApiClientTests|FullyQualifiedName~.Sis"
+
+      - name: Check SIS access without writing to MySQL
+        if: env.SIS_SYNC_MODE == 'check-access'
+        run: dotnet run --project backend/OlympiaStudent360.SisEtl --configuration Release --no-build -- --check-access
+
+      - name: Configure AWS credentials
+        if: env.SIS_SYNC_MODE != 'check-access' && env.ConnectionStrings__DefaultConnection == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Load the deployed backend database connection
+        if: env.SIS_SYNC_MODE != 'check-access' && env.ConnectionStrings__DefaultConnection == ''
+        run: |
+          service_json=$(aws apprunner describe-service --service-arn "$APP_RUNNER_SERVICE_ARN")
+          connection_string=$(printf '%s' "$service_json" | jq -r '.Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables["ConnectionStrings__DefaultConnection"] // empty')
+          secret_ref=$(printf '%s' "$service_json" | jq -r '.Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentSecrets["ConnectionStrings__DefaultConnection"] // empty')
+          if [ -z "$connection_string" ] && [ -n "$secret_ref" ]; then
+            case "$secret_ref" in
+              *:secretsmanager:*) connection_string=$(aws secretsmanager get-secret-value --secret-id "$secret_ref" --query SecretString --output text) ;;
+              *:ssm:*) connection_string=$(aws ssm get-parameter --name "$secret_ref" --with-decryption --query Parameter.Value --output text) ;;
+            esac
+          fi
+          if printf '%s' "$connection_string" | jq -e . >/dev/null 2>&1; then
+            json_connection=$(printf '%s' "$connection_string" | jq -r '.ConnectionStrings__DefaultConnection // .ConnectionStrings.DefaultConnection // .DefaultConnection // empty')
+            if [ -n "$json_connection" ]; then connection_string="$json_connection"; fi
+          fi
+          if [ -z "$connection_string" ] || [ "$connection_string" = "None" ]; then
+            echo "Could not load ConnectionStrings__DefaultConnection from App Runner."
+            exit 1
+          fi
+          echo "::add-mask::$connection_string"
+          echo "ConnectionStrings__DefaultConnection=$connection_string" >> "$GITHUB_ENV"
+
+      - name: Sync SIS directly into RDS
+        if: env.SIS_SYNC_MODE != 'check-access'
+        run: |
+          if [ -z "$ConnectionStrings__DefaultConnection" ]; then
+            echo "Production database connection is missing."
+            exit 1
+          fi
+          case "$SIS_SYNC_MODE" in
+            full) argument=--full ;;
+            incremental) argument=--incremental ;;
+            *) echo "Unknown SIS sync mode"; exit 1 ;;
+          esac
+          dotnet run --project backend/OlympiaStudent360.SisEtl --configuration Release --no-build -- "$argument"

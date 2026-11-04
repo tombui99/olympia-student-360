@@ -104,7 +104,7 @@ public class AdminUsersController : ControllerBase
             Roles = ManagedRoles.ToList(),
             AccessScopes = TeacherAccessScopes.Values.ToList(),
             SchoolLevels = TeacherSchoolLevels.Values.ToList(),
-            Homerooms = await _context.StudentProfiles.AsNoTracking()
+            Homerooms = await _context.StudentProfiles.AsNoTracking().CurrentRoster(_context)
                 .Where(item => item.Homeroom != null && item.Homeroom != "")
                 .Select(item => item.Homeroom!)
                 .Distinct()
@@ -356,7 +356,7 @@ public class AdminUsersController : ControllerBase
         if (scopes.Contains(TeacherAccessScopes.Class))
         {
             if (homerooms.Count == 0) return "Select at least one class for class access.";
-            var availableHomerooms = await _context.StudentProfiles.AsNoTracking()
+            var availableHomerooms = await _context.StudentProfiles.AsNoTracking().CurrentRoster(_context)
                 .Where(item => item.Homeroom != null && item.Homeroom != "")
                 .Select(item => item.Homeroom!).Distinct().ToListAsync();
             if (homerooms.Except(availableHomerooms, StringComparer.OrdinalIgnoreCase).Any())

@@ -27,6 +27,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     }
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
+    public DbSet<SisWarehouseRecord> SisWarehouseRecords { get; set; }
+    public DbSet<SisSyncState> SisSyncStates { get; set; }
+    public DbSet<SisSyncRun> SisSyncRuns { get; set; }
     public DbSet<StudentTranscriptRecord> StudentTranscriptRecords { get; set; }
     public DbSet<TeacherAccessGrant> TeacherAccessGrants { get; set; }
     public DbSet<TeacherClassAccess> TeacherClassAccesses { get; set; }
@@ -81,6 +84,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        SisModelConfiguration.Configure(modelBuilder);
 
         modelBuilder.Entity<StudentTranscriptRecord>(record =>
         {

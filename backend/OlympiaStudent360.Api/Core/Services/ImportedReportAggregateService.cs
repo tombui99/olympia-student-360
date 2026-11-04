@@ -127,6 +127,7 @@ public sealed class ImportedReportAggregateService(AppDbContext db, CanvasReport
                 Symptoms = Clean(item.Symptoms),
                 Category = Clean(item.Classification),
                 EnteredBy = Clean(item.ImportHistory?.ImportedByName) ?? Clean(item.ExaminedBy)
+                    ?? (item.SisVisitId is not null ? "SchoolOnline SIS" : null)
             });
         }
 

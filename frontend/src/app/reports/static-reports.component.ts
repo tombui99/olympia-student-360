@@ -972,7 +972,7 @@ export class StaticReportsComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      id: 'health', titleKey: 'reports.group.health', shortLabel: 'YT', awaitingData: true, items: [
+      id: 'health', titleKey: 'reports.group.health', shortLabel: 'YT', items: [
         { id: 'health-diagnoses', titleKey: 'reports.health.diagnoses.title', descriptionKey: 'reports.health.diagnoses.menuDescription' },
         { id: 'health-frequent-students', titleKey: 'reports.health.frequent-students.title', descriptionKey: 'reports.health.frequent-students.menuDescription' },
         { id: 'health-student-visits', titleKey: 'reports.health.student-visits.title', descriptionKey: 'reports.health.student-visits.menuDescription' },

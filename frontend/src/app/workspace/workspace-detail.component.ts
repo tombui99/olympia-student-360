@@ -1846,7 +1846,7 @@ export class WorkspaceDetailComponent implements OnInit {
 
   chartAccessUnavailable(chart: CustomChart): boolean {
     return !chart.explorer && chart.metrics.some((metricId) =>
-      this.metricVariables().some((metric) => metric.id === metricId && metric.unavailableReason === 'access_scope_updated'));
+      this.metricVariables().some((metric) => metric.id === metricId && ['access_scope_updated', 'source_retired'].includes(metric.unavailableReason ?? '')));
   }
 
   retryChartData(): void {

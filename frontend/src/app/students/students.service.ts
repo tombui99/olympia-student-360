@@ -275,6 +275,9 @@ export interface StudentCanvasSubmissionsPage {
 export type CanvasSubmissionCategory = 'graded' | 'submitted' | 'missing' | 'late';
 
 export interface StudentProfileDetail {
+  campus?: string | null;
+  program?: string | null;
+  educationLevel?: string | null;
   id: number;
   sisStudentCode?: string | null;
   sisUserId: string;
@@ -385,6 +388,12 @@ export class StudentsService {
     if (academicYear) params = params.set('academicYear', academicYear);
     if (term) params = params.set('term', term);
     return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
+  }
+
+  saveLocalDetails(studentId: number, campus: string, program: string): Observable<{ campus: string | null; program: string | null }> {
+    return this.http.put<{ campus: string | null; program: string | null }>(
+      `${this.basePath}/api/students/${studentId}/local-details`, { campus, program },
+    );
   }
 
   saveParentNote(studentId: number, parentId: number, notes: string): Observable<StudentParent> {

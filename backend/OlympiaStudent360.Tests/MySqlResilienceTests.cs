@@ -611,9 +611,13 @@ public sealed partial class MySqlResilienceTests
         await using var test = await TestDatabase.CreateAsync(
             targetMigration: "20261020200719_TrackCanvasReportCourseChanges");
         await using var db = test.Open();
-        var student = new StudentProfile { SISUserId = "ghk-test", FullName = "Report student" };
+        // This fixture deliberately predates the SIS identity columns on the current entity.
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO `StudentProfiles` (`SISUserId`,`FullName`,`CreatedAt`)
+            VALUES ('ghk-test','Report student',UTC_TIMESTAMP(6))
+            """);
+        var studentId = await db.StudentProfiles.Where(x => x.SISUserId == "ghk-test").Select(x => x.Id).SingleAsync();
         var course = new CanvasCourse { CanvasCourseId = 100, Name = "Report course" };
-        db.StudentProfiles.Add(student);
         db.CanvasCourses.Add(course);
         db.CanvasDashboardAggregateBuilds.Add(new CanvasDashboardAggregateBuild
         {
@@ -628,13 +632,13 @@ public sealed partial class MySqlResilienceTests
                     (`StudentProfileId`,`CanvasCourseId`,`AcademicYear`,`Term`,`IsFinalCourseScore`,
                      `AssignmentGroupName`,`AssessmentCategory`,`Submitted`,`Missing`,`Late`,`Graded`,
                      `ScoreSum`,`ScoreCount`,`EarnedPoints`,`PossiblePoints`,`CreatedAt`)
-                VALUES ({student.Id},{course.CanvasCourseId},'2026-2027','HK1',0,
+                VALUES ({studentId},{course.CanvasCourseId},'2026-2027','HK1',0,
                     {group},{(group == "HS1" ? "HS1" : null)},0,0,0,0,75,1,7.5,10,UTC_TIMESTAMP(6))
                 """);
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO `CanvasDashboardMetricAggregates`
                 (`StudentProfileId`,`CanvasCourseId`,`AcademicYear`,`Term`,`MetricKey`,`ValueSum`,`SampleCount`,`CreatedAt`)
-            VALUES ({student.Id},{course.CanvasCourseId},'2026-2027','HK1',
+            VALUES ({studentId},{course.CanvasCourseId},'2026-2027','HK1',
                 {CanvasDashboardAggregateService.SubmissionScoreAverage},75,1,UTC_TIMESTAMP(6))
             """);
         var metricId = await db.CanvasDashboardMetricAggregates.Select(item => item.Id).SingleAsync();

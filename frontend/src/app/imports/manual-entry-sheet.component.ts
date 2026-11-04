@@ -4,12 +4,8 @@ import { catchError, debounceTime, distinctUntilChanged, finalize, of, Subject, 
 import { LanguageService } from '../core/language/language.service';
 import { ManualEntryOptions, ManualEntryService, ManualEntryStudent } from './manual-entry.service';
 import { ImportModuleField, ImportModuleFieldsService } from './import-module-fields.service';
+import { importModules } from './import-template-data';
 import { BehaviourTypeSelectComponent } from './behaviour-type-select.component';
-
-const localDateTimeNow = (): string => {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-};
 
 @Component({
   selector: 'app-manual-entry-sheet',
@@ -329,39 +325,6 @@ const localDateTimeNow = (): string => {
                 <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.notes') }}</span>
                 <textarea class="mt-2 min-h-28 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="mentalNotes" maxlength="1000" [(ngModel)]="notes"></textarea>
               </label>
-            } @else {
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.visitDate') }} <span class="text-red-600">*</span></span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" type="datetime-local" name="visitDate" required [(ngModel)]="visitDate" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.classification') }}</span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="classification" maxlength="100" [(ngModel)]="classification" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.diagnosis') }}</span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="diagnosis" maxlength="1000" [(ngModel)]="diagnosis"></textarea>
-              </label>
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.symptoms') }} <span class="text-red-600">*</span></span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="symptoms" maxlength="1000" required [(ngModel)]="symptoms"></textarea>
-              </label>
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.treatment') }}</span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="treatment" maxlength="1000" [(ngModel)]="treatment"></textarea>
-              </label>
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.medication') }}</span>
-                <input class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="medication" maxlength="500" [(ngModel)]="medication" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-semibold text-[#32124f]">{{ languageService.t('imports.manual.notes') }}</span>
-                <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-[#d8d0df] px-3 py-3 text-sm outline-none focus:border-[#6d3a91] focus:ring-4 focus:ring-[#6d3a91]/10" name="healthNotes" maxlength="1000" [(ngModel)]="notes"></textarea>
-              </label>
-              <label class="flex items-center gap-3 rounded-md border border-[#e5dfe8] bg-[#faf9fb] px-4 py-3 text-sm font-semibold text-[#32124f]">
-                <input class="h-4 w-4 accent-[#5d2d7b]" type="checkbox" name="notificationSent" [(ngModel)]="notificationSent" />
-                {{ languageService.t('imports.manual.notificationSent') }}
-              </label>
             }
 
             @if (customFields().length) {
@@ -485,13 +448,6 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
   violationType = '';
   busCode = '';
   routeName = '';
-  visitDate = localDateTimeNow();
-  symptoms = '';
-  diagnosis = '';
-  classification = '';
-  treatment = '';
-  medication = '';
-  notificationSent = false;
 
   ngOnInit(): void {
     this.studentSearchInput.pipe(
@@ -638,18 +594,17 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
     if (this.moduleId === 'student-behaviours') return 'imports.modules.behaviours.title';
     if (this.moduleId === 'student-projects') return 'imports.modules.projects.title';
     if (this.moduleId === 'student-bus-attendance') return 'imports.modules.busAttendance.title';
-    if (this.moduleId === 'student-health-visits') return 'imports.modules.healthVisits.title';
     return 'imports.modules.mentalHealth.title';
   }
 
   canSubmit(): boolean {
-    if (!this.studentId || !this.customFieldsValid()) {
+    const module = importModules.find((item) => item.id === this.moduleId);
+    if (!module || module.supportsManualEntry === false || !this.studentId || !this.customFieldsValid()) {
       return false;
     }
     if (this.moduleId === 'student-behaviours') return !!this.incidentDate && !!this.behaviourType;
     if (this.moduleId === 'student-projects') return !!this.projectName.trim() && !!this.subject && !!this.status;
     if (this.moduleId === 'student-bus-attendance') return !!this.attendanceDate && !!this.tripDirection && !!this.violationType;
-    if (this.moduleId === 'student-health-visits') return !!this.visitDate && !!this.symptoms.trim();
     return !!this.recordDate && !!this.academicYear && !!this.concernType && !!this.riskLevel;
   }
 
@@ -693,22 +648,12 @@ export class ManualEntrySheetComponent implements OnInit, OnDestroy {
           routeName: this.routeName.trim() || null,
           notes: this.notes.trim() || null,
           customFields,
-        }) : this.moduleId === 'student-mental-health' ? this.manualEntryService.createMentalHealth(this.studentId, {
+        }) : this.manualEntryService.createMentalHealth(this.studentId, {
           recordDate: this.recordDate,
           academicYear: this.academicYear,
           concernType: this.concernType,
           riskLevel: this.riskLevel,
           notes: this.notes.trim() || null,
-          customFields,
-        }) : this.manualEntryService.createHealthVisit(this.studentId, {
-          visitDate: this.visitDate,
-          symptoms: this.symptoms.trim(),
-          diagnosis: this.diagnosis.trim() || null,
-          classification: this.classification.trim() || null,
-          treatment: this.treatment.trim() || null,
-          medication: this.medication.trim() || null,
-          notes: this.notes.trim() || null,
-          notificationSent: this.notificationSent,
           customFields,
         });
 

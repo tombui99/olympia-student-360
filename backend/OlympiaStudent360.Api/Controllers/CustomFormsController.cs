@@ -311,7 +311,7 @@ public class PublicCustomFormsController : ControllerBase
         if (form == null) return NotFound();
         var studentId = model.StudentId?.Trim();
         if (string.IsNullOrWhiteSpace(studentId)) return InvalidVerification();
-        var student = await _context.StudentProfiles
+        var student = await _context.StudentProfiles.CurrentRoster(_context)
             .FirstOrDefaultAsync(item => item.SISUserId.ToLower() == studentId.ToLower());
         if (student == null) return InvalidVerification();
         if (!form.AllowMultipleSubmissions && await _context.CustomFormResponses.AnyAsync(item => item.CustomFormId == form.Id && item.StudentProfileId == student.Id && !item.IsDeleted))
@@ -352,7 +352,7 @@ public class PublicCustomFormsController : ControllerBase
         if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(phone))
             return UnprocessableEntity(new { Message = "Enter a parent or guardian email or phone number." });
 
-        var students = _context.StudentProfiles.AsNoTracking().AsQueryable();
+        var students = _context.StudentProfiles.AsNoTracking().CurrentRoster(_context);
         if (!string.IsNullOrWhiteSpace(email))
             students = students.Where(student =>
                 student.Email != null && student.Email.Trim().ToLower() == email ||

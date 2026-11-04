@@ -1,5 +1,11 @@
 namespace OlympiaStudent360.Api.Core.DTOs;
 
+public sealed class UpdateStudentLocalDetailsDto
+{
+    [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? Campus { get; set; }
+    [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? Program { get; set; }
+}
+
 public class StudentListItemDto
 {
     public int Id { get; set; }

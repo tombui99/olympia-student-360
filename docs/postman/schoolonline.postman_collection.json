@@ -1,0 +1,825 @@
+{
+  "info": {
+    "name": "SchoolOnline SIS API v1 - Student 360",
+    "description": "Based on the supplied SchoolOnline API v1 manual, 31 October 2026. Read-only API. No credentials or student records are included. Pagination is manual to prevent sharing cursors/watermarks across resources.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01 - Get access token",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "basic",
+          "basic": [
+            {
+              "key": "username",
+              "value": "{{client_id}}",
+              "type": "string"
+            },
+            {
+              "key": "password",
+              "value": "{{client_secret}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials",
+              "type": "text"
+            }
+          ]
+        },
+        "url": "{{base_url}}/oauth/token",
+        "description": "Set client_id and client_secret locally in your Postman environment or Vault. Do not export populated secrets."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Token issued\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) { const r = pm.response.json(); pm.environment.set(\"access_token\", r.access_token); pm.environment.set(\"token_expires_at\", String(Date.now() + r.expires_in * 1000)); }"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Schools and school years",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/schools?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "schools"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires catalog.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "03 - Students, parents and guardians",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/students?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "students"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires students.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "04 - Employees",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/employees?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "employees"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires employees.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "05 - Homeroom classes and memberships",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/homeroom-classes?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "homeroom-classes"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires classes.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "06 - Subject courses and memberships",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/courses?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "courses"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "subject_id",
+              "value": "{{subject_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires courses.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "07 - Timetable (full snapshot only)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/timetable?limit=500&from_date={{from_date}}&to_date={{to_date}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "timetable"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "from_date",
+              "value": "{{from_date}}"
+            },
+            {
+              "key": "to_date",
+              "value": "{{to_date}}"
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires timetable.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. Replace the complete requested date range with this snapshot; updated_since is unsupported."
+      }
+    },
+    {
+      "name": "08 - Teacher substitutions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/substitutions?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "substitutions"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires substitutions.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "09 - Student attendance",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/attendances?limit=500&from_date={{from_date}}&to_date={{to_date}}&type={{type}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "attendances"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "from_date",
+              "value": "{{from_date}}"
+            },
+            {
+              "key": "to_date",
+              "value": "{{to_date}}"
+            },
+            {
+              "key": "type",
+              "value": "{{type}}",
+              "description": "Required: HOMEROOM or COURSE."
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires attendance.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "10 - Daily comments and parent replies",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/comments?limit=500&from_date={{from_date}}&to_date={{to_date}}&type={{type}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "comments"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "from_date",
+              "value": "{{from_date}}"
+            },
+            {
+              "key": "to_date",
+              "value": "{{to_date}}"
+            },
+            {
+              "key": "type",
+              "value": "{{type}}",
+              "description": "Required: HOMEROOM or COURSE."
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires comments.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "11 - Bus attendance",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/bus/attendances?limit=500&from_date={{from_date}}&to_date={{to_date}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "bus",
+            "attendances"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "from_date",
+              "value": "{{from_date}}"
+            },
+            {
+              "key": "to_date",
+              "value": "{{to_date}}"
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires bus.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "12 - Health profiles",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/health/profiles?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "health",
+            "profiles"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires health.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "13 - Physical examinations",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/health/physical-checks?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "health",
+            "physical-checks"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires health.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "14 - Disease catalog",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/health/diseases?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "health",
+            "diseases"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires health.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "15 - Medical room visits",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/health/visits?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "health",
+            "visits"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Enable after selecting the year from schools; otherwise the provider current year is used."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires health-visits.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    }
+  ]
+}

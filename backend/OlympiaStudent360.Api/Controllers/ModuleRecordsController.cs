@@ -53,13 +53,13 @@ public sealed class ModuleRecordsController(
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId)) return NotFound();
         if (!await CanAccessRecord(moduleId, id)) return NotFound();
+        if (moduleId == "student-health-visits") return SisHealthVisitReadOnly();
         var error = moduleId switch
         {
             "student-behaviours" => await UpdateBehaviour(id, model.Values),
             "student-projects" => await UpdateProject(id, model.Values),
             "student-mental-health" => await UpdateMentalHealth(id, model.Values),
             "student-bus-attendance" => await UpdateBusAttendance(id, model.Values),
-            "student-health-visits" => await UpdateHealthVisit(id, model.Values),
             _ => "This module is not supported."
         };
         if (error == "not-found") return NotFound();
@@ -73,6 +73,7 @@ public sealed class ModuleRecordsController(
     {
         if (!ImportCustomFieldService.IsKnownModule(moduleId)) return NotFound();
         if (!await CanAccessRecord(moduleId, id)) return NotFound();
+        if (moduleId == "student-health-visits") return SisHealthVisitReadOnly();
         int? historyId = null;
         var deleted = false;
         switch (moduleId)
@@ -99,12 +100,6 @@ public sealed class ModuleRecordsController(
             {
                 var item = await context.StudentBusAttendanceRecords.FindAsync(id);
                 if (item != null) { historyId = item.ImportHistoryId; context.StudentBusAttendanceRecords.Remove(item); deleted = true; }
-                break;
-            }
-            case "student-health-visits":
-            {
-                var item = await context.StudentHealthVisits.FindAsync(id);
-                if (item != null) { historyId = item.ImportHistoryId; context.StudentHealthVisits.Remove(item); deleted = true; }
                 break;
             }
         }
@@ -316,7 +311,8 @@ public sealed class ModuleRecordsController(
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
         var records = items.Select(item =>
         {
-            var record = Record("student-health-visits", item, item.Student, item.ImportHistory?.ImportedByName,
+            var record = Record("student-health-visits", item, item.Student,
+                item.SisVisitId is not null ? "SchoolOnline SIS" : item.ImportHistory?.ImportedByName,
                 ("visit_date", item.ExamTime.ToString("yyyy-MM-ddTHH:mm")), ("symptoms", item.Symptoms),
                 ("diagnosis", item.Diagnosis), ("classification", item.Classification),
                 ("treatment", item.Treatment), ("medication", item.Medication),
@@ -415,27 +411,6 @@ public sealed class ModuleRecordsController(
         return null;
     }
 
-    private async Task<string?> UpdateHealthVisit(int id, IDictionary<string, string?> values)
-    {
-        var item = await context.StudentHealthVisits.FindAsync(id);
-        if (item == null) return "not-found";
-        if (!TryDateTime(values, "visit_date", out var date)) return "visit_date is invalid.";
-        var symptoms = Required(values, "symptoms");
-        if (symptoms == null) return "symptoms is required.";
-        var custom = await CustomFields("student-health-visits", values);
-        if (custom.Error != null) return custom.Error;
-        item.ExamTime = date; item.Symptoms = symptoms;
-        item.Diagnosis = Clean(Value(values, "diagnosis"));
-        item.Classification = Clean(Value(values, "classification"));
-        item.Treatment = Clean(Value(values, "treatment"));
-        item.Medication = Clean(Value(values, "medication"));
-        item.Notes = Clean(Value(values, "notes"));
-        item.NotificationSent = Checkbox(Value(values, "notification_sent"));
-        if (values.ContainsKey("examined_by")) item.ExaminedBy = Clean(Value(values, "examined_by"));
-        item.CustomFieldsJson = custom.Json; item.UpdatedAt = DateTime.UtcNow;
-        return null;
-    }
-
     private async Task<ModuleRecordPeriod?> ResolvePeriod(string? academicYear, string? reportingTerm)
     {
         if (string.IsNullOrWhiteSpace(academicYear)) return null;
@@ -521,6 +496,11 @@ public sealed class ModuleRecordsController(
         return accessible;
     }
 
+    private ConflictObjectResult SisHealthVisitReadOnly() => Conflict(new
+    {
+        Message = "This health visit is synced from SIS. Edit or delete it in SchoolOnline."
+    });
+
     private static ModuleRecordDto Record(
         string moduleId, BaseEntity entity, StudentProfile? student, string? enteredByName,
         params (string Key, string? Value)[] standardValues)
@@ -532,7 +512,7 @@ public sealed class ModuleRecordsController(
             StudentProject item => item.CustomFieldsJson,
             StudentMentalHealthRecord item => item.CustomFieldsJson,
             StudentBusAttendanceRecord item => item.CustomFieldsJson,
-            StudentHealthVisit item => item.CustomFieldsJson,
+            StudentHealthVisit => null,
             _ => null
         };
         foreach (var field in ImportCustomFieldService.Parse(customJson)) values[field.Key] = field.Value;

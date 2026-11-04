@@ -1,5 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
+import { throwError } from 'rxjs';
+import { importModules } from './import-template-data';
 import { BASE_PATH } from '../api/variables';
 
 type ExcelImportResult = {
@@ -19,6 +21,9 @@ export class ExcelImportService {
     customFieldKeys: string[] = [],
     dataStartRow = 2,
   ) {
+    const module = importModules.find((item) => item.id === moduleId);
+    if (!module || module.supportsExcelImport === false)
+      return throwError(() => new Error('This module does not support Excel imports.'));
     const endpoint = moduleId;
     const customFieldsFor = (row: Record<string, string>): Record<string, string> =>
       Object.fromEntries(customFieldKeys.map((key) => [key, row[key] ?? '']));
@@ -62,7 +67,7 @@ export class ExcelImportService {
           routeName: row['route_name'] || null,
           notes: row['notes'] || null,
           customFields: customFieldsFor(row),
-        })) : moduleId === 'student-mental-health' ? rows.map((row) => ({
+        })) : rows.map((row) => ({
           studentId: row['student_id'],
           studentName: row['student_name'],
           recordDate: row['record_date'],
@@ -70,18 +75,6 @@ export class ExcelImportService {
           concernType: row['concern_type'],
           riskLevel: row['risk_level'],
           notes: row['notes'] || null,
-          customFields: customFieldsFor(row),
-        })) : rows.map((row) => ({
-          studentId: row['student_id'],
-          studentName: row['student_name'],
-          visitDate: row['visit_date'],
-          symptoms: row['symptoms'],
-          diagnosis: row['diagnosis'] || null,
-          classification: row['classification'] || null,
-          treatment: row['treatment'] || null,
-          medication: row['medication'] || null,
-          notes: row['notes'] || null,
-          notificationSent: this.booleanValue(row['notification_sent']),
           customFields: customFieldsFor(row),
         }));
 
@@ -92,7 +85,4 @@ export class ExcelImportService {
     });
   }
 
-  private booleanValue(value: string | undefined): boolean {
-    return ['true', '1', 'yes', 'y', 'on', 'có'].includes(value?.trim().toLocaleLowerCase() ?? '');
-  }
 }
