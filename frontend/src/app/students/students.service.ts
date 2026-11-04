@@ -390,12 +390,6 @@ export class StudentsService {
     return this.http.get<StudentProfileDetail>(`${this.basePath}/api/students/${id}`, { params });
   }
 
-  saveLocalDetails(studentId: number, campus: string, program: string): Observable<{ campus: string | null; program: string | null }> {
-    return this.http.put<{ campus: string | null; program: string | null }>(
-      `${this.basePath}/api/students/${studentId}/local-details`, { campus, program },
-    );
-  }
-
   saveParentNote(studentId: number, parentId: number, notes: string): Observable<StudentParent> {
     return this.http.put<StudentParent>(
       `${this.basePath}/api/students/${studentId}/parents/${parentId}/note`,

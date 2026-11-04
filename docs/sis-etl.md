@@ -164,9 +164,9 @@ without advancing its watermark. A successful reconciliation
 also deactivates profiles remaining in prior school years. Profiles, Canvas links, report facts and
 historical student details are preserved.
 
-Campus and programme are **manual Student 360 fields**, as requested. Existing values and filters remain;
-Admin, SchoolAdministration and Principal can maintain them on a student's profile using the separate
-Student 360 details form (`PUT /api/students/{id}/local-details`). SIS never updates these two fields.
+Campus and programme are **manual Student 360 fields**. Existing values and filters remain;
+SIS never updates these two fields. The student profile no longer displays a separate Student 360
+campus/programme editor. The administrative API (`PUT /api/students/{id}/local-details`) remains available.
 Education level is derived from the SIS grade using Olympia's school-level mapping: grades
 1–4 Primary, 5–8 LowerSecondary, 9–12 UpperSecondary. Parent age-group and employment-sector export
 attributes are retired from read models because the API does not supply them; birth year and occupation

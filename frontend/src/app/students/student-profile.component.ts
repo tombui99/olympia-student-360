@@ -109,25 +109,6 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
           </dl>
         </div>
 
-        <section class="rounded-lg border border-[#ebe6ef] bg-white p-5">
-          <h3 class="font-semibold text-[#32124f]">{{ languageService.t('studentProfile.local.title') }}</h3>
-          <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.local.hint') }}</p>
-          @if (canEditLocalDetails()) {
-            <form class="mt-4 flex flex-wrap items-end gap-4" (ngSubmit)="saveLocalDetails()">
-              <label class="text-sm text-[#5f5368]">{{ languageService.t('workspace.filters.fields.campus') }}
-                <input class="mt-1 block rounded-md border border-[#d8d0df] px-3 py-2" name="campus" maxlength="100" [(ngModel)]="campusDraft" [disabled]="localDetailsSaving()" />
-              </label>
-              <label class="text-sm text-[#5f5368]">{{ languageService.t('workspace.filters.fields.program') }}
-                <input class="mt-1 block rounded-md border border-[#d8d0df] px-3 py-2" name="program" maxlength="100" [(ngModel)]="programDraft" [disabled]="localDetailsSaving()" />
-              </label>
-              <button class="rounded-md bg-[#32124f] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" type="submit" [disabled]="localDetailsSaving()">{{ languageService.t('studentProfile.local.save') }}</button>
-              @if (localDetailsMessage()) { <p role="status" class="text-sm text-[#5f5368]">{{ localDetailsMessage() }}</p> }
-            </form>
-          } @else {
-            <p class="mt-3 text-sm text-[#5f5368]">{{ languageService.t('workspace.filters.fields.campus') }}: {{ profile.campus || '—' }} · {{ languageService.t('workspace.filters.fields.program') }}: {{ profile.program || '—' }}</p>
-          }
-        </section>
-
         @if (yearOptions().length) {
           <div class="flex flex-wrap items-center gap-3 rounded-lg border border-[#ebe6ef] bg-white px-5 py-4 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <div class="min-w-0">
@@ -1146,32 +1127,6 @@ export class StudentProfileComponent implements OnInit {
   readonly authService = inject(AuthenticationService);
 
   readonly student = signal<StudentProfileDetail | null>(null);
-  campusDraft = '';
-  programDraft = '';
-  readonly localDetailsSaving = signal(false);
-  readonly localDetailsMessage = signal('');
-
-  canEditLocalDetails(): boolean {
-    return ['Admin', 'SchoolAdministration', 'Principal'].includes(this.authService.role() ?? '');
-  }
-
-  saveLocalDetails(): void {
-    if (!this.canEditLocalDetails() || this.localDetailsSaving()) return;
-    this.localDetailsSaving.set(true);
-    this.localDetailsMessage.set('');
-    this.studentsService.saveLocalDetails(this.studentId, this.campusDraft, this.programDraft).subscribe({
-      next: (details) => {
-        this.student.update((profile) => profile ? { ...profile, ...details } : profile);
-        this.localDetailsSaving.set(false);
-        this.localDetailsMessage.set(this.languageService.t('studentProfile.local.saved'));
-      },
-      error: () => {
-        this.localDetailsSaving.set(false);
-        this.localDetailsMessage.set(this.languageService.t('studentProfile.local.error'));
-      },
-    });
-  }
-
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly courseGradesLoading = signal(false);
@@ -1518,9 +1473,6 @@ export class StudentProfileComponent implements OnInit {
       next: (profile) => {
         this.rememberAcademicYears(profile);
         this.student.set(profile);
-        this.campusDraft = profile.campus ?? '';
-        this.programDraft = profile.program ?? '';
-        this.localDetailsMessage.set('');
         this.parentNoteDrafts.set(Object.fromEntries(profile.parents.map((parent) => [parent.id, parent.notes ?? ''])));
         this.parentNoteStates.set({});
         this.loading.set(false);

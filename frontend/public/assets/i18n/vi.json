@@ -2279,10 +2279,5 @@
   "transcript.editor.vietnameseSubject": "Tên môn tiếng Việt (có thể chỉnh sửa)",
   "transcript.summaryScopeHelp": "Chọn năm học và khối để xem tổng hợp. Để xem hoặc xuất bảng điểm cá nhân, chọn học sinh.",
   "transcript.chooseGrade": "Chọn khối",
-  "transcript.loadSummary": "Xem tổng hợp",
-  "studentProfile.local.title": "Thông tin Student 360",
-  "studentProfile.local.hint": "Cơ sở và chương trình được quản lý tại đây và giữ nguyên khi đồng bộ SIS.",
-  "studentProfile.local.save": "Lưu",
-  "studentProfile.local.saved": "Đã lưu",
-  "studentProfile.local.error": "Không thể lưu. Vui lòng thử lại."
+  "transcript.loadSummary": "Xem tổng hợp"
 }

@@ -2279,10 +2279,5 @@
   "transcript.editor.vietnameseSubject": "Vietnamese subject name (optional override)",
   "transcript.summaryScopeHelp": "Choose an academic year and grade to load a summary. For an individual transcript or PDF, choose a student.",
   "transcript.chooseGrade": "Choose a grade",
-  "transcript.loadSummary": "Load summary",
-  "studentProfile.local.title": "Student 360 details",
-  "studentProfile.local.hint": "Campus and programme are maintained here and preserved during SIS syncs.",
-  "studentProfile.local.save": "Save",
-  "studentProfile.local.saved": "Saved",
-  "studentProfile.local.error": "Could not save. Please try again."
+  "transcript.loadSummary": "Load summary"
 }
