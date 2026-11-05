@@ -401,6 +401,7 @@ export class MainLayoutComponent {
         { path: '/transcripts', labelKey: 'nav.transcripts', icon: faFileLines, access: 'academic' },
         { path: '/at-risk', labelKey: 'nav.atRisk', icon: faTriangleExclamation, access: 'atRisk' },
         { path: '/commendations', labelKey: 'nav.commendations', icon: faAward, access: 'commendations' },
+        { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical, access: 'health' },
       ],
     },
     {
@@ -420,7 +421,6 @@ export class MainLayoutComponent {
         { path: '/projects', labelKey: 'nav.projects', icon: faClipboardList, access: 'academic' },
         { path: '/bus-attendance', labelKey: 'nav.busAttendance', icon: faTableColumns, access: 'bus' },
         { path: '/mental-health', labelKey: 'nav.mentalHealth', icon: faKitMedical, access: 'health' },
-        { path: '/health-visits', labelKey: 'nav.healthVisits', icon: faKitMedical, access: 'health' },
       ],
     },
     {
