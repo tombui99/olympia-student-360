@@ -881,8 +881,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 item.MetricKey,
                 item.AcademicYear,
                 item.Term,
-                item.AcademicPeriodStart
-            });
+                item.AcademicPeriodStart,
+                item.ValueSum,
+                item.SampleCount
+            }).HasDatabaseName("IX_CanvasDashboardMetrics_MonthlyTotals");
             aggregate.HasIndex(item => new { item.MetricKey, item.PeriodStart });
             aggregate.HasIndex(item => new { item.AcademicYear, item.Term, item.AcademicActivityDate, item.MetricKey })
                 .HasDatabaseName("IX_CanvasDashboardMetrics_ActivityDate");

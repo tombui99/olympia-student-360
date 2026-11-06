@@ -28,7 +28,8 @@ public static class DatabaseMigrationRecovery
         "20261104024508_AddSisHealthVisitSync",
         "20261104063344_EnforceSchoolOnlineSourceOwnership",
         "20261104145633_ScopeReportInvalidation",
-        "20261104161615_AddTeacherGradeAccessAndCorrectSchoolLevels"
+        "20261104161615_AddTeacherGradeAccessAndCorrectSchoolLevels",
+        "20261106073751_CoverCanvasDashboardMonthlyTotals"
     ];
 
     private static readonly string[] LearningReportTables =
@@ -113,6 +114,11 @@ public static class DatabaseMigrationRecovery
                     AddColumnOperation column => await ColumnExistsAsync(connection, column.Table, column.Name, cancellationToken),
                     DropColumnOperation column => !await ColumnExistsAsync(connection, column.Table, column.Name, cancellationToken),
                     CreateIndexOperation index => await CreatedIndexExistsAsync(connection, index, cancellationToken),
+                    // Explicitly quoted drops work around the provider's unquoted legacy
+                    // index names. Their annotations let retries detect committed DDL.
+                    SqlOperation sql when sql["Olympia:DropIndexTable"] is string table &&
+                        sql["Olympia:DropIndexName"] is string name =>
+                        !await IndexExistsAsync(connection, table, name, cancellationToken),
                     // This migration's cursor UPDATE is idempotent and must finish
                     // even when ADD COLUMN committed before the process was killed.
                     SqlOperation => false,
@@ -140,6 +146,13 @@ public static class DatabaseMigrationRecovery
         }
         return true;
     }
+
+    private static async Task<bool> IndexExistsAsync(
+        DbConnection connection, string table, string name, CancellationToken cancellationToken) =>
+        Convert.ToInt32(await ScalarAsync(connection, """
+            SELECT COUNT(*) FROM `information_schema`.`STATISTICS`
+            WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = @table AND `INDEX_NAME` = @name
+            """, cancellationToken, ("@table", table), ("@name", name))) > 0;
 
     private static async Task<bool> CreatedIndexExistsAsync(
         DbConnection connection, CreateIndexOperation index, CancellationToken cancellationToken)

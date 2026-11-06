@@ -556,6 +556,8 @@ public sealed partial class MySqlResilienceTests
     [InlineData("20261021093911_ClassifyGhkGroupsAsHs2", "20261020200719_TrackCanvasReportCourseChanges", 1)]
     [InlineData("20261028025118_AddCanvasActivityReportingDate", "20261021093911_ClassifyGhkGroupsAsHs2", 1)]
     [InlineData("20261028030256_AddLeadershipActivityReportingDate", "20261028025118_AddCanvasActivityReportingDate", 1)]
+    [InlineData("20261106073751_CoverCanvasDashboardMonthlyTotals", "20261104161615_AddTeacherGradeAccessAndCorrectSchoolLevels", 1)]
+    [InlineData("20261106073751_CoverCanvasDashboardMonthlyTotals", "20261104161615_AddTeacherGradeAccessAndCorrectSchoolLevels", 2)]
     public async Task InterruptedReportMigrationsResumeWithoutDroppingCommittedSchema(
         string interruptedMigration, string previousMigration, int completedOperations)
     {

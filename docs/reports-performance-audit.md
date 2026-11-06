@@ -1,5 +1,54 @@
 # Reports page data-loading audit
 
+## Learning diligence metrics investigation (2026-11-06)
+
+The `/reports` learning-diligence request asks `/api/dashboard/metrics` for five Canvas
+metrics with `year=2026-2027&term=hk1`. Two avoidable costs were found:
+
+- The common metrics pipeline resolved academic-year and term aliases through unions of
+  unrelated source tables (including raw course scores), then queried stored observations
+  even when none of the requested metrics had a stored definition. Canvas-only requests
+  now skip those three queries. Mixed and all-metric requests retain alias handling;
+  authorization, student scoping, date filtering, and cache behavior remain enforced.
+- The monthly totals query could not obtain `ValueSum` and `SampleCount` from its existing
+  index. `CoverCanvasDashboardMonthlyTotals` replaces that index with
+  `IX_CanvasDashboardMetrics_MonthlyTotals`, preserving its leading
+  `(MetricKey, AcademicYear, Term, AcademicPeriodStart)` columns and adding those two
+  measures. This lets MySQL cover the unfiltered semester totals and group in index order.
+  Activity/student/course indexes remain available for more specific filters.
+
+Local verification used MySQL 9.5 and approximately one million persisted metric rows.
+The selected five metrics matched 53,921 rows and produced 11 monthly groups. Index
+experiments and the combined benchmark used disposable copies; the application's local
+database schema and production were not changed.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| SQL commands on an uncached Canvas-only request | 6 | 3 |
+| SQL execution with `EXPLAIN ANALYZE` on an isolated copy | about 179 ms | about 100–107 ms |
+| In-process endpoint, warm application with response cache cleared | about 219 ms | median 88 ms over five runs (88–91 ms) |
+| Response-cache hit | about 0.8 ms, one authorization-metadata query | about 0.8 ms, one authorization-metadata query |
+
+All five metric values and series lengths matched the baseline. These measurements exclude
+HTTP/network latency and application startup and are not a production latency guarantee.
+Regression tests cover SQL source isolation, mixed/all-metric aliases, class access,
+activity filters, cache reuse, and migration recovery after either index operation commits.
+
+Deploy both the API change and its migration through the existing pre-deployment migration
+step. The replacement index is built before the old index is dropped. The migration is
+registered for interrupted-DDL recovery; no Canvas import or aggregate rebuild is required.
+Index construction needs temporary database space and adds two measure columns to the
+maintained index. It should finish before the new App Runner deployment starts serving.
+
+There is no production timing or AWS utilization evidence in this investigation. The supplied
+screenshot shows request headers and status, not duration. Fix these measured query costs
+before choosing larger instances. Compare a first request after idle, an uncached request,
+and an immediate repeat using the existing `Server-Timing: dashboard-metrics;dur=...`
+header and cache-hit application logs. Correlate slow requests with App Runner request
+latency/CPU/memory and RDS CPU, available memory, read latency, and burst credits where
+applicable. A single user can still trigger expensive queries; concurrency alone does not
+identify the constrained resource.
+
 ## Loading rules
 
 - The `/reports` shell mounts only the selected report. It does not preload every report.

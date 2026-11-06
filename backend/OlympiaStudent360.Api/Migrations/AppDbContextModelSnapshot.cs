@@ -700,7 +700,8 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasIndex("AcademicYear", "Term", "AcademicActivityDate", "MetricKey")
                         .HasDatabaseName("IX_CanvasDashboardMetrics_ActivityDate");
 
-                    b.HasIndex("MetricKey", "AcademicYear", "Term", "AcademicPeriodStart");
+                    b.HasIndex("MetricKey", "AcademicYear", "Term", "AcademicPeriodStart", "ValueSum", "SampleCount")
+                        .HasDatabaseName("IX_CanvasDashboardMetrics_MonthlyTotals");
 
                     b.ToTable("CanvasDashboardMetricAggregates");
                 });

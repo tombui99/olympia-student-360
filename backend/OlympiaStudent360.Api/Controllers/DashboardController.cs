@@ -654,90 +654,102 @@ public class DashboardController : ControllerBase
                     return coalescedCached;
                 }
 
-        var yearAliases = await AcademicYearAliases(year);
-        var termAliases = await TermAliases(term);
-        var query = _context.DashboardMetricObservations.AsNoTracking()
-            .Where(o => o.Metric.IsActive);
-        query = _userAccess.ApplyStudentScope(query, item => item.Student);
-        if (requestedMetricIds.Count > 0)
+        // Built-in Canvas metrics use normalized periods in their persisted snapshot. Only
+        // stored/imported metrics need aliases from the unrelated source tables. In particular,
+        // learning diligence must never scan raw course scores just to discover term labels.
+        var needsStoredMetrics = requestedMetricIds.Count == 0 ||
+            storedMetricDefinitions.Keys.Any(requestedMetricIds.Contains);
+        var needsImportedMetrics = requestedMetricIds.Count == 0 ||
+            ImportedMetricCatalog().Any(metric => requestedMetricIds.Contains(metric.Id));
+        var needsAliases = needsStoredMetrics || needsImportedMetrics;
+        var yearAliases = needsAliases ? await AcademicYearAliases(year, computationToken) : [];
+        var termAliases = needsAliases ? await TermAliases(term, computationToken) : [];
+        var computed = new List<DashboardMetricDto>();
+        if (needsStoredMetrics)
         {
-            query = query.WhereMatchesAny(o => o.Metric.Key, requestedMetricIds);
-        }
-        query = Apply(query, o => o.AcademicYear, yearAliases);
-        query = Apply(query, o => o.Term, termAliases);
-        query = Apply(query, o => o.MeasurementCycle, cycle);
-        query = Apply(query, o => o.Campus, campus);
-        query = Apply(query, o => o.EducationLevel, level);
-        query = Apply(query, o => o.GradeLevel, grade);
-        query = Apply(query, o => o.Homeroom, homeroom);
-        query = Apply(query, o => o.Program, program);
-        query = Apply(query, o => o.Subject, subject);
-        if (studentId.HasValue) query = query.Where(o => o.StudentProfileId == studentId);
+            var query = _context.DashboardMetricObservations.AsNoTracking()
+                .Where(o => o.Metric.IsActive);
+            query = _userAccess.ApplyStudentScope(query, item => item.Student);
+            if (requestedMetricIds.Count > 0)
+            {
+                query = query.WhereMatchesAny(o => o.Metric.Key, requestedMetricIds);
+            }
+            query = Apply(query, o => o.AcademicYear, yearAliases);
+            query = Apply(query, o => o.Term, termAliases);
+            query = Apply(query, o => o.MeasurementCycle, cycle);
+            query = Apply(query, o => o.Campus, campus);
+            query = Apply(query, o => o.EducationLevel, level);
+            query = Apply(query, o => o.GradeLevel, grade);
+            query = Apply(query, o => o.Homeroom, homeroom);
+            query = Apply(query, o => o.Program, program);
+            query = Apply(query, o => o.Subject, subject);
+            if (studentId.HasValue) query = query.Where(o => o.StudentProfileId == studentId);
 
-        // Aggregate in the database. The previous implementation materialised every matching
-        // observation (and its Metric entity) before grouping, which made response time and API
-        // memory usage proportional to the raw fact-table size.
-        var rows = await query
-            .GroupBy(o => new
+            // Aggregate in the database. The previous implementation materialised every matching
+            // observation (and its Metric entity) before grouping, which made response time and API
+            // memory usage proportional to the raw fact-table size.
+            var rows = await query
+                .GroupBy(o => new
+                {
+                    o.Metric.Id,
+                    o.Metric.Key,
+                    o.Metric.Label,
+                    o.Metric.Domain,
+                    o.Metric.Source,
+                    o.Metric.Unit,
+                    o.PeriodStart
+                })
+                .Select(group => new
+                {
+                    group.Key.Id,
+                    group.Key.Key,
+                    group.Key.Label,
+                    group.Key.Domain,
+                    group.Key.Source,
+                    group.Key.Unit,
+                    group.Key.PeriodStart,
+                    Value = group.Sum(item => item.Value),
+                    BaselineValue = group.Max(item => item.BaselineValue),
+                    KpiTarget = group.Max(item => item.KpiTarget),
+                    HasUnattributedObservation = group.Any(item => item.StudentProfileId == null)
+                })
+                .OrderBy(row => row.PeriodStart)
+                .ToListAsync(computationToken);
+            computed.AddRange(rows.GroupBy(o => new
             {
-                o.Metric.Id,
-                o.Metric.Key,
-                o.Metric.Label,
-                o.Metric.Domain,
-                o.Metric.Source,
-                o.Metric.Unit,
-                o.PeriodStart
-            })
-            .Select(group => new
+                o.Id,
+                o.Key,
+                o.Label,
+                o.Domain,
+                o.Source,
+                o.Unit
+            }).Select(group =>
             {
-                group.Key.Id,
-                group.Key.Key,
-                group.Key.Label,
-                group.Key.Domain,
-                group.Key.Source,
-                group.Key.Unit,
-                group.Key.PeriodStart,
-                Value = group.Sum(item => item.Value),
-                BaselineValue = group.Max(item => item.BaselineValue),
-                KpiTarget = group.Max(item => item.KpiTarget),
-                HasUnattributedObservation = group.Any(item => item.StudentProfileId == null)
-            })
-            .OrderBy(row => row.PeriodStart)
-            .ToListAsync(computationToken);
-        var computed = rows.GroupBy(o => new
-        {
-            o.Id,
-            o.Key,
-            o.Label,
-            o.Domain,
-            o.Source,
-            o.Unit
-        }).Select(group =>
-        {
-            var points = group.Select(row => new DashboardMetricPointDto
-            {
-                PeriodStart = row.PeriodStart, Value = row.Value
-            }).OrderBy(point => point.PeriodStart).ToList();
-            var latest = group.OrderByDescending(o => o.PeriodStart).First();
-            return new DashboardMetricDto
-            {
-                Id = group.Key.Key, Label = group.Key.Label, Category = group.Key.Domain,
-                Source = group.Key.Source, Dataset = group.Key.Source, Unit = group.Key.Unit,
-                Value = points.LastOrDefault()?.Value,
-                Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
-                BaselineValue = latest.BaselineValue,
-                KpiTarget = latest.KpiTarget,
-                SupportsDrilldown = group.All(o => !o.HasUnattributedObservation),
-                Series = points
-            };
-        }).ToList();
+                var points = group.Select(row => new DashboardMetricPointDto
+                {
+                    PeriodStart = row.PeriodStart, Value = row.Value
+                }).OrderBy(point => point.PeriodStart).ToList();
+                var latest = group.OrderByDescending(o => o.PeriodStart).First();
+                return new DashboardMetricDto
+                {
+                    Id = group.Key.Key, Label = group.Key.Label, Category = group.Key.Domain,
+                    Source = group.Key.Source, Dataset = group.Key.Source, Unit = group.Key.Unit,
+                    Value = points.LastOrDefault()?.Value,
+                    Trend = points.Count > 1 ? points[^1].Value - points[^2].Value : null,
+                    BaselineValue = latest.BaselineValue,
+                    KpiTarget = latest.KpiTarget,
+                    SupportsDrilldown = group.All(o => !o.HasUnattributedObservation),
+                    Series = points
+                };
+            }).ToList());
+        }
 
         computed.AddRange(await ImportedDataMetricsFromAggregates(
             year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
             yearAliases, termAliases, requestedMetricIds, computationToken));
         computed.AddRange(await CanvasDataMetrics(
             year, term, cycle, campus, level, grade, homeroom, studentId, program, subject,
-            yearAliases, termAliases, requestedMetricIds, computationToken, month, weekStart));
+            requestedMetricIds, computationToken, month, weekStart));
         computed = computed
             .Where(metric => _userAccess.Current.CanAccessMetric(metric.Id, metric.Source))
             .ToList();
@@ -1625,7 +1637,6 @@ public class DashboardController : ControllerBase
     private async Task<List<DashboardMetricDto>> CanvasDataMetrics(
         string? year, string? term, string? cycle, string? campus, string? level, string? grade,
         string? homeroom, int? studentId, string? program, string? subject,
-        IReadOnlyCollection<string> yearAliases, IReadOnlyCollection<string> termAliases,
         IReadOnlySet<string> requestedMetricIds, CancellationToken cancellationToken,
         int? month = null, string? weekStart = null)
     {
@@ -2263,11 +2274,12 @@ public class DashboardController : ControllerBase
             .Concat(_context.StudentBusAttendanceRecords.Where(item => item.Term != null)
                 .Select(item => item.Term!));
 
-    private async Task<List<string>> AcademicYearAliases(string? selected)
+    private async Task<List<string>> AcademicYearAliases(
+        string? selected, CancellationToken cancellationToken = default)
     {
         if (!HasFilter(selected)) return [];
         var normalized = DashboardPeriodNormalizer.AcademicYear(selected!);
-        var aliases = (await AcademicYearValues().Distinct().ToListAsync())
+        var aliases = (await AcademicYearValues().Distinct().ToListAsync(cancellationToken))
             .Where(value => DashboardPeriodNormalizer.AcademicYear(value)
                 .Equals(normalized, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -2276,11 +2288,12 @@ public class DashboardController : ControllerBase
         return aliases;
     }
 
-    private async Task<List<string>> TermAliases(string? selected)
+    private async Task<List<string>> TermAliases(
+        string? selected, CancellationToken cancellationToken = default)
     {
         if (!HasFilter(selected)) return [];
         var normalized = DashboardPeriodNormalizer.Term(selected!);
-        var aliases = (await TermValues().Distinct().ToListAsync())
+        var aliases = (await TermValues().Distinct().ToListAsync(cancellationToken))
             .Where(value => DashboardPeriodNormalizer.Term(value)
                 .Equals(normalized, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
