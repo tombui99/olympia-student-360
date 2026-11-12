@@ -312,11 +312,6 @@ interface ClassDrilldownPage {
                   [month]="activityPeriod.month" [weekStart]="activityPeriod.weekStart" [showHint]="false" [disabled]="loading() || reportLoading()"
                   (periodChange)="onActivityPeriodChange($event)" />
               }
-              <div class="ml-auto flex min-h-10 items-center gap-2 rounded-md px-3 text-xs"
-                [ngClass]="activeReportAwaitingData() ? 'bg-red-50 text-red-700' : 'bg-[#f7f4f8] text-[#746b7b]'">
-                <span class="h-2 w-2 rounded-full" [ngClass]="activeReportAwaitingData() ? 'bg-red-600' : 'bg-emerald-500'"></span>
-                {{ languageService.t(activeReportAwaitingData() ? 'reports.awaitingData.badge' : 'reports.liveData') }}
-              </div>
             </div>
             @if (supportsActivityPeriod()) {
               <p class="mt-3 text-xs leading-5 text-[#817589]">{{ languageService.t(activityPeriodHintKey()) }}</p>

@@ -57,10 +57,7 @@ interface MatrixSubject {
           <h3 class="mt-1 text-xl font-semibold text-[#32124f]">{{ t(reportBase() + '.title') }}</h3>
           <p class="mt-1 max-w-3xl text-sm leading-6 text-[#6f6877]">{{ t(reportBase() + '.description') }}</p>
         </div>
-        <div class="flex flex-col items-start gap-2 sm:items-end">
-          <app-report-export-button [exporting]="exporting()" [disabled]="loading() || !data()?.rows?.length || !data()?.aggregateAvailable" (exportRequested)="exportExcel()" />
-          <span class="rounded-full bg-[#f2ecf5] px-3 py-1 text-xs font-semibold text-[#5d2d7b]">{{ sourceLabel() }}</span>
-        </div>
+        <app-report-export-button [exporting]="exporting()" [disabled]="loading() || !data()?.rows?.length || !data()?.aggregateAvailable" (exportRequested)="exportExcel()" />
       </header>
 
       <form class="no-print border-b border-[#eee8f1] bg-[#fdfbfe] px-5 py-5 sm:px-6" (ngSubmit)="run(true)">
@@ -356,7 +353,6 @@ export class ScoreReportComponent implements OnInit, OnChanges, OnDestroy {
   reportBase(): string { return `reports.score.${reportViews[this.reportKey].title}`; }
   viewKey(): ScoreReportViewKey { return reportViews[this.reportKey].view; }
   isCourseScore(): boolean { return this.viewKey() === 'current-course-score'; }
-  sourceLabel(): string { return this.t(this.isCourseScore() ? 'reports.score.source.current' : 'reports.score.source.test'); }
   schoolLevelLabel(level: string): string { return this.t(`access.schoolLevel.${level}.title`); }
   isMatrix(): boolean { return this.viewKey() === 'subject-grade-average'; }
   isBandReport(): boolean { return ['subject-letter-distribution', 'grade-letter-distribution', 'class-letter-distribution', 'class-subject-distribution'].includes(this.viewKey()); }
