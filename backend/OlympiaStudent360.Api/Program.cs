@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -60,7 +61,11 @@ if (string.IsNullOrWhiteSpace(signingKey))
     throw new InvalidOperationException("Jwt:SigningKey is not configured.");
 }
 
-builder.Services.AddAuthentication(options =>
+var microsoftSignIn = MicrosoftSignInSettings.Load(builder.Configuration);
+builder.Services.AddSingleton(microsoftSignIn);
+builder.Services.AddSingleton<ApplicationSession>();
+
+var authentication = builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -71,8 +76,8 @@ builder.Services.AddAuthentication(options =>
     {
         ValidateIssuer = true,
         ValidateAudience = true,
-        // Sessions intentionally persist; explicit logout removes the token client-side.
-        ValidateLifetime = false,
+        // Existing password tokens omit exp. Microsoft sessions always expire.
+        ValidateLifetime = true,
         RequireExpirationTime = false,
         ValidateIssuerSigningKey = true,
         ValidIssuer = jwtSettings["Issuer"],
@@ -83,15 +88,25 @@ builder.Services.AddAuthentication(options =>
     {
         OnMessageReceived = context =>
         {
-            if (context.Request.Cookies.TryGetValue("olympia_student_360_auth", out var token))
+            if (context.Request.Cookies.TryGetValue(ApplicationSession.CookieName, out var token))
             {
                 context.Token = token;
             }
 
             return Task.CompletedTask;
-        }
+        },
+        OnTokenValidated = MicrosoftSignIn.ValidateSessionAsync
     };
 });
+
+if (microsoftSignIn.Enabled)
+{
+    // The challenge and callback can reach different App Runner instances.
+    builder.Services.AddDataProtection()
+        .SetApplicationName("OlympiaStudent360")
+        .PersistKeysToDbContext<AppDbContext>();
+    authentication.AddOpenIdConnect(MicrosoftSignIn.Scheme, microsoftSignIn.Configure);
+}
 
 builder.Services.AddAuthorization();
 builder.Services.AddMemoryCache(options =>

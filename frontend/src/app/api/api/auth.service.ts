@@ -17,6 +17,10 @@ export class AuthService {
     return this.http.get<CurrentUserDto>(`${this.basePath}/api/Auth/me`);
   }
 
+  getMicrosoftSignIn(): Observable<{ startUrl: string | null }> {
+    return this.http.get<{ startUrl: string | null }>(`${this.basePath}/api/auth/microsoft`);
+  }
+
   apiAuthChangePasswordPost(changePasswordDto: ChangePasswordDto): Observable<void> {
     return this.http.post<void>(`${this.basePath}/api/Auth/change-password`, changePasswordDto);
   }

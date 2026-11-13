@@ -265,6 +265,32 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
                 />
               </label>
 
+              @if (microsoftLinkEnabled()) {
+                <div class="space-y-2 rounded-md border border-[#ebe6ef] p-3">
+                  <label class="block">
+                    <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('accounts.microsoftObjectId') }}</span>
+                    <input
+                      class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-2 text-sm"
+                      name="microsoftObjectId"
+                      [ngModel]="microsoftObjectId()"
+                      (ngModelChange)="microsoftObjectId.set($event)"
+                      [readonly]="microsoftLinked()"
+                    />
+                  </label>
+                  @if (microsoftMessage(); as message) {
+                    <p class="text-sm" role="status">{{ languageService.t(message) }}</p>
+                  }
+                  <button
+                    class="rounded-md border border-[#d8d0df] px-3 py-2 text-sm font-semibold text-[#32124f] disabled:opacity-50"
+                    type="button"
+                    [disabled]="saving() || !microsoftObjectId().trim()"
+                    (click)="saveMicrosoftLink()"
+                  >
+                    {{ languageService.t(microsoftLinked() ? 'accounts.microsoftUnlink' : 'accounts.microsoftLink') }}
+                  </button>
+                </div>
+              }
+
               <label class="block">
                 <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('accounts.fullName') }}</span>
                 <input
@@ -343,6 +369,10 @@ export class AccountManagementComponent implements OnInit {
   editingUserId = signal<string | null>(null);
   sheetMounted = signal(false);
   sheetOpen = signal(false);
+  microsoftLinkEnabled = signal(false);
+  microsoftLinked = signal(false);
+  microsoftObjectId = signal('');
+  microsoftMessage = signal<string | null>(null);
   passwordValue = '';
   readonly pageSize = 20;
 
@@ -435,6 +465,7 @@ export class AccountManagementComponent implements OnInit {
   }
 
   startCreate() {
+    this.resetMicrosoftLink();
     this.editingUserId.set(null);
     this.passwordValue = '';
     this.form = this.emptyForm();
@@ -443,6 +474,7 @@ export class AccountManagementComponent implements OnInit {
   }
 
   edit(user: AdminUserDto) {
+    this.resetMicrosoftLink();
     this.editingUserId.set(user.id);
     this.passwordValue = '';
     this.form = {
@@ -462,6 +494,57 @@ export class AccountManagementComponent implements OnInit {
     };
     this.clearMessages();
     this.openSheet();
+    this.adminUsersService.getMicrosoftLink(user.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: ({ enabled, objectId }) => {
+        if (this.editingUserId() !== user.id) return;
+        this.microsoftLinkEnabled.set(enabled);
+        this.microsoftLinked.set(!!objectId);
+        this.microsoftObjectId.set(objectId ?? '');
+      },
+      error: (error) => {
+        // A frontend deploy can reach the older API while the backend rolls out.
+        if (this.editingUserId() === user.id && error.status !== 404) {
+          this.error.set(this.languageService.t('accounts.microsoftError'));
+        }
+      },
+    });
+  }
+
+  saveMicrosoftLink() {
+    const id = this.editingUserId();
+    if (!id || this.saving()) return;
+    const linked = this.microsoftLinked();
+    const objectId = this.microsoftObjectId().trim();
+    if (linked && !window.confirm(this.languageService.t('accounts.microsoftUnlinkConfirm'))) return;
+    const request = linked
+      ? this.adminUsersService.unlinkMicrosoftAccount(id)
+      : this.adminUsersService.linkMicrosoftAccount(id, objectId);
+
+    this.saving.set(true);
+    this.microsoftMessage.set(null);
+    request.subscribe({
+      next: () => {
+        this.microsoftObjectId.set(linked ? '' : objectId);
+        this.microsoftLinked.set(!linked);
+        this.microsoftMessage.set(linked ? 'accounts.microsoftUnlinked' : 'accounts.microsoftLinked');
+        this.saving.set(false);
+      },
+      error: (error) => {
+        this.microsoftMessage.set(error.status === 409
+          ? 'accounts.microsoftConflict'
+          : error.status === 400 ? 'accounts.microsoftInvalid' : 'accounts.microsoftError');
+        this.saving.set(false);
+      },
+    });
+  }
+
+  private resetMicrosoftLink() {
+    this.microsoftLinkEnabled.set(false);
+    this.microsoftLinked.set(false);
+    this.microsoftObjectId.set('');
+    this.microsoftMessage.set(null);
   }
 
   closeSheet() {

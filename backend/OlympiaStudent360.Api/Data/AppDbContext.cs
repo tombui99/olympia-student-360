@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using OlympiaStudent360.Api.Core.Entities;
@@ -5,7 +6,7 @@ using OlympiaStudent360.Api.Core.Services;
 
 namespace OlympiaStudent360.Api.Data;
 
-public class AppDbContext : IdentityDbContext<ApplicationUser>
+public class AppDbContext : IdentityDbContext<ApplicationUser>, IDataProtectionKeyContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -25,6 +26,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     internal Task<int> SaveQueuedSourceChangesAsync(CancellationToken ct) => base.SaveChangesAsync(true, ct);
 
     public DbSet<StudentProfile> StudentProfiles { get; set; }
+    public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
     public DbSet<SisWarehouseRecord> SisWarehouseRecords { get; set; }
     public DbSet<SisSyncState> SisSyncStates { get; set; }
     public DbSet<SisSyncRun> SisSyncRuns { get; set; }

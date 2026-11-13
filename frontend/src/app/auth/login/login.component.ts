@@ -1,6 +1,6 @@
-import { Component, signal } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { NgIf } from '@angular/common';
 import { AuthenticationService } from '../../core/auth/auth.service';
 import { LanguageService } from '../../core/language/language.service';
@@ -137,28 +137,69 @@ import { LanguageService } from '../../core/language/language.service';
                 {{ loading() ? languageService.t('auth.signingIn') : languageService.t('auth.signIn') }}
               </button>
             </form>
+
+            @if (microsoftError(); as message) {
+              <p class="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+                {{ languageService.t(message) }}
+              </p>
+            }
+
+            @if (microsoftStartUrl(); as url) {
+              <a
+                class="mt-4 flex w-full items-center justify-center rounded-md border border-[#d8d0df] px-4 py-3 font-semibold text-[#32124f] transition hover:bg-[#f7f2fb] focus:outline-none focus:ring-4 focus:ring-[#f3c246]/40"
+                [href]="url"
+              >
+                {{ languageService.t('auth.microsoftSignIn') }}
+              </a>
+            }
           </div>
         </div>
       </section>
     </main>
   `,
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit {
   username = '';
   password = '';
   showPassword = signal(false);
   loading = signal(false);
   error = signal<string | null>(null);
+  microsoftStartUrl = signal<string | null>(null);
+  microsoftError = signal<string | null>(null);
 
   constructor(
     private readonly authService: AuthenticationService,
     private readonly router: Router,
+    private readonly route: ActivatedRoute,
     readonly languageService: LanguageService,
   ) {}
+
+  ngOnInit() {
+    this.authService.getMicrosoftSignIn().subscribe({
+      next: ({ startUrl }) => this.microsoftStartUrl.set(startUrl),
+      error: () => this.microsoftStartUrl.set(null),
+    });
+
+    const result = this.route.snapshot.queryParamMap.get('microsoft');
+    if (result === 'success') {
+      this.loading.set(true);
+      this.authService.completeMicrosoftSignIn().subscribe((authenticated) => {
+        this.loading.set(false);
+        if (authenticated) {
+          void this.router.navigate(['/dashboard'], { replaceUrl: true });
+        } else {
+          this.microsoftError.set('auth.microsoftFailed');
+        }
+      });
+    } else if (result === 'unlinked' || result === 'failed') {
+      this.microsoftError.set(result === 'unlinked' ? 'auth.microsoftUnlinked' : 'auth.microsoftFailed');
+    }
+  }
 
   submit() {
     this.loading.set(true);
     this.error.set(null);
+    this.microsoftError.set(null);
 
     this.authService.login({ username: this.username, password: this.password }).subscribe({
       next: () => this.router.navigate(['/dashboard']),

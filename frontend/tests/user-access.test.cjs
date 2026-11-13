@@ -67,6 +67,7 @@ test('account editor validates grade selections and includes them in update requ
   const originalWindow = globalThis.window;
   globalThis.window = { setTimeout: () => undefined };
   const service = {
+    getMicrosoftLink: () => of({ enabled: false, objectId: null }),
     apiAdminUsersOptionsGet: () => of({ roles: ['Teacher'], accessScopes: scopes,
       homerooms: [], schoolLevels: ['Primary', 'LowerSecondary', 'UpperSecondary'], gradeLevels: grades }),
     apiAdminUsersIdPut: (id, body) => { calls.push(body); return of(teacher); },

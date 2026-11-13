@@ -48,6 +48,15 @@ export class AuthenticationService {
     return this.apiAuthService.apiAuthChangePasswordPost(credentials);
   }
 
+  getMicrosoftSignIn() {
+    return this.apiAuthService.getMicrosoftSignIn();
+  }
+
+  completeMicrosoftSignIn() {
+    this.clearUserState();
+    return this.ensureCurrentUser();
+  }
+
   logout() {
     this.apiAuthService.apiAuthLogoutPost().subscribe({
       next: () => undefined,
@@ -58,7 +67,7 @@ export class AuthenticationService {
   }
 
   ensureCurrentUser(): Observable<boolean> {
-    if (this.authenticatedSignal() && this.currentUserLoaded) {
+    if (this.getToken() && this.currentUserLoaded) {
       return of(true);
     }
 
@@ -81,7 +90,7 @@ export class AuthenticationService {
   }
 
   isAuthenticated(): boolean {
-    return !!this.getToken();
+    return this.authenticatedSignal();
   }
 
   getToken(): string | null {

@@ -48,4 +48,16 @@ export class AdminUsersService {
   apiAdminUsersIdDelete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.basePath}/api/admin/users/${id}`);
   }
+
+  getMicrosoftLink(id: string) {
+    return this.http.get<{ enabled: boolean; objectId: string | null }>(`${this.basePath}/api/admin/users/${id}/microsoft`);
+  }
+
+  linkMicrosoftAccount(id: string, objectId: string) {
+    return this.http.put<void>(`${this.basePath}/api/admin/users/${id}/microsoft`, { objectId });
+  }
+
+  unlinkMicrosoftAccount(id: string) {
+    return this.http.delete<void>(`${this.basePath}/api/admin/users/${id}/microsoft`);
+  }
 }

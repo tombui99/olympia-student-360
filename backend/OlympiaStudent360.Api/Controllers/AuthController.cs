@@ -1,10 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
 using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
@@ -17,18 +16,18 @@ public class AuthController : ControllerBase
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
-    private readonly IConfiguration _configuration;
+    private readonly ApplicationSession _session;
     private readonly UserAccessService _userAccess;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
         RoleManager<IdentityRole> roleManager,
-        IConfiguration configuration,
+        ApplicationSession session,
         UserAccessService userAccess)
     {
         _userManager = userManager;
         _roleManager = roleManager;
-        _configuration = configuration;
+        _session = session;
         _userAccess = userAccess;
     }
 
@@ -45,15 +44,7 @@ public class AuthController : ControllerBase
         await _userManager.UpdateAsync(user);
 
         var roles = await _userManager.GetRolesAsync(user);
-        var token = CreateToken(user, roles);
-        var serializedToken = new JwtSecurityTokenHandler().WriteToken(token);
-
-        Response.Cookies.Append("olympia_student_360_auth", serializedToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = Request.IsHttps,
-            SameSite = SameSiteMode.Lax
-        });
+        var serializedToken = _session.Issue(HttpContext, user, roles);
 
         var role = roles.FirstOrDefault() ?? "Teacher";
         return Ok(new AuthResponseDto
@@ -66,6 +57,18 @@ public class AuthController : ControllerBase
             Access = ToAccessDto(await _userAccess.LoadAsync(user.Id, role))
         });
     }
+
+    [HttpGet("microsoft")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult MicrosoftOptions([FromServices] MicrosoftSignInSettings settings) =>
+        Ok(new { StartUrl = settings.Enabled ? settings.PublicOrigin + MicrosoftSignIn.StartPath : null });
+
+    [HttpGet("microsoft/start")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult MicrosoftStart([FromServices] MicrosoftSignInSettings settings) =>
+        settings.Enabled
+            ? Challenge(new AuthenticationProperties { RedirectUri = "/login" }, MicrosoftSignIn.Scheme)
+            : NotFound();
 
     [HttpPost("register")]
     [Authorize(Roles = "Admin")]
@@ -170,39 +173,15 @@ public class AuthController : ControllerBase
     [Authorize]
     public IActionResult Logout()
     {
-        Response.Cookies.Delete("olympia_student_360_auth", new CookieOptions
+        Response.Cookies.Delete(ApplicationSession.CookieName, new CookieOptions
         {
             HttpOnly = true,
             Secure = Request.IsHttps,
-            SameSite = SameSiteMode.Lax
+            SameSite = SameSiteMode.Lax,
+            Path = "/"
         });
 
         return NoContent();
-    }
-
-    private JwtSecurityToken CreateToken(ApplicationUser user, IList<string> roles)
-    {
-        var jwtSettings = _configuration.GetSection("Jwt");
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.Name, user.UserName!),
-            new(ClaimTypes.NameIdentifier, user.Id),
-            new(JwtRegisteredClaimNames.Sub, user.Id),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-        };
-
-        foreach (var role in roles)
-        {
-            claims.Add(new Claim(ClaimTypes.Role, role));
-            claims.Add(new Claim("role", role));
-        }
-
-        var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["SigningKey"]!));
-        return new JwtSecurityToken(
-            issuer: jwtSettings["Issuer"],
-            audience: jwtSettings["Audience"],
-            claims: claims,
-            signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
     }
 
     private static UserAccessCapabilitiesDto ToAccessDto(UserAccessSnapshot access) => new()
