@@ -48,15 +48,15 @@ public sealed class MicrosoftSignInSettings
         options.CallbackPath = MicrosoftSignIn.CallbackPath;
         options.SignInScheme = IdentityConstants.ExternalScheme;
         options.ResponseType = OpenIdConnectResponseType.Code;
-        options.ResponseMode = OpenIdConnectResponseMode.Query;
+        // Entra authorization responses can exceed the CloudFront WAF query string limit.
+        options.ResponseMode = OpenIdConnectResponseMode.FormPost;
         options.UsePkce = true;
         options.MapInboundClaims = false;
         options.SaveTokens = false;
         options.Scope.Clear();
         options.Scope.Add("openid");
         options.Scope.Add("profile");
-        options.NonceCookie.SameSite = SameSiteMode.Lax;
-        options.CorrelationCookie.SameSite = SameSiteMode.Lax;
+        // Microsoft posts back from another site. Keep the handler's secure, SameSite=None cookies.
         options.RemoteAuthenticationTimeout = TimeSpan.FromMinutes(10);
         options.Events = new OpenIdConnectEvents
         {

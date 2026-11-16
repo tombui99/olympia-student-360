@@ -115,12 +115,26 @@ public class MicrosoftSignInTests
         Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
         var query = QueryHelpers.ParseQuery(start.Headers.Location!.Query);
         Assert.Equal(PublicOrigin + MicrosoftSignIn.CallbackPath, query["redirect_uri"].ToString());
+        Assert.Equal("form_post", query["response_mode"].ToString());
         Assert.Equal("S256", query["code_challenge_method"].ToString());
         backchannel.Nonce = query["nonce"].ToString();
-        var cookies = string.Join("; ", start.Headers.GetValues("Set-Cookie").Select(FirstCookie));
-        var callbackPath = QueryHelpers.AddQueryString(MicrosoftSignIn.CallbackPath,
-            new Dictionary<string, string?> { ["code"] = "test-code", ["state"] = query["state"] });
-        using var callbackRequest = new HttpRequestMessage(HttpMethod.Get, callbackPath);
+        var signInCookies = start.Headers.GetValues("Set-Cookie").ToArray();
+        Assert.Equal(2, signInCookies.Length);
+        Assert.All(signInCookies, cookie =>
+        {
+            Assert.Contains("samesite=none", cookie, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
+        });
+        var cookies = string.Join("; ", signInCookies.Select(FirstCookie));
+        using var callbackRequest = new HttpRequestMessage(HttpMethod.Post, MicrosoftSignIn.CallbackPath)
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["code"] = "test-code-" + new string('a', 3000),
+                ["state"] = query["state"].ToString()
+            })
+        };
+        callbackRequest.Headers.Add("Origin", "https://login.microsoftonline.com");
         callbackRequest.Headers.Add("Cookie", cookies);
         using var callback = await browser.SendAsync(callbackRequest);
         Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
