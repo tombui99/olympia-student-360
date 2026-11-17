@@ -2,22 +2,17 @@
 
 SchoolOnline API v1 replaces the retired SIS Excel importer. SIS owns student names, student codes,
 demographics, current grade/homeroom and parent/guardian contacts. Canvas supplies its submissions,
-enrollment facts and grade fallback. The source is the supplied SchoolOnline API v1 manual
-(31 October 2026); no credentials are included in this repository.
+enrollment facts and grade fallback. The source is the supplied updated SchoolOnline manual
+(document revision 1.1, 10 November 2026); the API routes and envelope remain at v1.
 
 ## Academic score ownership and current coverage
 
 The school has confirmed that academic scores for **grades 1–4 belong to SIS**, while scores for
 **grades 5–12 belong to Canvas**. This is separate from the SIS roster, which covers all grades.
-The current academic score ingestion and report calculations are Canvas-based. There is no SIS
-academic score importer or primary-school score read model yet; syncing primary-school profiles,
-parents and health visits does not make their academic results available.
-
-The supplied API v1 manual documents 14 data endpoints and no academic scores/results endpoint.
-`/courses` provides class/membership metadata and `/comments` provides daily comments; neither is an
-academic score feed. The vendor must provide the academic-results API contract (including grading
-scales and assessment/term identifiers) before grades 1–4 can be integrated. Missing primary scores
-must remain unavailable and must not be interpreted as zero or substituted with Canvas scores.
+The new `/api/v1/gradebooks` endpoint supplies primary academic marks. The import checks the
+gradebook cell's historical grade, independent of the student's current grade. The separate
+**Grades 1–4 · SIS** page at `/transcripts/sis` reads only those cells. Grades 5–12 continue
+using Canvas transcripts. Existing Reports and their calculations do not read SIS marks.
 
 ## Test in Postman
 
@@ -48,6 +43,7 @@ All data requests inherit Bearer authentication. Base URL:
 | GET | `/api/v1/substitutions` | `substitutions.read` | Y, S, U |
 | GET | `/api/v1/attendances` | `attendance.read` | Y, S, D, U, required `type` |
 | GET | `/api/v1/comments` | `comments.read` | Y, S, D, U, required `type` |
+| GET | `/api/v1/gradebooks` | `gradebooks.read` | Y, S, U, `subject_id` |
 | GET | `/api/v1/bus/attendances` | `bus.read` | Y, S, D, U |
 | GET | `/api/v1/health/profiles` | `health.read` | Y, S, U |
 | GET | `/api/v1/health/physical-checks` | `health.read` | Y, S, U |
@@ -95,12 +91,13 @@ so current class memberships do not accumulate departed members. Attendance keys
 all other endpoint keys use `id`, following the vendor contract. IDs stay strings, including IDs larger
 than JavaScript's safe integer range. Unknown fields and enum values remain in JSON.
 
-Default resources are `schools,students,health/visits`. They supply the current roster, student/parent
-contacts, and the existing health visit pages and reports. Employees, classes, and courses are no longer
+Default resources are `schools,students,health/visits,gradebooks`. They supply the current roster,
+student/parent contacts, health visits and primary transcripts. Employees, classes, and courses are no longer
 fetched by default because the application has no SIS read models for those feeds. Previously fetched
-raw documents are retained as warehouse history and are not consumed by the application. All 14
+raw documents are retained as warehouse history and are not consumed by the application. All 15
 adapters remain available for explicit future use through `SIS_RESOURCES`, using path names without
-`/api/v1/`, e.g. `bus/attendances`. Health visits require `health-visits.read`.
+`/api/v1/`, e.g. `bus/attendances`. Health visits require `health-visits.read` and gradebooks
+require `gradebooks.read`.
 A configured resource without its token scope fails the job; no feed is silently skipped.
 `schools` and `students` are mandatory.
 
@@ -124,6 +121,22 @@ the CLI refreshes imported reports and ERP meal views on the GitHub runner befor
 successful. Background API workers continue to handle later application changes. The health-visits projection writes into the existing `StudentHealthVisits` table used by `/health-visits`, student details and health reports. The source endpoint JSON for attendance, comments, buses,
 health profiles/examinations and timetables remains available for future read models. Those optional feeds do **not** write into bus exceptions or behaviour records, which have different semantics.
 There is no new frontend UI for those optional feeds in this change.
+
+## Primary transcripts from gradebooks
+
+The ETL follows the normal cursor and watermark flow, by school year and optional school. Each cell
+uses its vendor `id` as the upsert key. Re-entries and corrections update that cell, and source deletions
+hide it. Periods use `semester` and `stage`; `period_name` is display text. A weekly full scan of
+configured years refreshes reference labels that can change without updating a cell's timestamp.
+
+Students link through `student.user_id` to `StudentProfiles.SchoolOnlineUserId`. The transcript directory
+includes linked students with primary history, even after they move into secondary grades, subject to
+the same student access rules as Canvas transcripts. A historical score with no linked student profile
+remains in the warehouse until that profile is linked.
+
+The page is read-only. It displays the recorded numeric mark and maximum, or the recorded letter or
+competency mark, along with comments. Missing marks stay blank; a recorded zero stays zero. SIS
+corrections belong in SchoolOnline. The page does not calculate GPA or convert results to a Canvas scale.
 
 ## Health visits used by the application
 
@@ -270,17 +283,20 @@ Optional production repository/environment variables:
 | `SIS_BASE_URL` | `https://data-sync-api.schoolonline.edu.vn` |
 | `SIS_SCHOOL_IDS` | Empty = all accessible schools |
 | `SIS_SCHOOL_YEAR_IDS` | Empty = discover current year(s) from `/schools` |
-| `SIS_RESOURCES` | `schools,students,health/visits` |
+| `SIS_RESOURCES` | `schools,students,health/visits,gradebooks` |
 | `SIS_LOOKBACK_DAYS` | `31` |
 | `SIS_TIMETABLE_FUTURE_DAYS` | `14` |
 | `SIS_REQUEST_INTERVAL_MS` | `1100` |
 | `SIS_RUNNER_LABEL` | `ubuntu-latest` |
 
 After the code is published with the user's Git approval, wait for the backend deployment and migrations
-to finish. Run workflow mode `check-access` to verify credentials and configured scopes without any
-database writes. Then run `full`: it fetches the production dataset directly from SIS into the existing
-production RDS database, including `StudentHealthVisits`; no local validation data is copied. Inspect
-run history, student/parent mappings, health-page/report counts and linkage, then let the schedule continue.
+to finish. Confirm the production client has `gradebooks.read` and add `gradebooks` to any existing
+`SIS_RESOURCES` override. Run `check-access` to verify the credentials and configured scopes without
+database writes. Then run `full` to fetch the current production data directly from SIS. Inspect the run
+history, student linkage and sample primary transcripts against SchoolOnline before relying on the page.
+For earlier years, run `full` with the optional `school_year_ids` input set to the relevant IDs from
+`/schools`. Historical imports leave the current roster intact. The schedule continues to sync the
+configured years (current by default); rerun a historical backfill if an earlier year's marks are corrected.
 Successful CLI runs print aggregate active-student and linked/unlinked health-visit counts without personal data.
 Production creates its own watermarks and is independent of the isolated local validation database. Migrations run automatically using
 the same mechanism as Canvas; the SIS schema and ownership cleanup are included in interrupted-DDL recovery. No production import is required merely to review this change.

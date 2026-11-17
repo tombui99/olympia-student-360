@@ -217,7 +217,7 @@ public class TranscriptsController(
     {
         if (!userAccess.Current.CanAccessAcademic) return Forbid();
         if (!cancellationToken.CanBeCanceled) cancellationToken = HttpContext?.RequestAborted ?? default;
-        var key = $"transcript-catalog:v1:{userAccess.Current.CacheKey}";
+        var key = $"transcript-catalog:v2:{userAccess.Current.CacheKey}";
         if (cache != null && cache.TryGetValue<TranscriptCatalogDto>(key, out var cached)) return Ok(cached);
         // Selection metadata comes from the course directory. No marks, submissions or GPA are read.
         var courses = await userAccess.ApplyStudentScope(context.CanvasEnrollments.AsNoTracking(), row => row.Student)
@@ -230,7 +230,7 @@ public class TranscriptsController(
             Subject = subjectResolver.Resolve(course.CanvasCourseId, course.SisCourseId, course.CourseCode, course.Name),
             Grade = TranscriptRules.HistoricalGrade(course.Name, course.CourseCode, course.CanvasGradeLevel),
             Year = DashboardPeriodNormalizer.AcademicYear(course.EnrollmentTermName ?? "", course.EndAt)
-        }).ToList();
+        }).Where(row => !IsPrimaryGrade(row.Grade)).ToList();
         var result = new TranscriptCatalogDto
         {
             Years = resolved.Where(row => DashboardPeriodNormalizer.IsAcademicYear(row.Year) && row.Grade != null)
@@ -264,7 +264,7 @@ public class TranscriptsController(
             return BadRequest(new { Message = "Choose an academic year and grade before loading a summary, or choose a student." });
         if (academicYear != null && (!DashboardPeriodNormalizer.IsAcademicYear(academicYear) ||
             DashboardPeriodNormalizer.AcademicYear(academicYear) != academicYear) ||
-            gradeLevel != null && (!int.TryParse(gradeLevel, out var grade) || grade is < 1 or > 12))
+            gradeLevel != null && CanvasGrade(gradeLevel) == null)
             return BadRequest(new { Message = "Invalid academic year or grade." });
         SchoolTranscriptDto? snapshot;
         if (studentId.HasValue || cache == null)
@@ -461,7 +461,7 @@ public class TranscriptsController(
             var rowYear = DashboardPeriodNormalizer.AcademicYear(row.AcademicYear, row.GradingPeriodEndDate);
             var yearRecord = row.StudentProfileId.HasValue && authored.TryGetValue(row.StudentProfileId.Value, out var personal)
                 ? personal.Years.FirstOrDefault(year => year.AcademicYear == rowYear) : null;
-            var rowGrade = yearRecord?.GradeLevel ?? resolution.Grade;
+            var rowGrade = IsPrimaryGrade(resolution.Grade) ? null : yearRecord?.GradeLevel ?? resolution.Grade;
             var term = NormalizeTerm(row.Term);
             return new AggregateRow(
                 rowYear,
@@ -480,7 +480,7 @@ public class TranscriptsController(
         var derivedRows = rows.Select(row => new
         {
             row.AcademicYear,
-            GradeLevel = NormalizeGrade(row.GradeLevel),
+            GradeLevel = CanvasGrade(row.GradeLevel),
             row.SubjectCode,
             row.Subject,
             row.CanvasCourseId,
@@ -700,7 +700,7 @@ public class TranscriptsController(
         // Canvas term names are descriptive labels (for example,
         // "Năm học 25-26 THCS G6-8"), not the former short SIS academic-year code.
         // Keep this in sync with CanvasCourse.EnrollmentTermName's warehouse length.
-        if (academicYear.Length is < 1 or > 100 || gradeLevel.Length is < 1 or > 50 ||
+        if (academicYear.Length is < 1 or > 100 || CanvasGrade(gradeLevel) == null ||
             className?.Length > 50)
             return BadRequest(new { Message = "Invalid academic year or grade level." });
 
@@ -726,11 +726,16 @@ public class TranscriptsController(
                     (score.GradingPeriodStartDate == null || score.GradingPeriodStartDate <= DateTime.UtcNow) &&
                 (score.EnrollmentOverrideScore != null || score.GradesOverrideScore != null ||
                     score.CurrentScore != null || score.FinalScore != null));
-        var courseCandidates = await context.CanvasCourses.AsNoTracking().Select(course => new { course.CanvasCourseId,
-            course.Name, course.CourseCode, course.CanvasGradeLevel }).ToListAsync(cancellationToken);
-        var gradeCourseIds = courseCandidates.Where(course =>
-                TranscriptRules.HistoricalGrade(course.Name, course.CourseCode, course.CanvasGradeLevel) == gradeLevel)
+        var courseCandidates = (await context.CanvasCourses.AsNoTracking().Select(course => new { course.CanvasCourseId,
+            course.Name, course.CourseCode, course.CanvasGradeLevel }).ToListAsync(cancellationToken))
+            .Select(course => (course.CanvasCourseId, Grade: TranscriptRules.HistoricalGrade(course.Name, course.CourseCode, course.CanvasGradeLevel)))
+            .ToArray();
+        var gradeCourseIds = courseCandidates.Where(course => course.Grade == gradeLevel)
             .Select(course => course.CanvasCourseId).ToArray();
+        var primaryCourseIds = courseCandidates.Where(course => IsPrimaryGrade(course.Grade))
+            .Select(course => course.CanvasCourseId).ToArray();
+        if (primaryCourseIds.Length > 0)
+            baseQuery = baseQuery.Where(score => !primaryCourseIds.Contains(score.Enrollment!.CanvasCourseId));
         var visibleStudents = VisibleStudents();
         var authoredRows = await context.StudentTranscriptRecords.AsNoTracking()
             .Where(row => visibleStudents.Any(student => student.Id == row.StudentProfileId)).ToListAsync(cancellationToken);
@@ -1010,11 +1015,11 @@ public class TranscriptsController(
     private IQueryable<StudentProfile> VisibleStudents()
         => userAccess.ApplyStudentScope(context.StudentProfiles.AsNoTracking());
 
-    private static string? NormalizeGrade(string gradeLevel)
-    {
-        if (!int.TryParse(gradeLevel, out var grade)) return gradeLevel;
-        return grade is >= 1 and <= 12 ? grade.ToString() : null;
-    }
+    private static bool IsPrimaryGrade(string? gradeLevel) =>
+        int.TryParse(gradeLevel, out var grade) && grade is >= 1 and <= 4;
+
+    private static string? CanvasGrade(string? gradeLevel) =>
+        int.TryParse(gradeLevel, out var grade) && grade is >= 5 and <= 12 ? grade.ToString() : null;
 
     private static int StartYear(string value) =>
         int.TryParse(value.Split('-', '/', StringSplitOptions.TrimEntries)[0], out var year) ? year : 0;

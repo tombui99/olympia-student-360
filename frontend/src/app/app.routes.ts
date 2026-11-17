@@ -60,6 +60,11 @@ export const routes: Routes = [
               import('./transcripts/transcripts.component').then((m) => m.TranscriptsComponent),
           },
           {
+            path: 'sis-summary',
+            loadComponent: () =>
+              import('./transcripts/sis-transcript-summary.component').then((m) => m.SisTranscriptSummaryComponent),
+          },
+          {
             path: 'student',
             canDeactivate: [transcriptEditGuard],
             loadComponent: () =>
@@ -70,6 +75,21 @@ export const routes: Routes = [
             canDeactivate: [transcriptEditGuard],
             loadComponent: () =>
               import('./transcripts/student-transcript.component').then((m) => m.StudentTranscriptComponent),
+          },
+          {
+            path: 'sis',
+            children: [
+              {
+                path: '',
+                loadComponent: () =>
+                  import('./transcripts/sis-transcript.component').then((m) => m.SisTranscriptComponent),
+              },
+              {
+                path: ':studentId',
+                loadComponent: () =>
+                  import('./transcripts/sis-transcript.component').then((m) => m.SisTranscriptComponent),
+              },
+            ],
           },
           {
             path: ':academicYear/grades/:gradeLevel',

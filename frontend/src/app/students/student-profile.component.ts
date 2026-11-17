@@ -737,13 +737,13 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
             </div>
             <a
               class="inline-flex items-center gap-2 rounded-md border border-[#6d3a91] bg-[#f7f1fb] px-4 py-2.5 text-sm font-semibold text-[#4a1b73] transition hover:bg-[#efe2f7] focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
-              [routerLink]="['/transcripts/student', profile.id]"
+              [routerLink]="[['1', '2', '3', '4'].includes(profile.gradeLevel ?? '') ? '/transcripts/sis' : '/transcripts/student', profile.id]"
             >
               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <path d="M14 2v6h6M8 13h8M8 17h5" />
               </svg>
-              {{ languageService.t('studentProfile.canvas.viewFullTranscript') }}
+              {{ languageService.t(['1', '2', '3', '4'].includes(profile.gradeLevel ?? '') ? 'sis.nav' : 'studentProfile.canvas.viewFullTranscript') }}
               <span aria-hidden="true">→</span>
             </a>
           </div>

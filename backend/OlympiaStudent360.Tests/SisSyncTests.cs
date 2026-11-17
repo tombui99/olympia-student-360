@@ -501,15 +501,17 @@ internal sealed class SisHandler(Func<HttpRequestMessage, CancellationToken, Tas
 internal static class SisFixtures
 {
     internal const string Watermark = "2026-11-01T08:00:00+07:00";
-    internal static SisEtlOptions Options(bool timetable = false, bool allowEmpty = false, string? schoolYearId = null, bool health = false) => new()
+    internal static SisEtlOptions Options(bool timetable = false, bool allowEmpty = false, string? schoolYearId = null, bool health = false, bool grades = false) => new()
     {
         BaseUri = new Uri("https://sis.test/"), ClientId = "test-client", ClientSecret = "test-secret",
-        RequestIntervalMilliseconds = 0, Resources = health ? ["schools", "students", "health/visits"] : timetable ? ["schools", "students", "timetable"] : ["schools", "students"],
+        RequestIntervalMilliseconds = 0,
+        Resources = ["schools", "students", .. health ? new[] { "health/visits" } : [],
+            .. timetable ? new[] { "timetable" } : [], .. grades ? new[] { "gradebooks" } : []],
         FromDate = new DateOnly(2026, 11, 1), ToDate = new DateOnly(2026, 11, 30), AllowEmptyStudents = allowEmpty,
         SchoolYearIds = schoolYearId is null ? [] : [schoolYearId]
     };
     internal static HttpResponseMessage Token() => Json(new
-    { access_token = "test-token", token_type = "Bearer", expires_in = 3600, scope = "catalog.read students.read timetable.read health-visits.read" });
+    { access_token = "test-token", token_type = "Bearer", expires_in = 3600, scope = "catalog.read students.read timetable.read health-visits.read gradebooks.read" });
     internal static HttpResponseMessage Page(object[] records, bool more = false, string? cursor = null, string watermark = Watermark) => Json(new
     { data = records, meta = new { has_more = more, next_cursor = cursor, watermark, api_version = "1.0" } });
     private static HttpResponseMessage Json(object value) => new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(value)) };
@@ -531,7 +533,8 @@ internal static class SisFixtures
         treatment = "Rest", medicine = "Source medicine", notes, parent_notified = false, is_deleted = deleted, updated_at = "2026-10-31T08:00:00+07:00"
     };
     internal static HttpClient Http(object[] students, string watermark = Watermark, bool failSecondPage = false,
-        object[]? timetable = null, bool failTimetable = false, List<string>? queries = null, object[]? healthVisits = null) => new(new SisHandler((request, _) =>
+        object[]? timetable = null, bool failTimetable = false, List<string>? queries = null, object[]? healthVisits = null,
+        object[]? gradebooks = null, List<string>? gradeQueries = null) => new(new SisHandler((request, _) =>
     {
         var path = request.RequestUri!.AbsolutePath;
         var query = request.RequestUri.Query;
@@ -558,6 +561,11 @@ internal static class SisFixtures
             return Task.FromResult(Page(timetable ?? [], failTimetable, failTimetable ? "next" : null, watermark));
         }
         if (path.EndsWith("/health/visits")) return Task.FromResult(Page(healthVisits ?? [], watermark: watermark));
+        if (path.EndsWith("/gradebooks"))
+        {
+            gradeQueries?.Add(query);
+            return Task.FromResult(Page(gradebooks ?? [], watermark: watermark));
+        }
         throw new InvalidOperationException("Unexpected fixture endpoint.");
     }));
 }

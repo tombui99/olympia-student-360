@@ -41,6 +41,8 @@ internal static class SisModelConfiguration
             row.HasIndex(x => new { x.SourceKey, x.Endpoint, x.RecordKey }).IsUnique();
             row.HasIndex(x => new { x.SourceKey, x.Endpoint, x.SchoolYearId, x.RecordDate });
             row.HasIndex(x => new { x.SourceKey, x.StudentUserId });
+            row.HasIndex(x => new { x.Endpoint, x.StudentUserId, x.IsDeleted })
+                .HasDatabaseName("IX_SisWarehouse_TranscriptStudent");
         });
         model.Entity<SisSyncState>(row =>
         {

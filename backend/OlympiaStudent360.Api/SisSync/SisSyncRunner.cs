@@ -293,10 +293,12 @@ public sealed class SisSyncRunner
         if (!SisApiClient.TryTimestamp(updated, out var timestamp)) throw new SisApiException("SIS record is missing a valid updated_at timestamp.");
         var school = SisJson.RefId(record, "school");
         var year = SisJson.RefId(record, "school_year");
-        if (endpoint == "students" && (school is null || year is null))
-            throw new SisApiException("SIS student response is missing its school or school_year reference.");
+        if ((endpoint is "students" or SisEndpoints.Gradebooks) && (school is null || year is null))
+            throw new SisApiException("SIS response is missing its school or school_year reference.");
         if (endpoint == "students") SisJson.RequiredBool(record, "is_active");
-        var type = SisJson.Text(record, "type", 50);
+        var gradebook = endpoint == SisEndpoints.Gradebooks;
+        var type = gradebook ? SisGradebookCell.PrimaryGrade(record) : SisJson.Text(record, "type", 50);
+        var deleted = SisJson.RequiredBool(record, "is_deleted");
         var date = SisJson.Date(record, "date");
         if (filters.TryGetValue("school_id", out var schoolFilter) && school is not null && school != schoolFilter ||
             filters.TryGetValue("school_year_id", out var yearFilter) && year is not null && year != yearFilter ||
@@ -306,6 +308,18 @@ public sealed class SisSyncRunner
                 date > DateTime.ParseExact(filters["to_date"], "yyyy-MM-dd", CultureInfo.InvariantCulture)))
             throw new SisApiException("SIS returned a record outside the requested filters.");
         batch.Warehouse.TryGetValue(key, out var row);
+        if (gradebook && type is null)
+        {
+            // Ignore scores outside the primary grades. A correction to a previously
+            // imported cell must still withdraw it, without storing the out-of-scope mark.
+            if (row is not null && row.SourceUpdatedAtUtc <= timestamp.UtcDateTime)
+            {
+                row.IsDeleted = true;
+                row.SourceUpdatedAtUtc = timestamp.UtcDateTime;
+                row.UpdatedAt = DateTime.UtcNow;
+            }
+            return;
+        }
         if (row is null)
         {
             row = new SisWarehouseRecord { SourceKey = source, Endpoint = endpoint, RecordKey = key, SourceId = SisJson.RequiredId(record) };
@@ -316,10 +330,16 @@ public sealed class SisSyncRunner
         if (row.SourceUpdatedAtUtc > timestamp.UtcDateTime) return;
         row.SchoolId = school ?? filters.GetValueOrDefault("school_id");
         row.SchoolYearId = year ?? filters.GetValueOrDefault("school_year_id");
-        row.StudentUserId = endpoint == "students" ? SisJson.RequiredId(record, "student_user_id") : SisJson.Text(SisJson.Child(record, "student"), "user_id");
+        row.StudentUserId = endpoint switch
+        {
+            "students" => SisJson.RequiredId(record, "student_user_id"),
+            SisEndpoints.Gradebooks => SisJson.RequiredId(SisJson.Child(record, "student"), "user_id"),
+            _ => SisJson.Text(SisJson.Child(record, "student"), "user_id")
+        };
         row.RecordType = type;
         row.RecordDate = date;
-        row.IsDeleted = SisJson.RequiredBool(record, "is_deleted");
+        row.IsDeleted = deleted;
+        if (gradebook && !deleted) SisGradebookCell.Read(record, type!);
         row.IsActive = SisJson.Bool(record, "is_active");
         row.SourceUpdatedAtUtc = timestamp.UtcDateTime;
         row.PayloadJson = record.GetRawText();

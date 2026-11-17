@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "SchoolOnline SIS API v1 - Student 360",
-    "description": "Based on the supplied SchoolOnline API v1 manual, 31 October 2026. Read-only API. No credentials or student records are included. Pagination is manual to prevent sharing cursors/watermarks across resources.",
+    "description": "Based on the supplied SchoolOnline API v1 manual, revision 1.1, 10 November 2026. Read-only API. No credentials or student records are included. Pagination is manual to prevent sharing cursors/watermarks across resources.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -819,6 +819,65 @@
           ]
         },
         "description": "Requires health-visits.read. Every list is paginated. Follow meta.next_cursor until meta.has_more=false. Save meta.watermark only after completing the scan. "
+      }
+    },
+    {
+      "name": "16 - Student gradebook marks",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/gradebooks?limit=500",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "gradebooks"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "500"
+            },
+            {
+              "key": "school_year_id",
+              "value": "{{school_year_id}}",
+              "disabled": true,
+              "description": "Select the school year from schools."
+            },
+            {
+              "key": "school_id",
+              "value": "{{school_id}}",
+              "disabled": true
+            },
+            {
+              "key": "subject_id",
+              "value": "",
+              "disabled": true,
+              "description": "Optional vendor subject ID."
+            },
+            {
+              "key": "updated_since",
+              "value": "{{updated_since}}",
+              "disabled": true,
+              "description": "Enable only for an incremental scan of this exact filter set."
+            },
+            {
+              "key": "cursor",
+              "value": "{{cursor}}",
+              "disabled": true,
+              "description": "Copy meta.next_cursor from THIS endpoint/filter set. Preserve all other filters."
+            }
+          ]
+        },
+        "description": "Requires gradebooks.read. One cell per student, subject, item and period. Follow meta.next_cursor until meta.has_more=false and then save meta.watermark for these filters."
       }
     }
   ]

@@ -16,7 +16,7 @@ namespace OlympiaStudent360.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.2")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
@@ -2559,6 +2559,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("SourceKey", "StudentUserId");
+
+                    b.HasIndex("Endpoint", "StudentUserId", "IsDeleted")
+                        .HasDatabaseName("IX_SisWarehouse_TranscriptStudent");
 
                     b.HasIndex("SourceKey", "Endpoint", "RecordKey")
                         .IsUnique();

@@ -107,15 +107,10 @@ import { riskBadgeClass } from './risk.util';
               @for (student of students(); track student.id) {
                 <tr class="text-sm transition hover:bg-[#fdfcff]">
                   <td class="px-6 py-4">
-                    <a class="flex items-center gap-3" [routerLink]="['/students', student.id]">
-                      <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1edf4] text-xs font-bold text-[#5b287d]">
-                        {{ initials(student.fullName) }}
-                      </span>
-                      <span class="min-w-0">
-                        <span class="block truncate font-semibold text-[#32124f]">{{ student.fullName }}</span>
-                        <span class="mt-0.5 block text-xs text-[#7c7284]">
-                          {{ student.sisStudentCode ? student.sisStudentCode + ' · ' : '' }}{{ student.sisUserId }}
-                        </span>
+                    <a class="block" [routerLink]="['/students', student.id]">
+                      <span class="block truncate font-semibold text-[#32124f]">{{ student.fullName }}</span>
+                      <span class="mt-0.5 block text-xs text-[#7c7284]">
+                        {{ student.sisStudentCode ? student.sisStudentCode + ' · ' : '' }}{{ student.sisUserId }}
                       </span>
                     </a>
                   </td>
@@ -355,16 +350,5 @@ export class StudentsComponent implements OnInit, OnDestroy {
 
   scopeHint(): string {
     return this.languageService.t('students.scopeHint');
-  }
-
-  initials(name: string): string {
-    return (
-      name
-        .trim()
-        .split(/\s+/)
-        .slice(-2)
-        .map((part) => part[0]?.toUpperCase())
-        .join('') || 'S'
-    );
   }
 }

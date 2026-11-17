@@ -12,6 +12,9 @@ on:
         type: choice
         options: [incremental, full, reports-only, check-access]
         default: incremental
+      school_year_ids:
+        description: "Optional comma-separated SchoolOnline year IDs for a one-time backfill"
+        type: string
 
 permissions:
   contents: read
@@ -44,8 +47,8 @@ jobs:
       Sis__ClientId: ${{ secrets.SIS_CLIENT_ID }}
       Sis__ClientSecret: ${{ secrets.SIS_CLIENT_SECRET }}
       Sis__SchoolIds: ${{ vars.SIS_SCHOOL_IDS }}
-      Sis__SchoolYearIds: ${{ vars.SIS_SCHOOL_YEAR_IDS }}
-      Sis__Resources: ${{ vars.SIS_RESOURCES || 'schools,students,health/visits' }}
+      Sis__SchoolYearIds: ${{ inputs.school_year_ids || vars.SIS_SCHOOL_YEAR_IDS }}
+      Sis__Resources: ${{ vars.SIS_RESOURCES || 'schools,students,health/visits,gradebooks' }}
       Sis__LookbackDays: ${{ vars.SIS_LOOKBACK_DAYS || '31' }}
       Sis__TimetableFutureDays: ${{ vars.SIS_TIMETABLE_FUTURE_DAYS || '14' }}
       Sis__RequestIntervalMilliseconds: ${{ vars.SIS_REQUEST_INTERVAL_MS || '1100' }}

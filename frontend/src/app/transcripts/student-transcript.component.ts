@@ -527,12 +527,9 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                 @for (student of directoryStudents(); track student.id) {
                   <tr class="transition hover:bg-[#fcfafc]">
                     <td class="px-5 py-4 lg:px-7">
-                      <a [routerLink]="['/transcripts/student', student.id]" class="flex items-center gap-3">
-                        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f1eaf4] text-xs font-bold text-[#5b287d]">{{ initials(student.fullName) }}</span>
-                        <span>
-                          <span class="block font-semibold text-[#32124f]">{{ student.fullName }}</span>
-                          <span class="mt-0.5 block text-xs text-[#817589]">{{ student.sisUserId }}</span>
-                        </span>
+                      <a [routerLink]="['/transcripts/student', student.id]" class="block">
+                        <span class="block font-semibold text-[#32124f]">{{ student.fullName }}</span>
+                        <span class="mt-0.5 block text-xs text-[#817589]">{{ student.sisUserId }}</span>
                       </a>
                     </td>
                     <td class="px-4 py-4 text-[#65596d]">{{ student.gradeLevel || '—' }}</td>
@@ -627,7 +624,7 @@ export class StudentTranscriptComponent {
   readonly resetNeedsReload = signal(false);
   readonly resetTarget = signal<{ studentId: number; revision: number; name: string } | null>(null);
   readonly hasSavedChanges = hasTranscriptCustomizations;
-  readonly editableGrades = Array.from({ length: 12 }, (_, index) => String(index + 1));
+  readonly editableGrades = Array.from({ length: 8 }, (_, index) => String(index + 5));
   newEditYear = '';
   newEditGrade = '11';
   private yearsBeforeEditing: string[] = [];
@@ -807,10 +804,6 @@ export class StudentTranscriptComponent {
       .replace('{page}', String(this.directoryPage()))
       .replace('{pages}', String(this.directoryPages()))
       .replace('{total}', String(this.directoryTotal()));
-  }
-
-  initials(name: string): string {
-    return name.trim().split(/\s+/).slice(-2).map((part) => part[0]?.toUpperCase()).join('') || 'S';
   }
 
   academicYearSelectionLabel(): string {

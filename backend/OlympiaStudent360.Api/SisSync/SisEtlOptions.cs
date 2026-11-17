@@ -16,9 +16,9 @@ public sealed class SisEtlOptions
     public int RequestIntervalMilliseconds { get; init; } = 1100;
     public IReadOnlyList<string> SchoolIds { get; init; } = [];
     public IReadOnlyList<string> SchoolYearIds { get; init; } = [];
-    // Core roster by default. Other documented feeds can be enabled explicitly.
+    internal const string DefaultResources = "schools,students,health/visits,gradebooks";
     public IReadOnlyList<string> Resources { get; init; } =
-        ["schools", "students", "health/visits"];
+        DefaultResources.Split(',');
     public DateOnly? FromDate { get; init; }
     public DateOnly? ToDate { get; init; }
     public bool AllowEmptyStudents { get; init; }
@@ -41,7 +41,7 @@ public sealed class SisEtlOptions
             uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0 || uri.AbsolutePath != "/")
             throw new SisApiException("Sis:BaseUrl must be an HTTPS origin without credentials, path, query or fragment.");
         var resources = List("Sis:Resources");
-        if (resources.Length == 0) resources = ["schools", "students", "health/visits"];
+        if (resources.Length == 0) resources = DefaultResources.Split(',');
         foreach (var resource in resources)
             if (!SisEndpoints.All.Any(x => x.Name == resource)) throw new SisApiException("Unknown Sis:Resources endpoint.");
         if (!resources.Contains("schools") || !resources.Contains("students"))
@@ -76,6 +76,7 @@ public sealed record SisEndpoint(string Name, string Scope, bool Year = false, b
 
 public static class SisEndpoints
 {
+    public const string Gradebooks = "gradebooks";
     public static readonly IReadOnlyList<SisEndpoint> All =
     [
         new("schools", "catalog.read"),
@@ -91,6 +92,7 @@ public static class SisEndpoints
         new("health/profiles", "health.read", Year: true, School: true),
         new("health/physical-checks", "health.read", Year: true, School: true),
         new("health/diseases", "health.read"),
-        new("health/visits", "health-visits.read", Year: true, School: true)
+        new("health/visits", "health-visits.read", Year: true, School: true),
+        new(Gradebooks, "gradebooks.read", Year: true, School: true)
     ];
 }
