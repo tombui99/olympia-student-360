@@ -8,6 +8,13 @@ import { AdminUserDto, CreateAdminUserDto, UpdateAdminUserDto } from '../api/mod
 import { LanguageService } from '../core/language/language.service';
 
 type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | null };
+const microsoftLinkErrors: Record<string, string> = {
+  microsoft_invalid_email: 'accounts.microsoftInvalid',
+  microsoft_email_changed: 'accounts.microsoftSaveEmail',
+  microsoft_no_match: 'accounts.microsoftNoMatch',
+  microsoft_ambiguous: 'accounts.microsoftAmbiguous',
+  microsoft_directory_permission: 'accounts.microsoftPermission',
+};
 
 @Component({
   selector: 'app-account-management',
@@ -267,26 +274,17 @@ type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | nu
 
               @if (microsoftLinkEnabled()) {
                 <div class="space-y-2 rounded-md border border-[#ebe6ef] p-3">
-                  <label class="block">
-                    <span class="text-sm font-medium text-[#34243d]">{{ languageService.t('accounts.microsoftObjectId') }}</span>
-                    <input
-                      class="mt-2 w-full rounded-md border border-[#d8d0df] px-3 py-2 text-sm"
-                      name="microsoftObjectId"
-                      [ngModel]="microsoftObjectId()"
-                      (ngModelChange)="microsoftObjectId.set($event)"
-                      [readonly]="microsoftLinked()"
-                    />
-                  </label>
+                  <p class="text-sm text-[#65596d]">{{ languageService.t(microsoftStatus()) }}</p>
                   @if (microsoftMessage(); as message) {
                     <p class="text-sm" role="status">{{ languageService.t(message) }}</p>
                   }
                   <button
                     class="rounded-md border border-[#d8d0df] px-3 py-2 text-sm font-semibold text-[#32124f] disabled:opacity-50"
                     type="button"
-                    [disabled]="saving() || !microsoftObjectId().trim()"
+                    [disabled]="saving() || (!canBlockMicrosoft() && !microsoftEmailIsSaved())"
                     (click)="saveMicrosoftLink()"
                   >
-                    {{ languageService.t(microsoftLinked() ? 'accounts.microsoftUnlink' : 'accounts.microsoftLink') }}
+                    {{ languageService.t(canBlockMicrosoft() ? 'accounts.microsoftUnlink' : 'accounts.microsoftLink') }}
                   </button>
                 </div>
               }
@@ -371,7 +369,9 @@ export class AccountManagementComponent implements OnInit {
   sheetOpen = signal(false);
   microsoftLinkEnabled = signal(false);
   microsoftLinked = signal(false);
-  microsoftObjectId = signal('');
+  microsoftBlocked = signal(false);
+  microsoftAutoLink = signal(false);
+  private microsoftSavedEmail = '';
   microsoftMessage = signal<string | null>(null);
   passwordValue = '';
   readonly pageSize = 20;
@@ -475,6 +475,7 @@ export class AccountManagementComponent implements OnInit {
 
   edit(user: AdminUserDto) {
     this.resetMicrosoftLink();
+    this.microsoftSavedEmail = user.email?.trim() ?? '';
     this.editingUserId.set(user.id);
     this.passwordValue = '';
     this.form = {
@@ -497,11 +498,12 @@ export class AccountManagementComponent implements OnInit {
     this.adminUsersService.getMicrosoftLink(user.id).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
-      next: ({ enabled, objectId }) => {
+      next: ({ enabled, linked, objectId, blocked, autoLinkByEmail }) => {
         if (this.editingUserId() !== user.id) return;
         this.microsoftLinkEnabled.set(enabled);
-        this.microsoftLinked.set(!!objectId);
-        this.microsoftObjectId.set(objectId ?? '');
+        this.microsoftLinked.set(linked ?? !!objectId);
+        this.microsoftBlocked.set(blocked ?? false);
+        this.microsoftAutoLink.set(autoLinkByEmail ?? false);
       },
       error: (error) => {
         // A frontend deploy can reach the older API while the backend rolls out.
@@ -512,29 +514,43 @@ export class AccountManagementComponent implements OnInit {
     });
   }
 
+  microsoftEmailIsSaved(): boolean {
+    return !!this.microsoftSavedEmail &&
+      this.form.email?.trim().toLowerCase() === this.microsoftSavedEmail.toLowerCase();
+  }
+
+  canBlockMicrosoft(): boolean {
+    return this.microsoftLinked() || (this.microsoftAutoLink() && !this.microsoftBlocked());
+  }
+
+  microsoftStatus(): string {
+    if (this.microsoftBlocked()) return 'accounts.microsoftBlocked';
+    if (this.microsoftLinked()) return 'accounts.microsoftLinked';
+    if (!this.microsoftEmailIsSaved()) return 'accounts.microsoftSaveEmail';
+    return this.microsoftAutoLink() ? 'accounts.microsoftAutoLink' : 'accounts.microsoftEmailHint';
+  }
+
   saveMicrosoftLink() {
     const id = this.editingUserId();
     if (!id || this.saving()) return;
-    const linked = this.microsoftLinked();
-    const objectId = this.microsoftObjectId().trim();
-    if (linked && !window.confirm(this.languageService.t('accounts.microsoftUnlinkConfirm'))) return;
-    const request = linked
+    const block = this.canBlockMicrosoft();
+    if (!block && !this.microsoftEmailIsSaved()) return;
+    if (block && !window.confirm(this.languageService.t('accounts.microsoftUnlinkConfirm'))) return;
+    const request = block
       ? this.adminUsersService.unlinkMicrosoftAccount(id)
-      : this.adminUsersService.linkMicrosoftAccount(id, objectId);
+      : this.adminUsersService.linkMicrosoftAccount(id, this.microsoftSavedEmail);
 
     this.saving.set(true);
     this.microsoftMessage.set(null);
     request.subscribe({
       next: () => {
-        this.microsoftObjectId.set(linked ? '' : objectId);
-        this.microsoftLinked.set(!linked);
-        this.microsoftMessage.set(linked ? 'accounts.microsoftUnlinked' : 'accounts.microsoftLinked');
+        this.microsoftLinked.set(!block);
+        this.microsoftBlocked.set(block);
         this.saving.set(false);
       },
       error: (error) => {
-        this.microsoftMessage.set(error.status === 409
-          ? 'accounts.microsoftConflict'
-          : error.status === 400 ? 'accounts.microsoftInvalid' : 'accounts.microsoftError');
+        this.microsoftMessage.set(microsoftLinkErrors[error.error?.code] ??
+          (error.status === 409 ? 'accounts.microsoftConflict' : 'accounts.microsoftError'));
         this.saving.set(false);
       },
     });
@@ -543,7 +559,9 @@ export class AccountManagementComponent implements OnInit {
   private resetMicrosoftLink() {
     this.microsoftLinkEnabled.set(false);
     this.microsoftLinked.set(false);
-    this.microsoftObjectId.set('');
+    this.microsoftBlocked.set(false);
+    this.microsoftAutoLink.set(false);
+    this.microsoftSavedEmail = '';
     this.microsoftMessage.set(null);
   }
 

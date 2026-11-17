@@ -7,6 +7,7 @@ public class ApplicationUser : IdentityUser
     public string FullName { get; set; } = default!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
+    public bool MicrosoftSignInBlocked { get; set; }
     public ICollection<TeacherAccessGrant> AccessGrants { get; set; } = [];
     public ICollection<TeacherClassAccess> ClassAccesses { get; set; } = [];
     public ICollection<TeacherSchoolLevelAccess> SchoolLevelAccesses { get; set; } = [];

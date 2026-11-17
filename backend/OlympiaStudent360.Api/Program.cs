@@ -130,6 +130,8 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddHttpClient<GeminiService>();
+builder.Services.AddHttpClient<MicrosoftDirectory>(client => client.Timeout = TimeSpan.FromSeconds(10))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<WorkspaceAiReportDocumentService>();

@@ -50,11 +50,13 @@ export class AdminUsersService {
   }
 
   getMicrosoftLink(id: string) {
-    return this.http.get<{ enabled: boolean; objectId: string | null }>(`${this.basePath}/api/admin/users/${id}/microsoft`);
+    return this.http.get<{
+      enabled: boolean; linked?: boolean; objectId?: string | null; blocked?: boolean; autoLinkByEmail?: boolean;
+    }>(`${this.basePath}/api/admin/users/${id}/microsoft`);
   }
 
-  linkMicrosoftAccount(id: string, objectId: string) {
-    return this.http.put<void>(`${this.basePath}/api/admin/users/${id}/microsoft`, { objectId });
+  linkMicrosoftAccount(id: string, email: string) {
+    return this.http.put<void>(`${this.basePath}/api/admin/users/${id}/microsoft`, { email });
   }
 
   unlinkMicrosoftAccount(id: string) {

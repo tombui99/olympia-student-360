@@ -1,6 +1,6 @@
 # Student 360 Microsoft 365 sign-in
 
-Microsoft Entra verifies the user's school identity. A Student 360 administrator links an existing account to the school's tenant ID and the user's Entra Object ID. Match users by their school email during setup, then use the Object ID from Olympia IT for the actual link. The existing Student 360 account supplies the user's role and data access.
+Microsoft Entra verifies the user's school identity. With automatic linking enabled, the user clicks **Sign in with Microsoft** and signs into their Olympia account. Student 360 checks Microsoft Graph for the signed-in directory identity and matches its email or UPN to one existing Student 360 account. It stores the tenant and Object ID for future sign-ins. The existing Student 360 account supplies the user's role and data access.
 
 ## Message for Olympia IT
 
@@ -11,8 +11,8 @@ Chào anh/chị IT Olympia, nhờ anh/chị hỗ trợ cấu hình đăng nhập
    `https://s360.theolympiaschools.edu.vn/api/auth/microsoft/callback`
 
    Ứng dụng dùng OpenID Connect với authorization code flow và PKCE. Có thể giữ tắt các lựa chọn **Implicit grant and hybrid flows**.
-2. Trong **API permissions**, thêm quyền delegated **openid** và **profile** của Microsoft Graph. Nếu có quyền mặc định **User.Read**, anh/chị có thể gỡ quyền này trước khi cấp consent. Nhờ quản trị viên cấp **Grant admin consent** cho hai quyền đăng nhập. Trong **Enterprise applications → Olympia Student 360 → Properties**, bật **Assignment required**, sau đó vào **Users and groups** để chỉ định người dùng thử nghiệm.
-3. Gửi bên em **Directory (tenant) ID**, **Application (client) ID**, cùng **UPN/email đăng nhập Microsoft 365** và **Entra user Object ID** của từng người thử nghiệm. Nếu email trong Student 360 khác UPN, vui lòng ghi thêm email dùng trong Student 360. Bên em sẽ liên kết đúng tài khoản hiện có.
+2. Trong **API permissions**, thêm quyền delegated **openid** và **profile** để đăng nhập, cùng quyền **Microsoft Graph → Application permissions → User.Read.All** để Student 360 đối chiếu email khi người dùng đăng nhập lần đầu. Nhờ quản trị viên chọn **Grant admin consent**. Nếu **Assignment required** đang bật, vào **Enterprise applications → Olympia Student 360 → Users and groups** để cấp quyền cho nhân sự được phép dùng hệ thống. Có thể cấp theo nhóm nếu gói Entra hỗ trợ.
+3. Email lưu trong Student 360 cần khớp với email hoặc UPN Microsoft 365 của từng người. Student 360 tự tra cứu Object ID.
 4. Để chạy thử, vào **Certificates & secrets → Client secrets** và tạo một client secret. Nhờ anh/chị chia sẻ **secret Value** và ngày hết hạn qua kênh bảo mật đã thống nhất. Microsoft chỉ hiển thị Value lúc tạo. Nếu chính sách của trường yêu cầu dùng chứng chỉ thay cho client secret, báo bên em trước khi tạo credential để hai bên thống nhất phương án.
 
 Sau khi cấu hình xong, bên em sẽ phối hợp thử đăng nhập và kiểm tra quyền truy cập. Cảm ơn anh/chị!
@@ -31,11 +31,12 @@ Sau khi cấu hình xong, bên em sẽ phối hợp thử đăng nhập và ki�
    | `MicrosoftSignIn__PublicOrigin` | `https://s360.theolympiaschools.edu.vn` |
    | `MicrosoftSignIn__ClientSecret` | Reference the client secret from AWS Secrets Manager or SSM Parameter Store |
    | `MicrosoftSignIn__Enabled` | `true` after the other settings are present |
+   | `MicrosoftSignIn__AutoLinkByEmail` | `true` after Olympia grants Graph consent and confirms the saved school emails |
 
-   Keep the client secret out of source control and chat. Give the App Runner instance role read access to that secret only. App Runner loads a rotated secret on redeployment. The service needs HTTPS access to `login.microsoftonline.com`. If it uses a VPC connector, verify that the connector's network has working internet egress.
+   Keep the client secret out of source control and chat. Give the App Runner instance role read access to that secret only. App Runner loads a rotated secret on redeployment. The service needs HTTPS access to `login.microsoftonline.com` for sign-in and `graph.microsoft.com` for email lookup. [Microsoft Graph permissions for listing users](https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0)
 3. Keep the CloudFront `/api/*` behavior pointed at the API with caching disabled, POST requests enabled, and viewer cookies forwarded. The deployed distribution uses `CachingDisabled` and `AllViewerExceptHostHeader`. Microsoft sends the authorization response in a form POST because its code can exceed the AWS WAF query string limit. The API sets the redirect URI from `PublicOrigin` because CloudFront replaces the Host header on the origin request.
-4. Sign in with an existing Student 360 administrator account. In **Account Management**, search by email, edit the pilot account, paste the **Entra user Object ID**, and click **Link Microsoft account**. Link only the people Olympia IT verified. An administrator can unlink a Microsoft identity to end that user's Microsoft sign-in sessions in Student 360.
-5. From a private browser window on the school hostname, test a linked pilot account and verify its existing access. For the application-side denial test, have Olympia IT temporarily assign an approved test user in Entra who has no link in Student 360. Verify that Student 360 denies the user. Check that password login works and that signing out of Student 360 clears the app session. Microsoft sign-in sessions in Student 360 expire after one hour.
+4. Confirm that existing Student 360 accounts have the current school email, including privileged accounts. On first login Graph must return a unique matching Entra member and Student 360 must have a single corresponding account with an assigned role. Existing links continue to use the stored tenant and Object ID. Changing the saved email leaves an existing link in place. **Block Microsoft sign-in** ends Microsoft sessions and prevents automatic re-linking. An administrator can restore SSO by explicitly linking the saved school email.
+5. From a private browser window on the school hostname, test an unlinked pilot account with a matching email. Verify first sign-in and confirm its existing role. Also test with an approved Entra member who has no Student 360 account. Verify that Student 360 denies the sign-in. Check that password login works and that signing out of Student 360 clears the app session. Microsoft sign-in sessions in Student 360 expire after one hour.
 
 If the pilot needs to stop, set `MicrosoftSignIn__Enabled=false` in App Runner and deploy the updated settings. Entra links stay in the database for the next pilot.
 

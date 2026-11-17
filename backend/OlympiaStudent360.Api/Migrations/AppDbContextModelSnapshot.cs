@@ -241,6 +241,9 @@ namespace OlympiaStudent360.Api.Migrations
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("datetime");
 
+                    b.Property<bool>("MicrosoftSignInBlocked")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<string>("NormalizedEmail")
                         .HasMaxLength(256)
                         .HasColumnType("varchar(256)");

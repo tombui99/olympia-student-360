@@ -30,7 +30,8 @@ public static class DatabaseMigrationRecovery
         "20261104145633_ScopeReportInvalidation",
         "20261104161615_AddTeacherGradeAccessAndCorrectSchoolLevels",
         "20261106073751_CoverCanvasDashboardMonthlyTotals",
-        "20261116164548_IndexSisTranscriptStudent"
+        "20261116164548_IndexSisTranscriptStudent",
+        "20261117091700_BlockUnlinkedMicrosoftSignIn"
     ];
 
     private static readonly string[] LearningReportTables =
