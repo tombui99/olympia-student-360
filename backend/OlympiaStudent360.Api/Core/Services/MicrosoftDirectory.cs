@@ -9,6 +9,8 @@ public sealed class MicrosoftDirectory(HttpClient http, MicrosoftSignInSettings 
 {
     private const string GraphUsers = "https://graph.microsoft.com/v1.0/users";
     private const string Fields = "$select=id,mail,userPrincipalName,userType";
+    private string? accessToken;
+    private DateTimeOffset renewAt;
 
     internal async Task<string[]> GetMemberAddressesAsync(Guid objectId, CancellationToken ct)
     {
@@ -20,7 +22,10 @@ public sealed class MicrosoftDirectory(HttpClient http, MicrosoftSignInSettings 
             : [];
     }
 
-    internal async Task<Guid?> FindMemberAsync(string email, CancellationToken ct)
+    internal async Task<Guid?> FindMemberAsync(string email, CancellationToken ct) =>
+        (await ResolveMemberAsync(email, ct))?.Id;
+
+    internal async Task<Member?> ResolveMemberAsync(string email, CancellationToken ct)
     {
         // Escape the OData string literal before encoding the query parameter.
         var literal = "'" + email.Replace("'", "''") + "'";
@@ -37,29 +42,18 @@ public sealed class MicrosoftDirectory(HttpClient http, MicrosoftSignInSettings 
         return user is { UserType: "Member" } && user.Id != Guid.Empty &&
             (string.Equals(user.Mail, email, StringComparison.OrdinalIgnoreCase) ||
              string.Equals(user.UserPrincipalName, email, StringComparison.OrdinalIgnoreCase))
-            ? user.Id : null;
+                ? new Member(user.Id, new[] { user.Mail, user.UserPrincipalName }
+                    .Where(address => !string.IsNullOrWhiteSpace(address))
+                    .Select(address => address!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray())
+                : null;
     }
 
     private async Task<T?> QueryAsync<T>(string url, CancellationToken ct) where T : class
     {
         try
         {
-            using var credentials = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["client_id"] = settings.ClientId.ToString("D"),
-                ["client_secret"] = settings.ClientSecret,
-                ["grant_type"] = "client_credentials",
-                ["scope"] = "https://graph.microsoft.com/.default"
-            });
-            using var tokenResponse = await http.PostAsync(
-                $"https://login.microsoftonline.com/{settings.TenantId:D}/oauth2/v2.0/token", credentials, ct);
-            tokenResponse.EnsureSuccessStatusCode();
-            var token = await tokenResponse.Content.ReadFromJsonAsync<TokenResponse>(ct);
-            if (string.IsNullOrWhiteSpace(token?.AccessToken))
-                throw new MicrosoftDirectoryException("microsoft_directory_unavailable");
-
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetTokenAsync(ct));
             using var response = await http.SendAsync(request, ct);
             if (response.StatusCode == HttpStatusCode.Forbidden)
                 throw new MicrosoftDirectoryException("microsoft_directory_permission");
@@ -75,9 +69,33 @@ public sealed class MicrosoftDirectory(HttpClient http, MicrosoftSignInSettings 
         }
     }
 
-    private sealed record TokenResponse([property: JsonPropertyName("access_token")] string? AccessToken);
+    private async Task<string> GetTokenAsync(CancellationToken ct)
+    {
+        if (accessToken is not null && DateTimeOffset.UtcNow < renewAt) return accessToken;
+        using var credentials = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["client_id"] = settings.ClientId.ToString("D"),
+            ["client_secret"] = settings.ClientSecret,
+            ["grant_type"] = "client_credentials",
+            ["scope"] = "https://graph.microsoft.com/.default"
+        });
+        using var response = await http.PostAsync(
+            $"https://login.microsoftonline.com/{settings.TenantId:D}/oauth2/v2.0/token", credentials, ct);
+        response.EnsureSuccessStatusCode();
+        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(ct);
+        if (string.IsNullOrWhiteSpace(token?.AccessToken))
+            throw new MicrosoftDirectoryException("microsoft_directory_unavailable");
+        accessToken = token.AccessToken;
+        renewAt = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(token.ExpiresIn - 60L, 0, 3600));
+        return accessToken;
+    }
+
+    private sealed record TokenResponse(
+        [property: JsonPropertyName("access_token")] string? AccessToken,
+        [property: JsonPropertyName("expires_in")] int ExpiresIn);
     private sealed record UserResults(DirectoryUser[]? Value, [property: JsonPropertyName("@odata.nextLink")] string? NextLink);
     private sealed record DirectoryUser(Guid Id, string? Mail, string? UserPrincipalName, string? UserType);
+    internal sealed record Member(Guid Id, string[] Addresses);
 }
 
 internal sealed class MicrosoftDirectoryException(string code) : Exception(code)

@@ -149,18 +149,9 @@ public static class MicrosoftSignIn
         MicrosoftDirectory directory, Guid objectId, string identity, CancellationToken ct)
     {
         var addresses = await directory.GetMemberAddressesAsync(objectId, ct);
-        if (addresses.Length == 0) return null;
-
-        var firstEmail = users.NormalizeEmail(addresses[0]);
-        var secondEmail = addresses.Length > 1 ? users.NormalizeEmail(addresses[1]) : firstEmail;
-        var accounts = await users.Users.Where(user => user.NormalizedEmail != null &&
-                (user.NormalizedEmail == firstEmail || user.NormalizedEmail == secondEmail))
-            .Take(2).ToListAsync(ct);
-        if (accounts.Count != 1) return null;
-        var account = accounts[0];
-        var email = account.Email?.Trim();
-        if (email is null || !addresses.Contains(email, StringComparer.OrdinalIgnoreCase) ||
-            !account.EmailConfirmed || account.MicrosoftSignInBlocked || await users.IsLockedOutAsync(account))
+        var account = await FindUniqueAccountAsync(users, addresses, ct);
+        if (account is null || !account.EmailConfirmed || account.MicrosoftSignInBlocked ||
+            await users.IsLockedOutAsync(account))
             return null;
         if ((await users.GetLoginsAsync(account)).Any(login => login.LoginProvider == Scheme) ||
             (await users.GetRolesAsync(account)).Count == 0)
@@ -170,7 +161,7 @@ public static class MicrosoftSignIn
         {
             // Check both directions so a duplicate address or a different directory account
             // never establishes a link, even when the ID token itself is valid.
-            if (await directory.FindMemberAsync(email, ct) != objectId) return null;
+            if (await directory.FindMemberAsync(account.Email!.Trim(), ct) != objectId) return null;
             var result = await users.AddLoginAsync(account, new UserLoginInfo(Scheme, identity, "Microsoft"));
             return result.Succeeded ? account : null;
         }
@@ -183,6 +174,19 @@ public static class MicrosoftSignIn
             // Another request established a link. A fresh sign-in can read the committed row.
             return null;
         }
+    }
+
+    internal static async Task<ApplicationUser?> FindUniqueAccountAsync(
+        UserManager<ApplicationUser> users, string[] addresses, CancellationToken ct)
+    {
+        if (addresses.Length == 0) return null;
+        var firstEmail = users.NormalizeEmail(addresses[0]);
+        var secondEmail = addresses.Length > 1 ? users.NormalizeEmail(addresses[1]) : firstEmail;
+        var accounts = await users.Users.Where(user => user.NormalizedEmail != null &&
+                (user.NormalizedEmail == firstEmail || user.NormalizedEmail == secondEmail))
+            .Take(2).ToListAsync(ct);
+        return accounts.Count == 1 &&
+            addresses.Contains(accounts[0].Email?.Trim(), StringComparer.OrdinalIgnoreCase) ? accounts[0] : null;
     }
 
     public static async Task ValidateSessionAsync(Microsoft.AspNetCore.Authentication.JwtBearer.TokenValidatedContext context)

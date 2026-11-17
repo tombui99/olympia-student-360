@@ -1,6 +1,6 @@
 # Student 360 Microsoft 365 sign-in
 
-Microsoft Entra verifies the user's school identity. With automatic linking enabled, the user clicks **Sign in with Microsoft** and signs into their Olympia account. Student 360 checks Microsoft Graph for the signed-in directory identity and matches its email or UPN to one existing Student 360 account. It stores the tenant and Object ID for future sign-ins. The existing Student 360 account supplies the user's role and data access.
+Microsoft Entra verifies the user's school identity. When an administrator creates or edits an account with a school email, Student 360 looks it up in Microsoft Graph and links a unique matching Entra member. The API also backfills existing accounts when it starts and retries pending accounts every 15 minutes. Student 360 stores the tenant and Object ID for sign-in. The existing Student 360 account supplies the user's role and data access.
 
 ## Message for Olympia IT
 
@@ -31,12 +31,13 @@ Sau khi cấu hình xong, bên em sẽ phối hợp thử đăng nhập và ki�
    | `MicrosoftSignIn__PublicOrigin` | `https://s360.theolympiaschools.edu.vn` |
    | `MicrosoftSignIn__ClientSecret` | Reference the client secret from AWS Secrets Manager or SSM Parameter Store |
    | `MicrosoftSignIn__Enabled` | `true` after the other settings are present |
-   | `MicrosoftSignIn__AutoLinkByEmail` | `true` after Olympia grants Graph consent and confirms the saved school emails |
+   | `MicrosoftSignIn__AutoLinkByEmail` | Optional first sign-in fallback for eligible accounts still awaiting the backfill |
 
    Keep the client secret out of source control and chat. Give the App Runner instance role read access to that secret only. App Runner loads a rotated secret on redeployment. The service needs HTTPS access to `login.microsoftonline.com` for sign-in and `graph.microsoft.com` for email lookup. [Microsoft Graph permissions for listing users](https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0)
 3. Keep the CloudFront `/api/*` behavior pointed at the API with caching disabled, POST requests enabled, and viewer cookies forwarded. The deployed distribution uses `CachingDisabled` and `AllViewerExceptHostHeader`. Microsoft sends the authorization response in a form POST because its code can exceed the AWS WAF query string limit. The API sets the redirect URI from `PublicOrigin` because CloudFront replaces the Host header on the origin request.
-4. Confirm that existing Student 360 accounts have the current school email, including privileged accounts. On first login Graph must return a unique matching Entra member and Student 360 must have a single corresponding account with an assigned role. Existing links continue to use the stored tenant and Object ID. Changing the saved email leaves an existing link in place. **Block Microsoft sign-in** ends Microsoft sessions and prevents automatic re-linking. An administrator can restore SSO by explicitly linking the saved school email.
-5. From a private browser window on the school hostname, test an unlinked pilot account with a matching email. Verify first sign-in and confirm its existing role. Also test with an approved Entra member who has no Student 360 account. Verify that Student 360 denies the sign-in. Check that password login works and that signing out of Student 360 clears the app session. Microsoft sign-in sessions in Student 360 expire after one hour.
+4. Confirm that existing Student 360 accounts have the current school email, including privileged accounts. Graph must return a unique matching Entra member and Student 360 must have a single corresponding account with an assigned role. Check App Runner logs for aggregate backfill results. If Graph consent is pending, the backfill pauses and retries after 15 minutes. Ordinary account saves still succeed and show a Microsoft setup message.
+5. Changing the saved email removes the old Microsoft link and ends its sessions before Student 360 attempts to link the new address. To stop Microsoft access for an account, select **Block Microsoft sign-in** and save. Clearing the checkbox and saving allows a new link.
+6. From a private browser window on the school hostname, test a backfilled pilot account and confirm its existing role. Also test with an approved Entra member who has no Student 360 account. Verify that Student 360 denies the sign-in. Check that password login works and that signing out of Student 360 clears the app session. Microsoft sign-in sessions in Student 360 expire after one hour.
 
 If the pilot needs to stop, set `MicrosoftSignIn__Enabled=false` in App Runner and deploy the updated settings. Entra links stay in the database for the next pilot.
 

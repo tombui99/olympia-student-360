@@ -22,6 +22,7 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using OlympiaStudent360.Api.Controllers;
+using OlympiaStudent360.Api.Core.DTOs;
 using OlympiaStudent360.Api.Core.Entities;
 using OlympiaStudent360.Api.Core.Services;
 using OlympiaStudent360.Api.Data;
@@ -253,7 +254,8 @@ public class MicrosoftSignInTests
         }
     }
 
-    internal sealed class DirectoryEndpoint(object[] accounts, string scenario = "", object? byId = null) : HttpMessageHandler
+    internal sealed class DirectoryEndpoint(object[] accounts, string scenario = "", object? byId = null,
+        Func<bool>? accessDenied = null) : HttpMessageHandler
     {
         public string? Filter { get; private set; }
         public int LookupCount { get; private set; }
@@ -278,7 +280,7 @@ public class MicrosoftSignInTests
             Assert.Equal("https://graph.microsoft.com/v1.0/users", request.RequestUri!.GetLeftPart(UriPartial.Path));
             Filter = QueryHelpers.ParseQuery(request.RequestUri.Query)["$filter"].ToString();
             if (scenario.Length > 0) Assert.Contains("'o''brien@example.test'", Filter);
-            if (scenario == "missing-consent") return new(HttpStatusCode.Forbidden);
+            if (scenario == "missing-consent" || accessDenied?.Invoke() == true) return new(HttpStatusCode.Forbidden);
             var result = new Dictionary<string, object> { ["value"] = accounts };
             if (scenario == "next-page") result["@odata.nextLink"] = "next";
             return new(HttpStatusCode.OK) { Content = JsonContent.Create(result) };
@@ -321,6 +323,71 @@ public class MicrosoftSignInTests
 
 public sealed partial class MySqlResilienceTests
 {
+    [MySqlFact]
+    public async Task MicrosoftLinkingRunsOnAccountSaveAndBackfillsWhenConsentArrives()
+    {
+        await using var test = await TestDatabase.CreateAsync(migrate: true);
+        var settings = MicrosoftSignInTests.DirectorySettings();
+        const string oldEmail = "teacher@example.test";
+        const string newEmail = "teacher.new@example.test";
+        var oldId = Guid.NewGuid();
+        var newId = Guid.NewGuid();
+        object[] directoryAccounts = [new { id = oldId, mail = oldEmail, userType = "Member" }];
+        var accessDenied = false;
+        using var graph = new HttpClient(new MicrosoftSignInTests.DirectoryEndpoint(directoryAccounts,
+            accessDenied: () => accessDenied));
+        var services = new ServiceCollection().AddLogging();
+        services.AddScoped<AppDbContext>(_ => test.Open());
+        services.AddScoped(_ => new MicrosoftDirectory(graph, settings));
+        services.AddSingleton(settings);
+        services.AddScoped<MicrosoftAccountProvisioning>();
+        services.AddIdentityCore<ApplicationUser>().AddRoles<IdentityRole>().AddEntityFrameworkStores<AppDbContext>();
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roles = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var accounts = new AdminUsersController(users, roles, db, scope.ServiceProvider.GetRequiredService<MicrosoftAccountProvisioning>());
+        Assert.True((await roles.CreateAsync(new IdentityRole("Teacher"))).Succeeded);
+
+        var created = Assert.IsType<AdminUserDto>(Assert.IsType<ObjectResult>((await accounts.CreateUser(new()
+        {
+            Username = "teacher", FullName = "Teacher", Email = oldEmail, Role = "Teacher", Password = "Fixture-123!"
+        })).Result).Value);
+        Assert.Equal("microsoft_linked", created.MicrosoftSignInStatus);
+        var oldKey = MicrosoftSignIn.ProviderKey(settings.TenantId, oldId);
+        var newKey = MicrosoftSignIn.ProviderKey(settings.TenantId, newId);
+        var oldLogin = await users.FindByLoginAsync(MicrosoftSignIn.Scheme, oldKey);
+        Assert.Equal(created.Id, oldLogin?.Id);
+        var oldStamp = oldLogin!.SecurityStamp;
+
+        // An email edit takes effect while the directory is inaccessible.
+        directoryAccounts[0] = new { id = newId, mail = newEmail, userType = "Member" };
+        accessDenied = true;
+        var edit = new UpdateAdminUserDto { FullName = "Teacher", Email = newEmail, Role = "Teacher" };
+        var saved = Assert.IsType<AdminUserDto>(Assert.IsType<OkObjectResult>((await accounts.UpdateUser(created.Id, edit)).Result).Value);
+        Assert.Equal(newEmail, saved.Email);
+        Assert.Equal("microsoft_directory_permission", saved.MicrosoftSignInStatus);
+        Assert.Null(await users.FindByLoginAsync(MicrosoftSignIn.Scheme, oldKey));
+        Assert.NotEqual(oldStamp, (await users.FindByIdAsync(created.Id))?.SecurityStamp);
+
+        var worker = new MicrosoftAccountBackfillWorker(provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<MicrosoftAccountBackfillWorker>.Instance);
+        await worker.BackfillAsync(default);
+        Assert.Null(await users.FindByLoginAsync(MicrosoftSignIn.Scheme, newKey));
+        accessDenied = false;
+        await worker.BackfillAsync(default);
+        db.ChangeTracker.Clear();
+        Assert.Equal(created.Id, (await users.FindByLoginAsync(MicrosoftSignIn.Scheme, newKey))?.Id);
+
+        edit.MicrosoftSignInBlocked = true;
+        Assert.IsType<OkObjectResult>((await accounts.UpdateUser(created.Id, edit)).Result);
+        await worker.BackfillAsync(default);
+        db.ChangeTracker.Clear();
+        Assert.Null(await users.FindByLoginAsync(MicrosoftSignIn.Scheme, newKey));
+        Assert.True((await users.FindByIdAsync(created.Id))?.MicrosoftSignInBlocked);
+    }
+
     [MySqlFact]
     public async Task MicrosoftFirstLoginMatchesOneExistingAccountAndRespectsRevocation()
     {

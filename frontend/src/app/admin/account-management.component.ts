@@ -7,13 +7,14 @@ import { AdminUsersService } from '../api/api/admin-users.service';
 import { AdminUserDto, CreateAdminUserDto, UpdateAdminUserDto } from '../api/model/models';
 import { LanguageService } from '../core/language/language.service';
 
-type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | null };
+type AccountForm = CreateAdminUserDto & { id?: string; newPassword?: string | null; microsoftSignInBlocked?: boolean };
 const microsoftLinkErrors: Record<string, string> = {
   microsoft_invalid_email: 'accounts.microsoftInvalid',
-  microsoft_email_changed: 'accounts.microsoftSaveEmail',
   microsoft_no_match: 'accounts.microsoftNoMatch',
   microsoft_ambiguous: 'accounts.microsoftAmbiguous',
   microsoft_directory_permission: 'accounts.microsoftPermission',
+  microsoft_directory_unavailable: 'accounts.microsoftPending',
+  microsoft_conflict: 'accounts.microsoftConflict',
 };
 
 @Component({
@@ -38,6 +39,9 @@ const microsoftLinkErrors: Record<string, string> = {
 
       <p *ngIf="error()" class="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{{ error() }}</p>
       <p *ngIf="success()" class="rounded-md border border-[#d8ead0] bg-[#f5fff0] px-4 py-3 text-sm text-[#3f6f24]">{{ success() }}</p>
+      @if (microsoftWarning(); as warning) {
+        <p role="status" class="rounded-md border border-[#eadcb5] bg-[#fff9e8] px-4 py-3 text-sm text-[#6d5317]">{{ warning }}</p>
+      }
 
       <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
         <div class="border-b border-[#ebe6ef] p-6">
@@ -272,21 +276,12 @@ const microsoftLinkErrors: Record<string, string> = {
                 />
               </label>
 
-              @if (microsoftLinkEnabled()) {
-                <div class="space-y-2 rounded-md border border-[#ebe6ef] p-3">
-                  <p class="text-sm text-[#65596d]">{{ languageService.t(microsoftStatus()) }}</p>
-                  @if (microsoftMessage(); as message) {
-                    <p class="text-sm" role="status">{{ languageService.t(message) }}</p>
-                  }
-                  <button
-                    class="rounded-md border border-[#d8d0df] px-3 py-2 text-sm font-semibold text-[#32124f] disabled:opacity-50"
-                    type="button"
-                    [disabled]="saving() || (!canBlockMicrosoft() && !microsoftEmailIsSaved())"
-                    (click)="saveMicrosoftLink()"
-                  >
-                    {{ languageService.t(canBlockMicrosoft() ? 'accounts.microsoftUnlink' : 'accounts.microsoftLink') }}
-                  </button>
-                </div>
+              @if (microsoftSignInEnabled() && editingUserId()) {
+                <label class="flex items-center gap-2 text-sm text-[#34243d]">
+                  <input type="checkbox" name="microsoftSignInBlocked" [(ngModel)]="form.microsoftSignInBlocked"
+                    class="h-4 w-4 accent-[#4b2070]" />
+                  {{ languageService.t('accounts.microsoftUnlink') }}
+                </label>
               }
 
               <label class="block">
@@ -367,12 +362,9 @@ export class AccountManagementComponent implements OnInit {
   editingUserId = signal<string | null>(null);
   sheetMounted = signal(false);
   sheetOpen = signal(false);
-  microsoftLinkEnabled = signal(false);
-  microsoftLinked = signal(false);
-  microsoftBlocked = signal(false);
-  microsoftAutoLink = signal(false);
-  private microsoftSavedEmail = '';
-  microsoftMessage = signal<string | null>(null);
+  microsoftSignInEnabled = signal(false);
+  microsoftWarning = signal<string | null>(null);
+  private savedMicrosoftSignInBlocked = false;
   passwordValue = '';
   readonly pageSize = 20;
 
@@ -411,6 +403,7 @@ export class AccountManagementComponent implements OnInit {
         this.homerooms.set(data.homerooms);
         this.schoolLevels.set(data.schoolLevels);
         this.gradeLevels.set(data.gradeLevels ?? []);
+        this.microsoftSignInEnabled.set(data.microsoftSignInEnabled ?? false);
       },
       error: () => this.error.set(this.languageService.t('accounts.loadError')),
     });
@@ -465,7 +458,6 @@ export class AccountManagementComponent implements OnInit {
   }
 
   startCreate() {
-    this.resetMicrosoftLink();
     this.editingUserId.set(null);
     this.passwordValue = '';
     this.form = this.emptyForm();
@@ -474,9 +466,8 @@ export class AccountManagementComponent implements OnInit {
   }
 
   edit(user: AdminUserDto) {
-    this.resetMicrosoftLink();
-    this.microsoftSavedEmail = user.email?.trim() ?? '';
     this.editingUserId.set(user.id);
+    this.savedMicrosoftSignInBlocked = user.microsoftSignInBlocked ?? false;
     this.passwordValue = '';
     this.form = {
       id: user.id,
@@ -484,6 +475,7 @@ export class AccountManagementComponent implements OnInit {
       password: '',
       fullName: user.fullName,
       email: user.email,
+      microsoftSignInBlocked: this.savedMicrosoftSignInBlocked,
       role: user.role,
       newPassword: null,
       accessScopes: user.accessScopes?.includes('All')
@@ -495,74 +487,6 @@ export class AccountManagementComponent implements OnInit {
     };
     this.clearMessages();
     this.openSheet();
-    this.adminUsersService.getMicrosoftLink(user.id).pipe(
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe({
-      next: ({ enabled, linked, objectId, blocked, autoLinkByEmail }) => {
-        if (this.editingUserId() !== user.id) return;
-        this.microsoftLinkEnabled.set(enabled);
-        this.microsoftLinked.set(linked ?? !!objectId);
-        this.microsoftBlocked.set(blocked ?? false);
-        this.microsoftAutoLink.set(autoLinkByEmail ?? false);
-      },
-      error: (error) => {
-        // A frontend deploy can reach the older API while the backend rolls out.
-        if (this.editingUserId() === user.id && error.status !== 404) {
-          this.error.set(this.languageService.t('accounts.microsoftError'));
-        }
-      },
-    });
-  }
-
-  microsoftEmailIsSaved(): boolean {
-    return !!this.microsoftSavedEmail &&
-      this.form.email?.trim().toLowerCase() === this.microsoftSavedEmail.toLowerCase();
-  }
-
-  canBlockMicrosoft(): boolean {
-    return this.microsoftLinked() || (this.microsoftAutoLink() && !this.microsoftBlocked());
-  }
-
-  microsoftStatus(): string {
-    if (this.microsoftBlocked()) return 'accounts.microsoftBlocked';
-    if (this.microsoftLinked()) return 'accounts.microsoftLinked';
-    if (!this.microsoftEmailIsSaved()) return 'accounts.microsoftSaveEmail';
-    return this.microsoftAutoLink() ? 'accounts.microsoftAutoLink' : 'accounts.microsoftEmailHint';
-  }
-
-  saveMicrosoftLink() {
-    const id = this.editingUserId();
-    if (!id || this.saving()) return;
-    const block = this.canBlockMicrosoft();
-    if (!block && !this.microsoftEmailIsSaved()) return;
-    if (block && !window.confirm(this.languageService.t('accounts.microsoftUnlinkConfirm'))) return;
-    const request = block
-      ? this.adminUsersService.unlinkMicrosoftAccount(id)
-      : this.adminUsersService.linkMicrosoftAccount(id, this.microsoftSavedEmail);
-
-    this.saving.set(true);
-    this.microsoftMessage.set(null);
-    request.subscribe({
-      next: () => {
-        this.microsoftLinked.set(!block);
-        this.microsoftBlocked.set(block);
-        this.saving.set(false);
-      },
-      error: (error) => {
-        this.microsoftMessage.set(microsoftLinkErrors[error.error?.code] ??
-          (error.status === 409 ? 'accounts.microsoftConflict' : 'accounts.microsoftError'));
-        this.saving.set(false);
-      },
-    });
-  }
-
-  private resetMicrosoftLink() {
-    this.microsoftLinkEnabled.set(false);
-    this.microsoftLinked.set(false);
-    this.microsoftBlocked.set(false);
-    this.microsoftAutoLink.set(false);
-    this.microsoftSavedEmail = '';
-    this.microsoftMessage.set(null);
   }
 
   closeSheet() {
@@ -589,6 +513,8 @@ export class AccountManagementComponent implements OnInit {
       const payload: UpdateAdminUserDto = {
         fullName: this.form.fullName,
         email: this.form.email,
+        microsoftSignInBlocked: this.microsoftSignInEnabled() &&
+          this.form.microsoftSignInBlocked !== this.savedMicrosoftSignInBlocked ? this.form.microsoftSignInBlocked : undefined,
         role: this.form.role,
         newPassword: this.passwordValue || null,
         accessScopes: this.form.role === 'Teacher' ? this.normalizedAccessScopes() : [],
@@ -598,7 +524,7 @@ export class AccountManagementComponent implements OnInit {
       };
 
       this.adminUsersService.apiAdminUsersIdPut(editingId, payload).subscribe({
-        next: () => this.afterSave(this.languageService.t('accounts.updated')),
+        next: (user) => this.afterSave(this.languageService.t('accounts.updated'), user),
         error: (error) => this.handleError(error),
       });
       return;
@@ -617,7 +543,7 @@ export class AccountManagementComponent implements OnInit {
     };
 
     this.adminUsersService.apiAdminUsersPost(payload).subscribe({
-      next: () => this.afterSave(this.languageService.t('accounts.created')),
+      next: (user) => this.afterSave(this.languageService.t('accounts.created'), user),
       error: (error) => this.handleError(error),
     });
   }
@@ -691,7 +617,7 @@ export class AccountManagementComponent implements OnInit {
     return this.form.accessScopes.includes('All') ? ['All'] : this.form.accessScopes;
   }
 
-  private afterSave(message: string) {
+  private afterSave(message: string, user: AdminUserDto) {
     this.saving.set(false);
     this.editingUserId.set(null);
     this.passwordValue = '';
@@ -699,6 +625,8 @@ export class AccountManagementComponent implements OnInit {
     this.closeSheet();
     this.error.set(null);
     this.success.set(message);
+    const warning = user.microsoftSignInStatus && microsoftLinkErrors[user.microsoftSignInStatus];
+    this.microsoftWarning.set(warning ? this.languageService.t(warning) : null);
     this.loadUsers();
   }
 
@@ -721,6 +649,7 @@ export class AccountManagementComponent implements OnInit {
   private clearMessages() {
     this.error.set(null);
     this.success.set(null);
+    this.microsoftWarning.set(null);
   }
 
   private isFormValid(): boolean {

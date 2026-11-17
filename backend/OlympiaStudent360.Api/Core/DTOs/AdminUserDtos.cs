@@ -15,6 +15,8 @@ public class AdminUserDto
     public List<string> GradeLevels { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public bool MicrosoftSignInBlocked { get; set; }
+    public string? MicrosoftSignInStatus { get; set; }
 }
 
 public class AdminUserPageDto
@@ -28,6 +30,7 @@ public class AdminUserPageDto
 
 public class AdminUserOptionsDto
 {
+    public bool MicrosoftSignInEnabled { get; set; }
     public List<string> Roles { get; set; } = [];
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
@@ -60,6 +63,7 @@ public class UpdateAdminUserDto
     [Required]
     public string Role { get; set; } = "Teacher";
     public string? NewPassword { get; set; }
+    public bool? MicrosoftSignInBlocked { get; set; }
     public List<string> AccessScopes { get; set; } = [];
     public List<string> Homerooms { get; set; } = [];
     public List<string> SchoolLevels { get; set; } = [];

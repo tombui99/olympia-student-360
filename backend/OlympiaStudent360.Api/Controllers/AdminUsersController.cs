@@ -19,15 +19,18 @@ public class AdminUsersController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
     private readonly AppDbContext _context;
+    private readonly MicrosoftAccountProvisioning? _microsoft;
 
     public AdminUsersController(
         UserManager<ApplicationUser> userManager,
         RoleManager<IdentityRole> roleManager,
-        AppDbContext context)
+        AppDbContext context,
+        MicrosoftAccountProvisioning? microsoft = null)
     {
         _userManager = userManager;
         _roleManager = roleManager;
         _context = context;
+        _microsoft = microsoft;
     }
 
     [HttpGet]
@@ -101,6 +104,7 @@ public class AdminUsersController : ControllerBase
     {
         return Ok(new AdminUserOptionsDto
         {
+            MicrosoftSignInEnabled = _microsoft?.Enabled == true,
             Roles = ManagedRoles.ToList(),
             AccessScopes = TeacherAccessScopes.Values.ToList(),
             SchoolLevels = TeacherSchoolLevels.Values.ToList(),
@@ -115,7 +119,7 @@ public class AdminUsersController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<AdminUserDto>> CreateUser([FromBody] CreateAdminUserDto model)
+    public async Task<ActionResult<AdminUserDto>> CreateUser([FromBody] CreateAdminUserDto model, CancellationToken ct = default)
     {
         if (!await IsValidRole(model.Role))
         {
@@ -135,7 +139,7 @@ public class AdminUsersController : ControllerBase
         var user = new ApplicationUser
         {
             UserName = model.Username,
-            Email = model.Email,
+            Email = model.Email?.Trim(),
             FullName = model.FullName,
             EmailConfirmed = !string.IsNullOrWhiteSpace(model.Email)
         };
@@ -149,11 +153,11 @@ public class AdminUsersController : ControllerBase
         await _userManager.AddToRoleAsync(user, model.Role);
         await SaveAccess(user.Id, model.Role, model.AccessScopes, model.Homerooms, model.SchoolLevels, model.GradeLevels);
 
-        return StatusCode(StatusCodes.Status201Created, await ToDto(user));
+        return StatusCode(StatusCodes.Status201Created, await ToSavedDto(user, ct));
     }
 
     [HttpPut("{id}")]
-    public async Task<ActionResult<AdminUserDto>> UpdateUser(string id, [FromBody] UpdateAdminUserDto model)
+    public async Task<ActionResult<AdminUserDto>> UpdateUser(string id, [FromBody] UpdateAdminUserDto model, CancellationToken ct = default)
     {
         if (!await IsValidRole(model.Role))
         {
@@ -176,12 +180,14 @@ public class AdminUsersController : ControllerBase
             return BadRequest(new { Message = "Cannot remove the last admin account." });
         }
 
+        var email = model.Email?.Trim();
+        var emailChanged = !string.Equals(user.Email?.Trim(), email, StringComparison.OrdinalIgnoreCase);
         user.FullName = model.FullName;
-        user.Email = model.Email;
-        user.UserName = user.UserName;
+        user.Email = email;
         user.EmailConfirmed = !string.IsNullOrWhiteSpace(model.Email);
+        user.MicrosoftSignInBlocked = model.MicrosoftSignInBlocked ?? user.MicrosoftSignInBlocked;
 
-        var updateResult = await _userManager.UpdateAsync(user);
+        var updateResult = await SaveAccountIdentityAsync(user, emailChanged);
         if (!updateResult.Succeeded)
         {
             return BadRequest(new { Errors = updateResult.Errors.Select(error => error.Description) });
@@ -204,7 +210,35 @@ public class AdminUsersController : ControllerBase
             }
         }
 
-        return Ok(await ToDto(user));
+        return Ok(await ToSavedDto(user, ct));
+    }
+
+    private async Task<IdentityResult> SaveAccountIdentityAsync(ApplicationUser user, bool emailChanged)
+    {
+        if (emailChanged || user.MicrosoftSignInBlocked)
+        {
+            var links = (await _userManager.GetLoginsAsync(user))
+                .Where(login => login.LoginProvider == MicrosoftSignIn.Scheme).ToArray();
+            if (links.Length > 0)
+            {
+                foreach (var link in links)
+                {
+                    // Identity persists the edited email and refreshes the session stamp with the removal.
+                    var result = await _userManager.RemoveLoginAsync(user, link.LoginProvider, link.ProviderKey);
+                    if (!result.Succeeded) return result;
+                }
+                return IdentityResult.Success;
+            }
+        }
+        return await _userManager.UpdateAsync(user);
+    }
+
+    private async Task<AdminUserDto> ToSavedDto(ApplicationUser user, CancellationToken ct)
+    {
+        var status = _microsoft is null ? null : await _microsoft.LinkSavedEmailAsync(user, ct);
+        var dto = await ToDto(user);
+        dto.MicrosoftSignInStatus = status;
+        return dto;
     }
 
     [HttpDelete("{id}")]
@@ -263,6 +297,7 @@ public class AdminUsersController : ControllerBase
             Username = user.UserName!,
             Email = user.Email,
             FullName = user.FullName,
+            MicrosoftSignInBlocked = user.MicrosoftSignInBlocked,
             Role = role,
             AccessScopes = scopes,
             Homerooms = role == "Teacher"
@@ -343,6 +378,7 @@ public class AdminUsersController : ControllerBase
                 Username = user.UserName!,
                 Email = user.Email,
                 FullName = user.FullName,
+                MicrosoftSignInBlocked = user.MicrosoftSignInBlocked,
                 Role = userRole,
                 AccessScopes = scopes,
                 Homerooms = userRole == "Teacher"

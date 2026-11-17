@@ -64,6 +64,8 @@ export interface AdminUserDto {
   role: string;
   createdAt: string;
   lastLoginAt?: string | null;
+  microsoftSignInBlocked?: boolean;
+  microsoftSignInStatus?: string | null;
   accessScopes: string[];
   homerooms: string[];
   schoolLevels: string[];
@@ -84,6 +86,7 @@ export interface AdminUserOptionsDto {
   homerooms: string[];
   schoolLevels: string[];
   gradeLevels: string[];
+  microsoftSignInEnabled?: boolean;
 }
 
 export interface CreateAdminUserDto {
@@ -103,6 +106,7 @@ export interface UpdateAdminUserDto {
   email?: string | null;
   role: string;
   newPassword?: string | null;
+  microsoftSignInBlocked?: boolean;
   accessScopes: string[];
   homerooms: string[];
   schoolLevels: string[];
