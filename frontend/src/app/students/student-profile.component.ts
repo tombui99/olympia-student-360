@@ -14,6 +14,7 @@ import {
 } from './student-canvas-submission-sheet.component';
 import { StudentSupportJourneyComponent } from '../support-actions/student-support-journey.component';
 import { StudentCareerGuidanceComponent } from '../career-guidance/student-career-guidance.component';
+import { SisStudentMarksComponent } from '../transcripts/sis-student-marks.component';
 
 type ProfileSection =
   | 'overview'
@@ -30,7 +31,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
 
 @Component({
   selector: 'app-student-profile',
-  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent, StudentSupportJourneyComponent, StudentCareerGuidanceComponent],
+  imports: [NgClass, FormsModule, NgxEchartsDirective, RouterLink, StudentCanvasSubmissionSheetComponent, StudentSupportJourneyComponent, StudentCareerGuidanceComponent, SisStudentMarksComponent],
   template: `
     <section class="space-y-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -67,6 +68,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
       } @else if (error()) {
         <p class="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{{ error() }}</p>
       } @else if (student(); as profile) {
+        @let sisLearning = ['1', '2', '3', '4'].includes(profile.gradeLevel?.trim() ?? '');
         <div class="flex flex-wrap items-center justify-between gap-5 rounded-lg border border-[#ebe6ef] bg-white p-6 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="flex min-w-0 items-center gap-5">
             <span class="grid h-16 w-16 shrink-0 place-items-center rounded-full bg-[#32124f] text-xl font-bold text-[#f3c246]">
@@ -109,7 +111,7 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
           </dl>
         </div>
 
-        @if (yearOptions().length) {
+        @if (yearOptions().length && !(activeSection() === 'learning' && sisLearning)) {
           <div class="flex flex-wrap items-center gap-3 rounded-lg border border-[#ebe6ef] bg-white px-5 py-4 shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
             <div class="min-w-0">
               <p class="text-sm font-semibold text-[#32124f]">{{ languageService.t('studentProfile.year.title') }}</p>
@@ -728,27 +730,29 @@ type LearningTableTab = 'courseGrades' | 'recentSubmissions';
         </section>
         }
 
-        @if (activeSection() === 'learning') {
+        @if (activeSection() === 'learning' && authService.canAccess('academic')) {
         <section class="rounded-lg border border-[#ebe6ef] bg-white shadow-[0_12px_35px_rgba(50,18,79,0.08)]">
           <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#ebe6ef] p-6">
             <div>
-              <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t('studentProfile.canvas.title') }}</h3>
-              <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t('studentProfile.canvas.hint') }}</p>
+              <h3 class="text-lg font-semibold text-[#32124f]">{{ languageService.t(sisLearning ? 'sis.source' : 'studentProfile.canvas.title') }}</h3>
+              <p class="mt-1 text-sm text-[#6f6877]">{{ languageService.t(sisLearning ? 'sis.subtitle' : 'studentProfile.canvas.hint') }}</p>
             </div>
             <a
               class="inline-flex items-center gap-2 rounded-md border border-[#6d3a91] bg-[#f7f1fb] px-4 py-2.5 text-sm font-semibold text-[#4a1b73] transition hover:bg-[#efe2f7] focus:outline-none focus:ring-4 focus:ring-[#6d3a91]/10"
-              [routerLink]="[['1', '2', '3', '4'].includes(profile.gradeLevel ?? '') ? '/transcripts/sis' : '/transcripts/student', profile.id]"
+              [routerLink]="[sisLearning ? '/transcripts/sis' : '/transcripts/student', profile.id]"
             >
               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <path d="M14 2v6h6M8 13h8M8 17h5" />
               </svg>
-              {{ languageService.t(['1', '2', '3', '4'].includes(profile.gradeLevel ?? '') ? 'sis.nav' : 'studentProfile.canvas.viewFullTranscript') }}
+              {{ languageService.t('studentProfile.canvas.viewFullTranscript') }}
               <span aria-hidden="true">→</span>
             </a>
           </div>
 
-          @if (profile.canvas.hasData) {
+          @if (sisLearning) {
+            <app-sis-student-marks [studentId]="profile.id" />
+          } @else if (profile.canvas.hasData) {
             @if (filteredCanvasJourney().length) {
               <div class="border-b border-[#ebe6ef] p-6">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
