@@ -350,9 +350,10 @@ public sealed partial class MySqlResilienceTests
         var accounts = new AdminUsersController(users, roles, db, scope.ServiceProvider.GetRequiredService<MicrosoftAccountProvisioning>());
         Assert.True((await roles.CreateAsync(new IdentityRole("Teacher"))).Succeeded);
 
+        var fixturePassword = Guid.NewGuid().ToString("N") + "Aa1!";
         var created = Assert.IsType<AdminUserDto>(Assert.IsType<ObjectResult>((await accounts.CreateUser(new()
         {
-            Username = "teacher", FullName = "Teacher", Email = oldEmail, Role = "Teacher", Password = "Fixture-123!"
+            Username = "teacher", FullName = "Teacher", Email = oldEmail, Role = "Teacher", Password = fixturePassword
         })).Result).Value);
         Assert.Equal("microsoft_linked", created.MicrosoftSignInStatus);
         var oldKey = MicrosoftSignIn.ProviderKey(settings.TenantId, oldId);
