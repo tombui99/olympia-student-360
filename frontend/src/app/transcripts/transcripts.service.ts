@@ -59,6 +59,7 @@ export interface SchoolTranscriptGrade {
   gradeLevel: string;
   averageScore?: number | null;
   gpa?: number | null;
+  semester1Gpa?: number | null;
   classOptions: string[];
   subjects: TranscriptSubject[];
   subjectPage: number;
@@ -111,8 +112,19 @@ export interface TranscriptYearRecord {
   academicYear: string;
   gradeLevel?: string | null;
   showAverage?: boolean | null;
+  bilingual?: TranscriptBilingualRecord | null;
   credits: { subjectCode: string; credit: number; englishName?: string | null; vietnameseName?: string | null }[];
   ibSubjects: TranscriptIbSubject[];
+}
+
+export type TranscriptPeriod = 'semester1' | 'semester2' | 'fullYear';
+export type TranscriptPeriodResults = Partial<Record<TranscriptPeriod, string | null>>;
+
+export interface TranscriptBilingualRecord {
+  experientialActivities: TranscriptPeriodResults;
+  localEducation: TranscriptPeriodResults;
+  conduct: TranscriptPeriodResults;
+  academic: TranscriptPeriodResults;
 }
 
 export interface TranscriptIbSubject {

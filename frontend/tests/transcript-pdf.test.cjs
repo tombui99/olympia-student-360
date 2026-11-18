@@ -9,6 +9,7 @@ require.extensions['.ts'] = (loaded, filename) => loaded._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);
 const { buildStudentTranscriptPdf, TRANSCRIPT_LETTERHEADS } = require('../src/app/transcripts/transcript-pdf.ts');
+const { formatBirthDate } = require('../src/app/transcripts/transcript-display.ts');
 const publicAssets = join(__dirname, '../public/assets');
 
 const subjects = [
@@ -54,6 +55,12 @@ function pageStreams(document, page) {
     Buffer.from(decodePDFRawStream(stream).decode()).toString('hex'));
 }
 
+function savePreview(name, bytes) {
+  if (!process.env.OLYMPIA_PDF_PREVIEW_DIR) return;
+  mkdirSync(process.env.OLYMPIA_PDF_PREVIEW_DIR, { recursive: true });
+  writeFileSync(join(process.env.OLYMPIA_PDF_PREVIEW_DIR, `${name}.pdf`), bytes);
+}
+
 for (const [format, expectedPages] of [['bilingual', 4], ['bilingual-gpa', 1], ['ib', 2], ['international', 2]]) {
   test(`${format}: uses original A4 letterhead, keeps every year and preserves programme pages`, async () => {
     const source = assets(format);
@@ -71,10 +78,7 @@ for (const [format, expectedPages] of [['bilingual', 4], ['bilingual-gpa', 1], [
       const original = pageStreams(template, template.getPage(1));
       assert.ok(original.every(stream => retained.includes(stream)), 'original programme artwork and school information are retained');
     }
-    if (process.env.OLYMPIA_PDF_PREVIEW_DIR) {
-      mkdirSync(process.env.OLYMPIA_PDF_PREVIEW_DIR, { recursive: true });
-      writeFileSync(join(process.env.OLYMPIA_PDF_PREVIEW_DIR, `${format}.pdf`), bytes);
-    }
+    savePreview(format, bytes);
   });
 }
 
@@ -170,6 +174,69 @@ test('bilingual activities are grouped and never printed as numeric marks', asyn
   for (const group of ['Physical Education', 'Music', 'Fine Arts']) assert.ok(text.includes(group));
   for (const code of ['soccer', 'basketball', 'guitar', 'choir', 'graphic-design']) assert.ok(!text.includes(code));
   assert.equal(calls.filter(call => call.text === 'Đạt/Passed').length, 9);
+});
+
+test('birth dates keep the SIS calendar day with old and new API responses', async () => {
+  for (const value of ['2008-02-15', '2008-02-15T00:00:00', '2008-02-15T00:00:00+07:00'])
+    assert.equal(formatBirthDate(value), '15 February 2008');
+  assert.equal(formatBirthDate('2008-02-30'), '');
+  const record = fixture();
+  record.dateOfBirth = '2008-02-15T00:00:00';
+  for (const format of ['bilingual', 'bilingual-gpa', 'international', 'ib']) {
+    const { calls } = await rendered(record, { format, academicYears: ['2025-2026'] });
+    assert.ok(calls.some(call => call.text.endsWith('15 February 2008')));
+  }
+});
+
+test('GPA PDFs letter-grade Gym, Fine Arts and Choir and identify the Semester 1 GPA', async () => {
+  const record = fixture();
+  const grade = record.years.at(-1).grades[0];
+  grade.gpa = null;
+  grade.semester1Gpa = 3.32;
+  grade.subjects = [['gym', 'Gym', 75], ['fine-arts', 'Fine Arts', 80], ['choir', 'Choir', 65],
+    ['ielts', 'IELTS Prep Course', 90]].map(([subjectCode, subject, semester1Final]) => ({
+    subjectCode, subject, semester1Final, credit: 1, courseNames: [], classScores: [],
+  }));
+  for (const format of ['bilingual-gpa', 'international']) {
+    const { bytes, calls } = await rendered(record, { format, academicYears: ['2025-2026'] });
+    for (const [name, letter] of [['Gym', 'B+'], ['Fine Arts', 'A-'], ['Choir', 'B-']]) {
+      const row = calls.find(call => call.text === name);
+      assert.ok(row && calls.some(call => call.y === row.y && call.text === letter));
+    }
+    assert.ok(calls.some(call => call.text === 'IELTS Prep Course'));
+    assert.ok(calls.some(call => call.text === 'GPA (S1)'));
+    assert.equal(calls.filter(call => call.text === '3.32').length, 1, 'the term GPA appears only in the year header');
+    savePreview(`${format}-semester1`, bytes);
+  }
+  const { calls } = await rendered(record, { format: 'international', academicYears: ['2025-2026'], semester: 'semester2' });
+  assert.ok(calls.every(call => call.text !== 'GPA (S1)' && call.text !== '3.32'));
+});
+
+test('bilingual PDF prints approved supplemental and evaluation marks in their periods', async () => {
+  const record = fixture();
+  const grade = record.years.at(-1).grades[0];
+  grade.subjects.push({ subjectCode: 'local-education', subject: 'Giáo dục địa phương/Local Education',
+    semester1Final: 20, courseNames: [], classScores: [], credit: 0 });
+  record.record = { revision: 1, years: [{ academicYear: '2025-2026', credits: [], ibSubjects: [], bilingual: {
+    experientialActivities: { semester2: 'Pass', fullYear: 'Pass' },
+    localEducation: { semester1: 'Pass', fullYear: 'Pass' },
+    conduct: { semester1: 'Tốt/Good', fullYear: 'Tốt/Good' },
+    academic: { semester2: 'Tốt/Very good', fullYear: 'Khá/Good academic performance for the reporting period' },
+  } }] };
+  const options = { format: 'bilingual', academicYears: ['2025-2026'] };
+  const { bytes, calls } = await rendered(record, options);
+  const local = calls.filter(call => call.text.includes('Giáo dục địa phương'));
+  assert.equal(local.length, 1);
+  assert.ok(calls.some(call => call.text === 'Chưa đạt/Not passed' && call.y + call.size === local[0].y + local[0].size), 'Canvas takes precedence');
+  assert.ok(calls.some(call => call.text.includes('Hoạt động trải nghiệm, hướng nghiệp')));
+  assert.equal(calls.filter(call => call.text === 'Tốt/Good').length, 2);
+  assert.ok(calls.some(call => call.text.endsWith('period')));
+  assert.equal(calls.filter(call => call.text === 'Kết quả học tập/ Academic Result').length, 1);
+  savePreview('bilingual-approved-results', bytes);
+  const filtered = await rendered(record, { ...options, semester: 'semester1', excludedSubjectCodes: ['experiential-activities'] });
+  assert.ok(filtered.calls.every(call => !call.text.includes('Hoạt động trải nghiệm') && call.text !== 'Tốt/Very good'));
+  const gpa = await rendered(record, { ...options, format: 'bilingual-gpa' });
+  assert.ok(gpa.calls.every(call => !call.text.includes('Hoạt động trải nghiệm') && call.text !== 'Tốt/Good'));
 });
 
 test('long Unicode names, subjects and notes stay within page boundaries', async () => {

@@ -1,4 +1,4 @@
-import type { SchoolTranscript, SchoolTranscriptGrade, SchoolTranscriptYear, TranscriptIbSubject, TranscriptSubject } from './transcripts.service';
+import type { SchoolTranscript, SchoolTranscriptGrade, SchoolTranscriptYear, TranscriptBilingualRecord, TranscriptIbSubject, TranscriptPeriod, TranscriptSubject } from './transcripts.service';
 
 export function cleanSubjectName(value: string): string {
   value = value.trim();
@@ -26,6 +26,25 @@ export function internationalStudentName(record: SchoolTranscript): string {
   return ordered.join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
 }
 
+export function formatBirthDate(value?: string | null, locale = 'en-GB'): string {
+  // Legacy API responses include a time. The ISO calendar day is the SIS birth date.
+  const day = /^(\d{4}-\d{2}-\d{2})(?:T|$)/.exec(value || '')?.[1];
+  if (!day) return '';
+  const date = new Date(`${day}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day) return '';
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(date);
+}
+
+export const TRANSCRIPT_PERIODS = ['semester1', 'semester2', 'fullYear'] as const;
+export const BILINGUAL_SUBJECTS = [
+  { field: 'experientialActivities', code: 'experiential-activities', vietnameseName: 'Hoạt động trải nghiệm, hướng nghiệp', englishName: 'Experiential and Career Guidance Activities' },
+  { field: 'localEducation', code: 'local-education', vietnameseName: 'Giáo dục địa phương', englishName: 'Local Education' },
+] as const;
+export const BILINGUAL_EVALUATIONS = [
+  { field: 'conduct', name: 'Kết quả rèn luyện/ Conduct Result' },
+  { field: 'academic', name: 'Kết quả học tập/ Academic Result' },
+] as const;
+
 const GROUPS: Record<string, { code: string; name: string }> = {};
 for (const [codes, code, name] of [
   [['physical-education', 'basketball', 'soccer', 'volleyball', 'gym'], 'physical-education', 'Thể dục/Physical Education'],
@@ -33,13 +52,18 @@ for (const [codes, code, name] of [
   [['fine-arts', 'graphic-design'], 'fine-arts', 'Mĩ thuật/Fine Arts'],
 ] as [string[], string, string][]) for (const activity of codes) GROUPS[activity] = { code, name };
 
-export function isPassFail(code: string): boolean {
-  return !!GROUPS[code] || ['service-learning', 'cas'].includes(code);
+const GRADED_ACTIVITIES = new Set(['gym', 'fine-arts', 'choir']);
+
+export function isPassFail(code: string, bilingual = true): boolean {
+  return (!!GROUPS[code] && (bilingual || !GRADED_ACTIVITIES.has(code))) ||
+    ['service-learning', 'cas'].includes(code) || BILINGUAL_SUBJECTS.some(subject => subject.code === code);
 }
 
-export function bilingualSubjects(subjects: readonly TranscriptSubject[]): TranscriptSubject[] {
+export function bilingualSubjects(subjects: readonly TranscriptSubject[], authored?: TranscriptBilingualRecord | null,
+  excluded: readonly string[] = []): TranscriptSubject[] {
   const rows: TranscriptSubject[] = [], groups = new Map<string, TranscriptSubject[]>();
   for (const subject of subjects) {
+    if (excluded.includes(subject.subjectCode.toLowerCase())) continue;
     const group = GROUPS[subject.subjectCode];
     if (!group) rows.push(subject);
     else groups.set(group.code, [...(groups.get(group.code) || []), subject]);
@@ -58,7 +82,30 @@ export function bilingualSubjects(subjects: readonly TranscriptSubject[]): Trans
       semester1Final, semester2Final, yearAverage: annual, credit: 1,
       courseNames: entries.flatMap(row => row.courseNames), classScores: entries.flatMap(row => row.classScores) });
   }
+  for (const { field, code, vietnameseName, englishName } of BILINGUAL_SUBJECTS) {
+    if (excluded.includes(code)) continue;
+    const marks = authored?.[field];
+    if (!marks || !TRANSCRIPT_PERIODS.some(period => marks[period])) continue;
+    const index = rows.findIndex(row => row.subjectCode === code);
+    const source = rows[index];
+    const passScore = (period: TranscriptPeriod) => marks[period] === 'Pass' ? 100 : marks[period] === 'Fail' ? 0 : null;
+    const row: TranscriptSubject = {
+      ...(source || { subjectCode: code, subject: `${vietnameseName}/${englishName}`, englishName, vietnameseName,
+        courseNames: [], classScores: [], credit: 0 }),
+      semester1Final: source?.semester1Final ?? passScore('semester1'),
+      semester2Final: source?.semester2Final ?? passScore('semester2'),
+      yearAverage: source?.yearAverage ?? passScore('fullYear'),
+    };
+    if (index < 0) rows.push(row);
+    else rows[index] = row;
+  }
   return rows;
+}
+
+export function displayedGpa(grade: SchoolTranscriptGrade, showSemester1: boolean): { value: number | null; semester1: boolean } {
+  if (grade.gpa != null) return { value: grade.gpa, semester1: false };
+  if (showSemester1 && grade.semester1Gpa != null) return { value: grade.semester1Gpa, semester1: true };
+  return { value: null, semester1: false };
 }
 
 export function showAverage(year: SchoolTranscriptYear, record?: SchoolTranscript): boolean {

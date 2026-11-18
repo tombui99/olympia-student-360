@@ -153,7 +153,7 @@ test('all four student PDF formats receive the same exclusions and selected peri
     for (const format of formats) await component.exportPdf(format);
     assert.deepEqual(printed, formats.map(format => ({ format, academicYears: ['2026-2027'],
       semester: 'all', excludedSubjectCodes: ['music'] })));
-    assert.deepEqual(component.subjectsForSemester(grade, 'semester1').map(subject => subject.subjectCode), ['math']);
+    assert.deepEqual(component.subjectsForSemester(grade, 'semester1', '2026-2027', component.transcript()).map(subject => subject.subjectCode), ['math']);
     component.loading.set(true);
     await component.exportPdf();
     assert.equal(printed.length, 4);
@@ -161,7 +161,7 @@ test('all four student PDF formats receive the same exclusions and selected peri
     await component.exportPdf();
     assert.equal(printed.length, 4, 'unsaved changes cannot silently be omitted from an export');
     fixture.preferences.saveExcludedSubjects([]);
-    assert.deepEqual(component.subjectsForSemester(grade, 'semester1').map(subject => subject.subjectCode), ['math', 'music']);
+    assert.deepEqual(component.subjectsForSemester(grade, 'semester1', '2026-2027', component.transcript()).map(subject => subject.subjectCode), ['math', 'music']);
   } finally { fixture.injector.destroy(); }
 });
 
@@ -244,6 +244,21 @@ test('inline drafts leave imported scores untouched and preserve edits from othe
   assert.equal(payload.years[1].credits[0].credit, .5);
   assert.deepEqual(payload.years[1].ibSubjects, [], 'Canvas percentages never become IB results');
   assert.equal('semester1Final' in payload.years[1].credits[0], false);
+});
+
+test('official bilingual results are saved per year and can be cleared', () => {
+  const source = editableTranscript(), draft = createTranscriptDraft(source);
+  const year = draft.years.find(year => year.academicYear === '2026-2027');
+  year.bilingual.localEducation.fullYear = 'Pass';
+  year.bilingual.conduct.semester1 = ' Tốt/Good ';
+  const saved = prepareTranscriptRecord(draft, source);
+  assert.equal(saved.years[1].bilingual.localEducation.fullYear, 'Pass');
+  assert.equal(saved.years[1].bilingual.conduct.semester1, 'Tốt/Good');
+  assert.equal(saved.years[0].bilingual, undefined);
+  assert.ok(hasTranscriptCustomizations({ revision: saved.revision, years: [saved.years[1]] }));
+  year.bilingual.localEducation.fullYear = null;
+  year.bilingual.conduct.semester1 = '';
+  assert.equal(prepareTranscriptRecord(draft, source).years[1].bilingual, undefined);
 });
 
 test('inline IB entries keep name-only corrections, official-only subjects and incomplete real marks', () => {

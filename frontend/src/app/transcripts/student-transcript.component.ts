@@ -10,7 +10,7 @@ import { TranscriptPreferencesService } from './transcript-preferences.service';
 import { StudentTranscriptPdfService } from './student-transcript-pdf.service';
 import { ToastService } from '../core/toast/toast.service';
 import { createTranscriptDraft, hasTranscriptCustomizations, prepareTranscriptRecord, transcriptRecordError } from './transcript-edit';
-import { academicGpa, bilingualSubjects, ibPredictedTotal, ibSubjects, internationalStudentName, isPassFail, showAverage, subjectName } from './transcript-display';
+import { academicGpa, BILINGUAL_EVALUATIONS, BILINGUAL_SUBJECTS, bilingualSubjects, displayedGpa, formatBirthDate, ibPredictedTotal, ibSubjects, internationalStudentName, isPassFail, showAverage, subjectName, TRANSCRIPT_PERIODS } from './transcript-display';
 import type { TranscriptPdfFormat } from './transcript-pdf';
 
 type TranscriptType = 'bilingual' | 'bilingual-gpa' | 'international' | 'ib';
@@ -287,6 +287,36 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                           </select>
                         </label>
                     </div>
+                    @if (editYear(year.academicYear).bilingual; as bilingual) {
+                      <div class="no-print border-t border-[#ded6e3] bg-[#faf8fb] px-4 py-3">
+                        <p class="text-sm text-[#6f6877]">{{ t('transcript.editor.bilingualResultsHelp') }}</p>
+                        <div class="mt-2 overflow-x-auto">
+                          <table class="w-full min-w-[660px] table-fixed text-left text-sm">
+                            <thead><tr><td class="w-2/5"></td>
+                              @for (period of periods; track period) { <th scope="col" class="px-2 py-1">{{ t('transcript.' + period) }}</th> }
+                            </tr></thead>
+                            <tbody>
+                              @for (subject of bilingualSubjectFields; track subject.field) {
+                                <tr><th scope="row" class="py-2 font-medium">{{ subject.vietnameseName }} / {{ subject.englishName }}</th>
+                                  @for (period of periods; track period) {
+                                    <td class="p-2"><select class="transcript-input" [attr.aria-label]="subject.vietnameseName + ' · ' + t('transcript.' + period)" [(ngModel)]="bilingual[subject.field][period]" [disabled]="savingRecord()">
+                                      <option [ngValue]="null">—</option><option value="Pass">{{ t('transcript.passed') }}</option><option value="Fail">{{ t('transcript.notPassed') }}</option>
+                                    </select></td>
+                                  }
+                                </tr>
+                              }
+                              @for (evaluation of bilingualEvaluationFields; track evaluation.field) {
+                                <tr><th scope="row" class="py-2 font-medium">{{ evaluation.name }}</th>
+                                  @for (period of periods; track period) {
+                                    <td class="p-2"><input class="transcript-input" maxlength="60" [attr.aria-label]="evaluation.name + ' · ' + t('transcript.' + period)" [(ngModel)]="bilingual[evaluation.field][period]" [disabled]="savingRecord()" /></td>
+                                  }
+                                </tr>
+                              }
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    }
                   }
                   @for (grade of year.grades; track grade.gradeLevel) {
                     <div class="flex items-center justify-between gap-3 border-t border-[#d8c4bd] bg-[#f6eef8] px-4 py-2.5">
@@ -300,7 +330,8 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                         }
                       </div>
                       @if (isGpa()) {
-                        <p class="text-sm font-bold text-[#32124f]">GPA <span class="ml-2">{{ formatGpa(grade.gpa) }}</span></p>
+                        @let gpa = displayedGpa(grade, selectedSemester() !== 'semester2');
+                        <p class="text-sm font-bold text-[#32124f]">{{ gpa.semester1 ? t('transcript.semester1Gpa') : 'GPA' }} <span class="ml-2">{{ formatGpa(gpa.value) }}</span></p>
                       } @else if (activeTranscriptType() === 'ib') {
                         <p class="text-xs font-bold uppercase tracking-wide text-[#32124f]">{{ isIbGrade(grade.gradeLevel) ? t('transcript.ibSevenPoint') : t('transcript.letterGrade') }}</p>
                       } @else {
@@ -349,7 +380,7 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                               </tr>
                             </thead>
                             <tbody>
-                              @for (subject of subjectsForSemester(grade, semester); track subject.subjectCode; let index = $index) {
+                              @for (subject of subjectsForSemester(grade, semester, year.academicYear, record); track subject.subjectCode; let index = $index) {
                                 <tr class="border-t border-[#e7e0ea] even:bg-[#fbfafc]">
                                   <td class="px-2 py-2 text-center">{{ index + 1 }}</td>
                                   <td class="px-3 py-2 text-[#35293b]">
@@ -378,6 +409,26 @@ type TranscriptSemesterFilter = 'all' | TranscriptSemester;
                         </div>
                       </section>
                     }
+                    }
+                  }
+                  @if (activeTranscriptType() === 'bilingual' && !editDraft()) {
+                    @if (recordBilingual(record, year.academicYear); as bilingual) {
+                      <div class="overflow-x-auto border-t border-[#ded6e3] px-4 py-3">
+                        <table class="w-full min-w-[520px] table-fixed text-left text-sm">
+                          <thead><tr><td class="w-2/5"></td>
+                            @for (period of visibleEvaluationPeriods(); track period) { <th scope="col" class="px-2 py-1">{{ t('transcript.' + period) }}</th> }
+                          </tr></thead>
+                          <tbody>
+                            @for (evaluation of bilingualEvaluationFields; track evaluation.field) {
+                              <tr><th scope="row" class="py-2 font-medium">{{ evaluation.name }}</th>
+                                @for (period of visibleEvaluationPeriods(); track period) {
+                                  <td class="break-words p-2">{{ bilingual[evaluation.field][period] || '—' }}</td>
+                                }
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
                     }
                   }
                 </section>
@@ -839,11 +890,24 @@ export class StudentTranscriptComponent {
     return semester === 'semester1' ? subject.semester1Final : subject.semester2Final;
   }
 
-  subjectsForSemester(grade: SchoolTranscriptGrade, semester: TranscriptSemester): TranscriptSubject[] {
+  readonly periods = TRANSCRIPT_PERIODS;
+  readonly bilingualSubjectFields = BILINGUAL_SUBJECTS;
+  readonly bilingualEvaluationFields = BILINGUAL_EVALUATIONS;
+  readonly displayedGpa = displayedGpa;
+
+  visibleEvaluationPeriods() { return [...this.visibleSemesters(), 'fullYear'] as const; }
+
+  recordBilingual(record: SchoolTranscript, academicYear: string) {
+    return record.record?.years.find(year => year.academicYear === academicYear)?.bilingual;
+  }
+
+  subjectsForSemester(grade: SchoolTranscriptGrade, semester: TranscriptSemester, academicYear: string, record: SchoolTranscript): TranscriptSubject[] {
     const excluded = this.preferences.excludedSubjectCodes();
-    const subjects = grade.subjects.filter(subject => !excluded.includes(subject.subjectCode));
-    return (this.activeTranscriptType() === 'bilingual' ? bilingualSubjects(subjects) : subjects)
-      .filter(subject => this.semesterScore(subject, semester) != null);
+    if (this.activeTranscriptType() !== 'bilingual')
+      return grade.subjects.filter(subject => !excluded.includes(subject.subjectCode) && this.semesterScore(subject, semester) != null);
+    const authored = this.editDraft() ? this.editYear(academicYear).bilingual : this.recordBilingual(record, academicYear);
+    return bilingualSubjects(grade.subjects, authored, excluded).filter(subject => this.semesterScore(subject, semester) != null ||
+      (subject.yearAverage != null && BILINGUAL_SUBJECTS.some(entry => entry.code === subject.subjectCode)));
   }
 
   transcriptYears(record: SchoolTranscript): SchoolTranscriptYear[] {
@@ -1121,10 +1185,7 @@ export class StudentTranscriptComponent {
   }
 
   dateOfBirth(value?: string | null): string {
-    if (!value) return '—';
-    return new Intl.DateTimeFormat(this.languageService.language() === 'vi' ? 'vi-VN' : 'en-GB', {
-      dateStyle: 'long',
-    }).format(new Date(value));
+    return formatBirthDate(value, this.languageService.language() === 'vi' ? 'vi-VN' : 'en-GB') || '—';
   }
 
   t(key: string): string {

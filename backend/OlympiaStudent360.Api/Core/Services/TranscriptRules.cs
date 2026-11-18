@@ -9,9 +9,9 @@ public static partial class TranscriptRules
 {
     private static readonly HashSet<string> PassFailCodes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "music", "physical-education", "fine-arts", "service-learning", "cas", "basketball", "soccer",
-        "volleyball", "gym", "piano", "guitar", "drums", "traditional-musical-instruments", "vocal",
-        "choir", "graphic-design"
+        "music", "physical-education", "service-learning", "cas", "basketball", "soccer",
+        "volleyball", "piano", "guitar", "drums", "traditional-musical-instruments", "vocal",
+        "graphic-design", "experiential-activities", "local-education"
     };
 
     public static bool IsPassFail(string code) => PassFailCodes.Contains(code);
@@ -25,10 +25,28 @@ public static partial class TranscriptRules
 
     public static double? AnnualGpa(IEnumerable<TranscriptSubjectDto> subjects)
     {
-        var eligible = subjects.Where(subject => subject.Credit > 0 && !IsPassFail(subject.SubjectCode)).ToList();
-        if (eligible.Count == 0 || eligible.Any(subject => subject.YearAverage == null)) return null;
-        return Math.Round(eligible.Sum(subject => ToGpa(subject.YearAverage!.Value) * subject.Credit) /
-            eligible.Sum(subject => subject.Credit), 2, MidpointRounding.AwayFromZero);
+        var eligible = GpaSubjects(subjects).ToList();
+        return eligible.Any(subject => subject.YearAverage == null) ? null
+            : WeightedGpa(eligible.Select(subject => (subject.YearAverage!.Value, subject.Credit)));
+    }
+
+    public static double? Semester1Gpa(IEnumerable<TranscriptSubjectDto> subjects) =>
+        WeightedGpa(GpaSubjects(subjects).Where(subject => subject.Semester1Final.HasValue)
+            .Select(subject => (subject.Semester1Final!.Value, subject.Credit)));
+
+    private static IEnumerable<TranscriptSubjectDto> GpaSubjects(IEnumerable<TranscriptSubjectDto> subjects) =>
+        subjects.Where(subject => subject.Credit > 0 && !IsPassFail(subject.SubjectCode));
+
+    private static double? WeightedGpa(IEnumerable<(double Score, double Credit)> scores)
+    {
+        var totalCredit = 0.0;
+        var totalPoints = 0.0;
+        foreach (var (score, credit) in scores)
+        {
+            totalCredit += credit;
+            totalPoints += ToGpa(score) * credit;
+        }
+        return totalCredit == 0 ? null : Math.Round(totalPoints / totalCredit, 2, MidpointRounding.AwayFromZero);
     }
 
     public static double ToGpa(double score) => score >= 95 ? 4.2 : score >= 90 ? 4 : score >= 80 ? 3.7 :
@@ -83,6 +101,12 @@ public static partial class TranscriptRules
                 (!int.TryParse(year.GradeLevel, out var grade) || grade is < 1 or > 12) ||
                 year.Credits == null || year.Credits.Count > 100 || year.IbSubjects == null || year.IbSubjects.Count > 30)
                 return "Invalid academic year, grade or subject list.";
+            if (year.Bilingual is { } bilingual &&
+                (!ValidPeriodResults(bilingual.ExperientialActivities, IsPassMark) ||
+                 !ValidPeriodResults(bilingual.LocalEducation, IsPassMark) ||
+                 !ValidPeriodResults(bilingual.Conduct, IsEvaluation) ||
+                 !ValidPeriodResults(bilingual.Academic, IsEvaluation)))
+                return "Use Pass or Fail for supplemental subjects and up to 60 characters per evaluation.";
             if (year.IbSubjects.Count > 0 && (!int.TryParse(year.GradeLevel, out var ibGrade) || ibGrade is < 11 or > 12))
                 return "IB entries require a recorded grade of 11 or 12 for that academic year.";
             if (year.Credits.Any(row => row == null || !ValidCode(row.SubjectCode) || !double.IsFinite(row.Credit) || row.Credit is < 0 or > 2 ||
@@ -101,6 +125,14 @@ public static partial class TranscriptRules
         }
         return null;
     }
+
+    private static bool ValidPeriodResults(TranscriptPeriodResultsDto? results, Func<string?, bool> valid) =>
+        results != null && valid(results.Semester1) && valid(results.Semester2) && valid(results.FullYear);
+
+    private static bool IsPassMark(string? value) => value is null or "Pass" or "Fail";
+
+    private static bool IsEvaluation(string? value) => value == null ||
+        (value.Length <= 60 && !value.Any(char.IsControl));
 
     private static bool ValidCode(string? code) => code != null && SubjectCodePattern().IsMatch(code);
     [GeneratedRegex(@"(?<![a-z0-9])(?<grade>1[0-2]|[1-9])[a-z]{1,3}\d{1,2}(?:\.\d+)?(?![a-z0-9])", RegexOptions.IgnoreCase)]

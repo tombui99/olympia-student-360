@@ -1,13 +1,17 @@
 import type { CanDeactivateFn } from '@angular/router';
-import { ibSubjects, subjectName } from './transcript-display';
-import type { SchoolTranscript, TranscriptRecord } from './transcripts.service';
+import { ibSubjects, subjectName, TRANSCRIPT_PERIODS } from './transcript-display';
+import type { SchoolTranscript, TranscriptBilingualRecord, TranscriptRecord } from './transcripts.service';
+
+function hasBilingualResults(bilingual?: TranscriptBilingualRecord | null): boolean {
+  return !!bilingual && Object.values(bilingual).some(row => TRANSCRIPT_PERIODS.some(period => !!row[period]?.trim()));
+}
 
 export function hasTranscriptCustomizations(record?: TranscriptRecord): boolean {
   if (!record) return false;
   return [record.transcriptName, record.enrollmentDate, record.graduationDate,
     record.graduationExamDate, record.ibReleaseDate, record.notes].some(value => !!value?.trim()) ||
     record.ibCorePoints != null || record.years.some(year => !!year.gradeLevel || year.showAverage != null ||
-      year.ibSubjects.length > 0 || year.credits.some(row => row.credit !== 1 ||
+      hasBilingualResults(year.bilingual) || year.ibSubjects.length > 0 || year.credits.some(row => row.credit !== 1 ||
         !!row.englishName?.trim() || !!row.vietnameseName?.trim()));
 }
 
@@ -20,6 +24,11 @@ export function createTranscriptDraft(source: SchoolTranscript): TranscriptRecor
     if (!entry) {
       entry = { academicYear, gradeLevel: null, showAverage: null, credits: [], ibSubjects: [] };
       draft.years.push(entry);
+    }
+    if (!entry.bilingual) {
+      const emptyResults = () => ({ semester1: null, semester2: null, fullYear: null });
+      entry.bilingual = { experientialActivities: emptyResults(), localEducation: emptyResults(),
+        conduct: emptyResults(), academic: emptyResults() };
     }
     for (const subject of source.years.find(year => year.academicYear === academicYear)?.grades.flatMap(grade => grade.subjects) || []) {
       if (!entry.credits.some(credit => credit.subjectCode === subject.subjectCode))
@@ -38,6 +47,11 @@ export function prepareTranscriptRecord(draft: TranscriptRecord, source: SchoolT
     payload[key] ||= null;
   payload.ibCorePoints ??= null;
   for (const year of payload.years) {
+    if (year.bilingual) {
+      for (const results of Object.values(year.bilingual))
+        for (const period of TRANSCRIPT_PERIODS) results[period] = results[period]?.trim() || null;
+      if (!hasBilingualResults(year.bilingual)) delete year.bilingual;
+    }
     const subjects = source.years.find(row => row.academicYear === year.academicYear)?.grades.flatMap(grade => grade.subjects) || [];
     year.ibSubjects = year.ibSubjects.filter(row => {
       const original = subjects.find(subject => subject.subjectCode === row.subjectCode);

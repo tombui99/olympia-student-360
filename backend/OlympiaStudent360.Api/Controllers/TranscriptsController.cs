@@ -330,6 +330,7 @@ public class TranscriptsController(
                     return new SchoolTranscriptGradeDto
                     {
                         GradeLevel = grade.GradeLevel, AverageScore = grade.AverageScore, Gpa = grade.Gpa,
+                        Semester1Gpa = grade.Semester1Gpa,
                         ClassOptions = grade.ClassOptions, TotalSubjects = subjects.Count,
                         SubjectPage = paginate ? page : 1, SubjectPageSize = paginate ? size : subjects.Count,
                         TotalSubjectPages = subjects.Count == 0 ? 0 : paginate ? (int)Math.Ceiling(subjects.Count / (double)size) : 1,
@@ -591,6 +592,7 @@ public class TranscriptsController(
                                 WeightedAverage(gradeGroup.Where(row => IsSemester(row.Term, 2)).Select(row => (row.Average, row.RecordCount))),
                                 WeightedAverage(gradeGroup.Where(row => IsYear(row.Term)).Select(row => (row.Average, row.RecordCount)))),
                             Gpa = gpa,
+                            Semester1Gpa = studentId.HasValue && gpa == null ? TranscriptRules.Semester1Gpa(subjects) : null,
                             ClassOptions = studentId == null
                                 ? gradeGroup.Select(row => row.ClassName)
                                     .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -640,7 +642,7 @@ public class TranscriptsController(
             StudentProfileId = selectedStudent?.Id,
             SISUserId = selectedStudent?.SISUserId,
             StudentName = selectedStudent?.FullName,
-            DateOfBirth = selectedStudent?.DateOfBirth,
+            DateOfBirth = selectedStudent?.DateOfBirth is { } birthDate ? DateOnly.FromDateTime(birthDate) : null,
             GradeLevel = selectedStudent?.GradeLevel ?? selectedStudent?.CanvasGradeLevel ??
                 years.LastOrDefault()?.Grades.LastOrDefault()?.GradeLevel,
             Homeroom = selectedStudent?.Homeroom,

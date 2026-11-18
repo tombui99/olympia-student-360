@@ -30,6 +30,24 @@ public sealed class TranscriptRulesTests
         Assert.Null(TranscriptRules.AnnualGpa([subjects[2]]));
     }
 
+    [Fact]
+    public void GpaIncludesGymFineArtsAndChoirAndUsesAvailableSemesterOneMarks()
+    {
+        TranscriptSubjectDto[] subjects = [
+            new() { SubjectCode = "math", Semester1Final = 95, YearAverage = 95 },
+            new() { SubjectCode = "gym", Semester1Final = 75, YearAverage = 75, Credit = .5 },
+            new() { SubjectCode = "fine-arts", Semester1Final = 80, YearAverage = 80 },
+            new() { SubjectCode = "choir", Semester1Final = 0, YearAverage = 60 },
+            new() { SubjectCode = "local-education", Semester1Final = 100 },
+            new() { SubjectCode = "chemistry", Credit = 0 }];
+        Assert.Equal(3.39, TranscriptRules.AnnualGpa(subjects));
+        Assert.Equal(2.93, TranscriptRules.Semester1Gpa(subjects));
+        subjects[3].Semester1Final = subjects[3].YearAverage = null;
+        Assert.Null(TranscriptRules.AnnualGpa(subjects));
+        Assert.Equal(3.82, TranscriptRules.Semester1Gpa(subjects));
+        Assert.Null(TranscriptRules.Semester1Gpa(subjects.Skip(4)));
+    }
+
     [Theory]
     [InlineData("2526 Academic English 11E1.1", "12", "11")]
     [InlineData("2627 Academic English 12E1.1", "12", "12")]
@@ -57,6 +75,10 @@ public sealed class TranscriptRulesTests
     [InlineData("2526 Academic English/ Tiếng Anh học thuật 11E1.1", "academic-english", "Academic English")]
     [InlineData("2627 Hợp xướng/Choir 12E1.1", "choir", "Choir")]
     [InlineData("Thiết kế đồ họa/Graphic Design 11E1.1", "graphic-design", "Graphic Design")]
+    [InlineData("2526 IELTS Prep Course 11E1.1", "ielts", "IELTS Prep Course")]
+    [InlineData("IELTS 11E1.1", "ielts", "IELTS Prep Course")]
+    [InlineData("Hoạt động trải nghiệm, hướng nghiệp 11E1.1", "experiential-activities", "Experiential and Career Guidance Activities")]
+    [InlineData("Nội dung giáo dục địa phương 11E1.1", "local-education", "Local Education")]
     public void SubjectNamesKeepTheirMeaningWithoutClassSuffixes(string course, string code, string english)
     {
         var resolver = new TranscriptSubjectResolver(Options.Create(new TranscriptSubjectOptions()));
@@ -76,6 +98,14 @@ public sealed class TranscriptRulesTests
             IbSubjects = [new() { SubjectCode = "math", SubjectName = "Math", Level = "HL", PredictedGrade = "7", Term1 = "6" }] };
         record.Years.Add(year);
         Assert.Null(TranscriptRules.Validate(record));
+        year.Bilingual = new() { Academic = new() { FullYear = "Tốt/Good" }, LocalEducation = new() { Semester1 = "Pass" } };
+        Assert.Null(TranscriptRules.Validate(record));
+        year.Bilingual.Academic.FullYear = new string('a', 61);
+        Assert.NotNull(TranscriptRules.Validate(record));
+        year.Bilingual.Academic.FullYear = null;
+        year.Bilingual.LocalEducation.Semester1 = "80";
+        Assert.NotNull(TranscriptRules.Validate(record));
+        year.Bilingual.LocalEducation.Semester1 = null;
         year.IbSubjects[0].Term1 = "95";
         Assert.NotNull(TranscriptRules.Validate(record));
         year.IbSubjects[0].Term1 = "6";

@@ -39,7 +39,7 @@ public class SchoolTranscriptDto
     public int? StudentProfileId { get; set; }
     public string? SISUserId { get; set; }
     public string? StudentName { get; set; }
-    public DateTime? DateOfBirth { get; set; }
+    public DateOnly? DateOfBirth { get; set; }
     public string? GradeLevel { get; set; }
     public string? Homeroom { get; set; }
     public string? Gender { get; set; }
@@ -65,6 +65,7 @@ public class SchoolTranscriptGradeDto
     public string GradeLevel { get; set; } = default!;
     public double? AverageScore { get; set; }
     public double? Gpa { get; set; }
+    public double? Semester1Gpa { get; set; }
     public List<string> ClassOptions { get; set; } = [];
     public List<TranscriptSubjectDto> Subjects { get; set; } = [];
     public int SubjectPage { get; set; }
@@ -124,8 +125,24 @@ public class TranscriptYearRecordDto
     public string AcademicYear { get; set; } = "";
     public string? GradeLevel { get; set; }
     public bool? ShowAverage { get; set; }
+    public TranscriptBilingualRecordDto? Bilingual { get; set; }
     public List<TranscriptCreditDto> Credits { get; set; } = [];
     public List<TranscriptIbSubjectDto> IbSubjects { get; set; } = [];
+}
+
+public class TranscriptBilingualRecordDto
+{
+    public TranscriptPeriodResultsDto ExperientialActivities { get; set; } = new();
+    public TranscriptPeriodResultsDto LocalEducation { get; set; } = new();
+    public TranscriptPeriodResultsDto Conduct { get; set; } = new();
+    public TranscriptPeriodResultsDto Academic { get; set; } = new();
+}
+
+public class TranscriptPeriodResultsDto
+{
+    public string? Semester1 { get; set; }
+    public string? Semester2 { get; set; }
+    public string? FullYear { get; set; }
 }
 
 public class TranscriptCreditDto

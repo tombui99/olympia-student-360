@@ -34,7 +34,8 @@ public sealed partial class MySqlResilienceTests
     {
         await using var test = await TestDatabase.CreateAsync();
         await using var db = test.Open();
-        var student = new StudentProfile { SISUserId = "transcript-review", FullName = "Phan Anh", GradeLevel = "12" };
+        var student = new StudentProfile { SISUserId = "transcript-review", FullName = "Phan Anh", GradeLevel = "12",
+            DateOfBirth = new(2008, 2, 15) };
         var historical = new CanvasCourse { CanvasCourseId = 501, Name = "2526 Math 11E1.1", CanvasGradeLevel = "12", EnrollmentTermName = "2025-2026" };
         var live = new CanvasCourse { CanvasCourseId = 502, Name = "2627 English 12E1.1", CanvasGradeLevel = "12", EnrollmentTermName = "2026-2027" };
         var oldEnrollment = new CanvasEnrollment { CanvasEnrollmentId = 501, CanvasUserId = 1, Course = historical, Student = student };
@@ -53,6 +54,7 @@ public sealed partial class MySqlResilienceTests
         Assert.Equal("2025-2026", year.AcademicYear);
         Assert.Equal("11", Assert.Single(year.Grades).GradeLevel);
         Assert.Equal("Anh Phan", record.TranscriptName);
+        Assert.Equal(new DateOnly(2008, 2, 15), record.DateOfBirth);
         Assert.Contains("2026-2027", record.AcademicYearOptions);
         var subject = Assert.Single(year.Grades[0].Subjects);
         Assert.Equal(1, subject.Credit);
@@ -73,6 +75,8 @@ public sealed partial class MySqlResilienceTests
         Assert.Equal(1, current.Subjects[0].Credit);
         Assert.Null(current.Subjects[0].YearAverage);
         Assert.Null(current.Gpa);
+        Assert.Equal(.7, current.Semester1Gpa);
+        Assert.Equal(3.7, record.OverallGpa);
     }
 
     [MySqlFact]
@@ -87,6 +91,7 @@ public sealed partial class MySqlResilienceTests
         var model = new TranscriptRecordDto { TranscriptName = "Chau Vu Minh Thai", Notes = "Joined Olympia in Grade 9.",
             EnrollmentDate = new(2023, 9, 1), GraduationDate = new(2027, 6, 1), GraduationExamDate = new(2027, 5, 20), IbCorePoints = 2,
             Years = [new() { AcademicYear = "2026-2027", GradeLevel = "12", ShowAverage = false,
+                Bilingual = new() { Conduct = new() { Semester1 = "Tốt/Good" }, LocalEducation = new() { FullYear = "Pass" } },
                 IbSubjects = [new() { SubjectCode = "math", SubjectName = "Mathematics", Level = "HL", PredictedGrade = "7", Term1 = "6", Term2 = "7" }] }] };
         Assert.Equal(1, TranscriptValue(await controller.SaveRecord(student.Id, model)).Revision);
         await using var readDb = test.Open();
@@ -94,6 +99,8 @@ public sealed partial class MySqlResilienceTests
         Assert.Equal("Joined Olympia in Grade 9.", read.Record.Notes);
         Assert.Equal(new DateOnly(2027, 5, 20), read.Record.GraduationExamDate);
         Assert.Equal("6", read.Record.Years[0].IbSubjects[0].Term1);
+        Assert.Equal("Tốt/Good", read.Record.Years[0].Bilingual?.Conduct.Semester1);
+        Assert.Equal("Pass", read.Record.Years[0].Bilingual?.LocalEducation.FullYear);
         Assert.Equal("12", Assert.Single(Assert.Single(read.Years).Grades).GradeLevel);
         Assert.IsType<ConflictObjectResult>((await controller.SaveRecord(student.Id, new() { Revision = 0 })).Result);
 

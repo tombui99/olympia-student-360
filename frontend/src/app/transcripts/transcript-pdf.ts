@@ -2,7 +2,7 @@ import { PDFDict, PDFDocument, PDFFont, PDFName, PDFNumber, PDFPage, rgb } from 
 import fontkit from '@pdf-lib/fontkit';
 import { formatTranscriptScore } from './grading-scale';
 import type { SchoolTranscript, SchoolTranscriptGrade, TranscriptSubject } from './transcripts.service';
-import { academicGpa, bilingualSubjects, ibPredictedTotal, ibPredictionYear, ibSubjects, internationalStudentName, isPassFail, showAverage, subjectName } from './transcript-display';
+import { academicGpa, BILINGUAL_EVALUATIONS, bilingualSubjects, displayedGpa, formatBirthDate, ibPredictedTotal, ibPredictionYear, ibSubjects, internationalStudentName, isPassFail, showAverage, subjectName, TRANSCRIPT_PERIODS } from './transcript-display';
 
 export type TranscriptPdfFormat = 'bilingual' | 'bilingual-gpa' | 'international' | 'ib';
 
@@ -30,6 +30,7 @@ export const TRANSCRIPT_LETTERHEADS: Record<TranscriptPdfFormat, string> = {
 interface GradeRecord extends SchoolTranscriptGrade { academicYear: string; showAverage?: boolean; }
 interface SubjectRow { subject: TranscriptSubject; lines: string[]; height: number; continued?: boolean; }
 interface GradeBlock { grade: GradeRecord; rows: SubjectRow[]; continued: boolean; height: number; }
+interface EvaluationRow { label: string; cells: string[][]; height: number; }
 interface ColumnLayout { x: number; subjectWidth: number; centers: readonly number[]; }
 interface GpaLayout { left: ColumnLayout; right: ColumnLayout; divider: number; ruleRight: number; }
 
@@ -110,14 +111,14 @@ class TranscriptPdfRenderer {
     private readonly regular: PDFFont, private readonly bold: PDFFont,
     private readonly record: SchoolTranscript, private readonly options: TranscriptPdfOptions,
   ) {
-    const excluded = new Set(options.excludedSubjectCodes?.map((code) => code.trim().toLowerCase()));
+    const excluded = options.excludedSubjectCodes?.map(code => code.trim().toLowerCase()) || [];
     const selectedYears = options.academicYears?.length ? new Set(options.academicYears) : null;
     this.grades = record.years.filter((year) => !selectedYears || selectedYears.has(year.academicYear))
       .flatMap((year) => year.grades.map((grade) => ({
         ...grade, academicYear: year.academicYear, showAverage: year.showAverage,
         subjects: options.format === 'bilingual'
-          ? bilingualSubjects(grade.subjects.filter(subject => !excluded.has(subject.subjectCode.toLowerCase())))
-          : grade.subjects.filter(subject => !excluded.has(subject.subjectCode.toLowerCase())),
+          ? bilingualSubjects(grade.subjects, this.bilingualRecord(year.academicYear), excluded)
+          : grade.subjects.filter(subject => !excluded.includes(subject.subjectCode.toLowerCase())),
       })))
       .sort((a, b) => Number(a.academicYear.slice(0, 4)) - Number(b.academicYear.slice(0, 4)) ||
         Number(a.gradeLevel) - Number(b.gradeLevel));
@@ -195,11 +196,11 @@ class TranscriptPdfRenderer {
   }
 
   private birthDate(): string {
-    if (!this.record.dateOfBirth) return '';
-    const date = new Date(this.record.dateOfBirth);
-    return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-GB', {
-      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
-    }).format(date) : '';
+    return formatBirthDate(this.record.dateOfBirth);
+  }
+
+  private bilingualRecord(academicYear: string) {
+    return this.record.record?.years.find(year => year.academicYear === academicYear)?.bilingual;
   }
 
   private gender(bilingual: boolean): string {
@@ -227,7 +228,7 @@ class TranscriptPdfRenderer {
 
   private score(value: number | null | undefined, subject?: TranscriptSubject, tenPoint = false): string {
     if (value == null || !Number.isFinite(value)) return '';
-    if (subject && isPassFail(subject.subjectCode)) return value >= 50
+    if (subject && isPassFail(subject.subjectCode, tenPoint)) return value >= 50
       ? tenPoint ? 'Đạt/Passed' : 'Pass' : tenPoint ? 'Chưa đạt/Not passed' : 'Fail';
     return tenPoint ? (value / 10).toFixed(1) : formatTranscriptScore(value, 'letter');
   }
@@ -270,8 +271,9 @@ class TranscriptPdfRenderer {
     const title = this.gradeTitle(block.grade) + (block.continued ? ' (continued)' : '');
     this.text(page, title, x, top, size + .3, true, gpaAtBottom ? 250 : layout.centers[0] - 13);
     if (!gpaAtBottom) {
-      this.text(page, 'GPA', centers[0] - 9, top, size + .3, true);
-      this.text(page, block.grade.gpa?.toFixed(2) || '', centers[1] - 9, top, size + .3, true);
+      const gpa = displayedGpa(block.grade, this.options.semester !== 'semester2');
+      this.text(page, gpa.semester1 ? 'GPA (S1)' : 'GPA', centers[0] - 9, top, size + .3, true);
+      this.text(page, gpa.value?.toFixed(2) || '', centers[gpa.semester1 ? 2 : 1] - 9, top, size + .3, true);
     }
     this.text(page, 'Subject', x, top + 12, size, true);
     ['S1F', 'S2F', 'YR', 'Credit'].forEach((label, index) =>
@@ -377,12 +379,22 @@ class TranscriptPdfRenderer {
 
   private async renderTenPoint(): Promise<void> {
     for (const grade of this.grades) {
+      const authored = this.bilingualRecord(grade.academicYear);
+      const evaluationRows = BILINGUAL_EVALUATIONS.map(({ field, name }) => {
+        const cells = TRANSCRIPT_PERIODS.map(period => {
+          if (period !== 'fullYear' && this.options.semester && this.options.semester !== 'all' && this.options.semester !== period)
+            return [];
+          return this.wrap(authored?.[field][period] || '', 79, 9);
+        });
+        return { label: name, cells, height: Math.max(20, 8 + Math.max(...cells.map(lines => lines.length)) * 10.5) };
+      });
+      const subjectCapacity = 282 - evaluationRows.reduce((sum, row) => sum + row.height - 20, 0);
       const chunks: SubjectRow[][] = [[]];
       let height = 0;
       for (const subject of this.orderedSubjects(grade, true)) {
         const lines = this.wrap(this.subjectName(subject, true), 195, 11);
         const row = { subject, lines, height: Math.max(20, lines.length * 12.2 + 4) };
-        if (height + row.height > 282 && chunks[chunks.length - 1].length) { chunks.push([]); height = 0; }
+        if (height + row.height > subjectCapacity && chunks[chunks.length - 1].length) { chunks.push([]); height = 0; }
         chunks[chunks.length - 1].push(row); height += row.height;
       }
       for (let index = 0; index < chunks.length; index++) {
@@ -394,12 +406,12 @@ class TranscriptPdfRenderer {
         this.text(page, `Giới tính/ Sex: ${this.gender(true)}`, 70, 222, 11.5, true, 310);
         this.text(page, `Năm/ Year: ${grade.academicYear}`, 375, 180, 11.5, true, 145, 'right');
         this.text(page, `Lớp/ Class: ${grade.gradeLevel}`, 375, 201, 11.5, true, 145, 'right');
-        this.tenPointTable(page, grade, chunks[index], index === chunks.length - 1);
+        this.tenPointTable(page, grade, chunks[index], index === chunks.length - 1 ? evaluationRows : null);
       }
     }
   }
 
-  private tenPointTable(page: PDFPage, grade: GradeRecord, rows: SubjectRow[], last: boolean): void {
+  private tenPointTable(page: PDFPage, grade: GradeRecord, rows: SubjectRow[], evaluations: EvaluationRow[] | null): void {
     const x = 68, top = 256, widths = [200, 85, 85, 85];
     const edges = [x]; widths.forEach((width) => edges.push(edges[edges.length - 1] + width));
     const headerHeight = 32;
@@ -415,7 +427,7 @@ class TranscriptPdfRenderer {
           y + 4, 11, false, widths[column + 1] - 6, 'center'));
       y += row.height; this.line(page, x, y, edges[4]);
     }
-    if (last) {
+    if (evaluations) {
       if (showAverage({ academicYear: grade.academicYear, showAverage: grade.showAverage, grades: [grade] }, this.record)) {
         this.text(page, 'ĐTB các môn/ Average Education', x + 3, y + 4, 11, true, 195);
         this.text(page, this.score(grade.averageScore, undefined, true), edges[3], y + 4, 11, true, 85, 'center');
@@ -424,9 +436,11 @@ class TranscriptPdfRenderer {
       const evaluationTop = y;
       this.text(page, 'XẾP LOẠI/ EVALUATION', x + 3, y + 4, 11, true);
       y += 20; this.line(page, x, y, edges[4]);
-      for (const label of ['Kết quả rèn luyện/ Conduct Result', 'Kết quả học tập/ Academic Result']) {
-        this.text(page, label, x + 3, y + 4, 11, false, 195);
-        y += 20; this.line(page, x, y, edges[4]);
+      for (const row of evaluations) {
+        this.text(page, row.label, x + 3, y + 4, 11, false, 195);
+        row.cells.forEach((lines, column) => lines.forEach((line, index) => this.text(page, line,
+          edges[column + 1] + 3, y + 4 + index * 10.5, 9, false, widths[column + 1] - 6, 'center')));
+        y += row.height; this.line(page, x, y, edges[4]);
       }
       for (const edge of edges.slice(1, -1)) {
         this.line(page, edge, top, edge, evaluationTop);
